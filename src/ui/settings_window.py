@@ -1213,6 +1213,7 @@ class SettingsWindow(FluentWindow):
         self.config_manager = config_manager
         self._syncing_theme_colors = False
         self._syncing_workflow_steps = False
+        self._syncing_launch_selector = False
 
         logo_path = self._resolve_resource_path("logo.png")
         if logo_path:
@@ -1623,7 +1624,163 @@ class SettingsWindow(FluentWindow):
         self._selected_workflow_id = ""
         self._syncing_workflow_selector = False
 
-        # ─── Page 5: Diagnostics ───
+        # ─── Page 5: Custom Launch Items ───
+        self.page_launch = ScrollWidget("自定义启动项", "page_launch", self)
+
+        launch_list_group = SettingCardGroup("启动项列表", self.page_launch)
+        self.launch_selector_card = SettingCard(
+            FI.APPLICATION,
+            "选择启动项",
+            "从已有自定义启动项中选择并编辑",
+            launch_list_group,
+        )
+        self.launch_selector = ComboBox(self.launch_selector_card)
+        self.launch_selector.setMinimumWidth(220)
+        self.launch_selector.currentIndexChanged.connect(self.on_launch_selected_index)
+        self.launch_selector_card.hBoxLayout.addWidget(
+            self.launch_selector, 0, Qt.AlignmentFlag.AlignRight
+        )
+
+        self.launch_new_btn = QPushButton("新建")
+        self.launch_new_btn.clicked.connect(self.on_new_launch_item)
+        self.launch_selector_card.hBoxLayout.addWidget(
+            self.launch_new_btn, 0, Qt.AlignmentFlag.AlignRight
+        )
+
+        self.launch_delete_btn = QPushButton("删除")
+        self.launch_delete_btn.clicked.connect(self.on_delete_launch_item)
+        self.launch_selector_card.hBoxLayout.addWidget(
+            self.launch_delete_btn, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_selector_card.hBoxLayout.addSpacing(16)
+        launch_list_group.addSettingCard(self.launch_selector_card)
+
+        launch_form_group = SettingCardGroup("启动项编辑", self.page_launch)
+
+        self.launch_name_card = SettingCard(
+            FI.EDIT,
+            "名称",
+            "用于搜索结果显示",
+            launch_form_group,
+        )
+        self.launch_name_edit = QLineEdit(self.launch_name_card)
+        self.launch_name_edit.setMinimumWidth(280)
+        self.launch_name_edit.setMaximumWidth(420)
+        self.launch_name_card.hBoxLayout.addWidget(
+            self.launch_name_edit, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_name_card.hBoxLayout.addSpacing(16)
+        launch_form_group.addSettingCard(self.launch_name_card)
+
+        self.launch_target_card = SettingCard(
+            FI.APPLICATION,
+            "目标",
+            "程序、文件、文件夹或 URL",
+            launch_form_group,
+        )
+        self.launch_target_edit = QLineEdit(self.launch_target_card)
+        self.launch_target_edit.setMinimumWidth(320)
+        self.launch_target_edit.setMaximumWidth(520)
+        self.launch_file_btn = QPushButton("文件")
+        self.launch_file_btn.clicked.connect(self.on_pick_launch_file)
+        self.launch_folder_btn = QPushButton("目录")
+        self.launch_folder_btn.clicked.connect(self.on_pick_launch_folder)
+        self.launch_target_card.hBoxLayout.addWidget(
+            self.launch_target_edit, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_target_card.hBoxLayout.addWidget(
+            self.launch_file_btn, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_target_card.hBoxLayout.addWidget(
+            self.launch_folder_btn, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_target_card.hBoxLayout.addSpacing(16)
+        launch_form_group.addSettingCard(self.launch_target_card)
+
+        self.launch_args_card = SettingCard(
+            FI.COMMAND_PROMPT,
+            "参数",
+            "可选，启动程序时追加的命令行参数",
+            launch_form_group,
+        )
+        self.launch_args_edit = QLineEdit(self.launch_args_card)
+        self.launch_args_edit.setMinimumWidth(280)
+        self.launch_args_edit.setMaximumWidth(420)
+        self.launch_args_card.hBoxLayout.addWidget(
+            self.launch_args_edit, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_args_card.hBoxLayout.addSpacing(16)
+        launch_form_group.addSettingCard(self.launch_args_card)
+
+        self.launch_workdir_card = SettingCard(
+            FI.FOLDER,
+            "工作目录",
+            "可选，带参数启动程序时使用",
+            launch_form_group,
+        )
+        self.launch_workdir_edit = QLineEdit(self.launch_workdir_card)
+        self.launch_workdir_edit.setMinimumWidth(280)
+        self.launch_workdir_edit.setMaximumWidth(420)
+        self.launch_workdir_btn = QPushButton("选择")
+        self.launch_workdir_btn.clicked.connect(self.on_pick_launch_workdir)
+        self.launch_workdir_card.hBoxLayout.addWidget(
+            self.launch_workdir_edit, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_workdir_card.hBoxLayout.addWidget(
+            self.launch_workdir_btn, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_workdir_card.hBoxLayout.addSpacing(16)
+        launch_form_group.addSettingCard(self.launch_workdir_card)
+
+        self.launch_keywords_card = SettingCard(
+            FI.TAG,
+            "关键词",
+            "可选，用空格或逗号分隔",
+            launch_form_group,
+        )
+        self.launch_keywords_edit = QLineEdit(self.launch_keywords_card)
+        self.launch_keywords_edit.setMinimumWidth(280)
+        self.launch_keywords_edit.setMaximumWidth(420)
+        self.launch_keywords_card.hBoxLayout.addWidget(
+            self.launch_keywords_edit, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_keywords_card.hBoxLayout.addSpacing(16)
+        launch_form_group.addSettingCard(self.launch_keywords_card)
+
+        self.launch_enabled_card = SettingCard(
+            FI.POWER_BUTTON,
+            "状态",
+            "停用后不会出现在搜索结果中",
+            launch_form_group,
+        )
+        self.launch_enabled_combo = ComboBox(self.launch_enabled_card)
+        self.launch_enabled_combo.addItems(["启用", "停用"])
+        self.launch_enabled_card.hBoxLayout.addWidget(
+            self.launch_enabled_combo, 0, Qt.AlignmentFlag.AlignRight
+        )
+        self.launch_enabled_card.hBoxLayout.addSpacing(16)
+        launch_form_group.addSettingCard(self.launch_enabled_card)
+
+        launch_actions_group = SettingCardGroup("操作", self.page_launch)
+        save_launch_btn = PrimaryPushSettingCard(
+            "保存",
+            FI.SAVE,
+            "保存当前启动项",
+            "保存后可立即在搜索窗口中使用",
+            parent=launch_actions_group,
+        )
+        save_launch_btn.clicked.connect(self.on_save_launch_item)
+        launch_actions_group.addSettingCard(save_launch_btn)
+
+        self.page_launch.addGroup(launch_list_group)
+        self.page_launch.addGroup(launch_form_group)
+        self.page_launch.addGroup(launch_actions_group)
+        self.page_launch.addStretch()
+
+        self._launch_items_cache = []
+        self._selected_launch_id = ""
+
+        # ─── Page 6: Diagnostics ───
         self.page_metrics = ScrollWidget("性能诊断", "page_metrics", self)
         metrics_group = SettingCardGroup("运行指标", self.page_metrics)
 
@@ -1668,6 +1825,7 @@ class SettingsWindow(FluentWindow):
         self.addSubInterface(self.page_plugins, FI.APPLICATION, "插件")
         self.addSubInterface(self.page_hotkeys, FI.COMMAND_PROMPT, "快捷键")
         self.addSubInterface(self.page_workflows, FI.ROBOT, "宏")
+        self.addSubInterface(self.page_launch, FI.APPLICATION, "启动项")
         self.addSubInterface(self.page_metrics, FI.SYNC, "诊断")
 
     def load_settings(self):
@@ -1692,6 +1850,7 @@ class SettingsWindow(FluentWindow):
 
         self.sync_theme_color_cards()
         self.load_workflow_settings()
+        self.load_custom_launch_settings()
         self.refresh_hotkey_summary()
         self.refresh_settings_overview()
         self.refresh_screenshot_save_preview()
@@ -1990,6 +2149,169 @@ class SettingsWindow(FluentWindow):
         self.on_workflow_selected(workflow_id)
         self.refresh_settings_overview()
         QMessageBox.information(self, "成功", "宏已保存")
+
+    @staticmethod
+    def _launch_item_label(item):
+        name = str(item.get("name", "")).strip() or "未命名"
+        state = "启用" if item.get("enabled", True) else "停用"
+        return f"{name}  [{state}]"
+
+    def load_custom_launch_settings(self):
+        from src.core.custom_launch import custom_launch_manager
+
+        self._launch_items_cache = custom_launch_manager.get_items(enabled_only=False)
+
+        self._syncing_launch_selector = True
+        self.launch_selector.clear()
+        self.launch_selector.addItems(
+            [self._launch_item_label(item) for item in self._launch_items_cache]
+        )
+        self._syncing_launch_selector = False
+
+        if self._launch_items_cache:
+            self.launch_selector.setCurrentIndex(0)
+            self.on_launch_selected_index(0)
+        else:
+            self.on_new_launch_item()
+
+    def _set_launch_form(self, item):
+        if not isinstance(item, dict):
+            item = {}
+
+        self._selected_launch_id = str(item.get("id", "")).strip()
+        self.launch_name_edit.setText(str(item.get("name", "")).strip())
+        self.launch_target_edit.setText(str(item.get("target", "")).strip())
+        self.launch_args_edit.setText(str(item.get("args", "")).strip())
+        self.launch_workdir_edit.setText(str(item.get("working_dir", "")).strip())
+        self.launch_keywords_edit.setText(" ".join(item.get("keywords", [])))
+        self.launch_enabled_combo.setCurrentText(
+            "启用" if item.get("enabled", True) else "停用"
+        )
+
+    def on_launch_selected_index(self, index):
+        if self._syncing_launch_selector:
+            return
+        try:
+            idx = int(index)
+        except Exception:
+            idx = -1
+        if idx < 0 or idx >= len(self._launch_items_cache):
+            return
+        self._set_launch_form(self._launch_items_cache[idx])
+
+    def on_new_launch_item(self):
+        self._selected_launch_id = ""
+        self.launch_name_edit.clear()
+        self.launch_target_edit.clear()
+        self.launch_args_edit.clear()
+        self.launch_workdir_edit.clear()
+        self.launch_keywords_edit.clear()
+        self.launch_enabled_combo.setCurrentText("启用")
+        self.launch_name_edit.setFocus()
+
+    def _current_launch_start_dir(self):
+        target = self.launch_target_edit.text().strip()
+        if target and os.path.exists(target):
+            return target if os.path.isdir(target) else os.path.dirname(target)
+        return os.path.expanduser("~")
+
+    def on_pick_launch_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择启动目标",
+            self._current_launch_start_dir(),
+            "所有文件 (*.*)",
+        )
+        if not path:
+            return
+        self.launch_target_edit.setText(path)
+        if not self.launch_name_edit.text().strip():
+            self.launch_name_edit.setText(os.path.splitext(os.path.basename(path))[0])
+
+    def on_pick_launch_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "选择启动目录", self._current_launch_start_dir()
+        )
+        if not folder:
+            return
+        self.launch_target_edit.setText(folder)
+        if not self.launch_name_edit.text().strip():
+            self.launch_name_edit.setText(os.path.basename(folder.rstrip("\\/")))
+
+    def on_pick_launch_workdir(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "选择工作目录", self._current_launch_start_dir()
+        )
+        if folder:
+            self.launch_workdir_edit.setText(folder)
+
+    def on_delete_launch_item(self):
+        from src.core.custom_launch import custom_launch_manager
+
+        target_id = str(self._selected_launch_id).strip()
+        if not target_id:
+            QMessageBox.warning(self, "提示", "请先选择要删除的启动项")
+            return
+
+        name = self.launch_name_edit.text().strip() or target_id
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定删除启动项 '{name}' 吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        if custom_launch_manager.delete_item(target_id):
+            self.load_custom_launch_settings()
+            QMessageBox.information(self, "成功", "启动项已删除")
+
+    def on_save_launch_item(self):
+        from src.core.custom_launch import custom_launch_manager
+
+        name = self.launch_name_edit.text().strip()
+        target = self.launch_target_edit.text().strip()
+        args = self.launch_args_edit.text().strip()
+        workdir = self.launch_workdir_edit.text().strip()
+        keywords = self.launch_keywords_edit.text().strip()
+        enabled = self.launch_enabled_combo.currentText() != "停用"
+
+        if not name:
+            QMessageBox.warning(self, "提示", "启动项名称不能为空")
+            return
+        if not target:
+            QMessageBox.warning(self, "提示", "启动目标不能为空")
+            return
+        if workdir and not os.path.isdir(workdir):
+            QMessageBox.warning(self, "提示", "工作目录不存在")
+            return
+
+        payload = {
+            "id": self._selected_launch_id,
+            "name": name,
+            "target": target,
+            "args": args,
+            "working_dir": workdir,
+            "keywords": keywords,
+            "enabled": enabled,
+        }
+
+        entry = custom_launch_manager.save_item(payload)
+        if not entry:
+            QMessageBox.warning(self, "提示", "启动项无效，无法保存")
+            return
+
+        saved_id = str(entry.get("id", ""))
+        self.load_custom_launch_settings()
+        for index, item in enumerate(self._launch_items_cache):
+            if str(item.get("id", "")) == saved_id:
+                self.launch_selector.setCurrentIndex(index)
+                self.on_launch_selected_index(index)
+                break
+
+        QMessageBox.information(self, "成功", "启动项已保存")
 
     def _current_theme_name(self):
         theme_name = str(self.theme_combo.currentText()).strip()

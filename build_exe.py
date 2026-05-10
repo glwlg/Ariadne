@@ -38,6 +38,9 @@ PyInstaller.__main__.run(
         "--hidden-import=src.ui.hosts_window",
         "--hidden-import=src.ui.screenshot_overlay",
         "--hidden-import=src.ui.pinned_image_window",
+        "--hidden-import=src.ui.capture_history_window",
+        "--hidden-import=src.core.capture_history",
+        "--hidden-import=src.core.custom_launch",
         # Plugin files themselves (loaded via importlib at runtime)
         "--hidden-import=src.plugins.hosts_tool",
         "--hidden-import=src.plugins.qr_tool",
@@ -45,6 +48,8 @@ PyInstaller.__main__.run(
         "--hidden-import=src.plugins.json_tool",
         "--hidden-import=src.plugins.url_tool",
         "--hidden-import=src.plugins.uuid_tool",
+        "--hidden-import=src.plugins.capture_history_tool",
+        "--hidden-import=src.plugins.custom_launch_tool",
         # Third-party libs used by new plugins/UI
         "--hidden-import=qrcode",
         "--hidden-import=cv2",

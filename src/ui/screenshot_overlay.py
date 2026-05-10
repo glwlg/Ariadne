@@ -45,6 +45,7 @@ except ImportError:
 from src.ui.pinned_image_window import PinnedImageWindow
 from src.core.logger import get_logger
 from src.core.config import config_manager
+from src.core.capture_history import capture_history_manager
 from src.core.metrics import metrics_store
 
 
@@ -1730,6 +1731,8 @@ class ScreenshotOverlay(QWidget):
 
         auto_copy = bool(config_manager.get_value("screenshot_auto_copy", False))
         auto_pin = bool(config_manager.get_value("screenshot_auto_pin", False))
+        saved_path = ""
+        actions = []
 
         if manual_save_path:
             saved_path = self._save_pixmap_to_path(
@@ -1742,15 +1745,28 @@ class ScreenshotOverlay(QWidget):
                     f"无法保存截图到:\n{manual_save_path}",
                 )
                 return
+            actions.append("save")
 
         if manual_copy or auto_copy:
             QApplication.clipboard().setPixmap(pixmap)
+            actions.append("copy")
 
         if manual_pin or auto_pin:
             self._pin_pixmap(pixmap)
+            actions.append("pin")
 
         if not manual_save_path:
-            self._auto_save_pixmap(pixmap)
+            saved_path = self._auto_save_pixmap(pixmap) or ""
+            if saved_path:
+                actions.append("save")
+
+        source = "manual" if any([manual_copy, manual_pin, manual_save_path]) else "auto"
+        capture_history_manager.add_capture(
+            pixmap,
+            source=source,
+            saved_path=saved_path,
+            actions=actions,
+        )
         self.close_overlay()
 
     def recognize_qr(self):

@@ -33,6 +33,7 @@ DEFAULT_CONFIG = {
     ),
     "screenshot_filename_template": "x-tools_{date}_{time}",
     "workflows": copy.deepcopy(DEFAULT_WORKFLOWS),
+    "custom_launch_items": [],
 }
 
 
@@ -94,6 +95,9 @@ class ConfigManager:
 
                 if not isinstance(merged.get("plugins_enabled"), dict):
                     merged["plugins_enabled"] = {}
+
+                if not isinstance(merged.get("custom_launch_items"), list):
+                    merged["custom_launch_items"] = []
 
                 merged["workflows"] = normalize_workflows(merged.get("workflows"))
 
