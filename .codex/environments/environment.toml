@@ -9,3 +9,13 @@ script = ""
 name = "运行"
 icon = "run"
 command = "uv run main.py"
+
+[[actions]]
+name = "打包"
+icon = "tool"
+command = "uv run build_exe.py && uv run create_installer.py"
+
+[[actions]]
+name = "安装"
+icon = "tool"
+command = ".\\dist\\x-tools-setup.exe"

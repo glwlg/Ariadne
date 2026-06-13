@@ -15,7 +15,7 @@ from PyQt6.QtCore import (
     QSize,
     QFileInfo,
 )
-from PyQt6.QtGui import QAction, QIcon, QColor, QFont
+from PyQt6.QtGui import QAction, QIcon, QColor, QFont, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
@@ -578,7 +578,12 @@ class SearchWindow(AcrylicWindow):
             return "打开 JSON 对比工具，可对比语义差异、格式化内容并复制差异报告。"
 
         if item_type == "qr_generate":
-            return f"将根据以下内容生成二维码:\n{data.get('path', '')}"
+            qr_text = str(data.get("qr_text") or data.get("path", "")).strip()
+            image_path = str(data.get("path", "")).strip()
+            lines = [f"二维码内容:\n{qr_text}"]
+            if image_path and os.path.isfile(image_path):
+                lines.append(f"图片路径:\n{image_path}")
+            return "\n\n".join(lines)
 
         return str(data.get("name", ""))
 
@@ -622,6 +627,11 @@ class SearchWindow(AcrylicWindow):
                     pass
 
         path = str(data.get("path", "")).strip() if isinstance(data, dict) else ""
+        if item_type == "qr_generate":
+            pixmap = self._preview_pixmap_for_item(data)
+            if pixmap is not None:
+                return QIcon(pixmap)
+
         if path and os.path.exists(path):
             try:
                 return self._file_icon_provider.icon(QFileInfo(path))
@@ -650,6 +660,8 @@ class SearchWindow(AcrylicWindow):
         path = str(data.get("path", "")).strip()
         if item_type == "custom_launch":
             return "自定义启动项"
+        if item_type == "qr_generate":
+            return "二维码"
         if item_type == "app":
             return "应用"
         if path and os.path.isdir(path):
@@ -759,9 +771,11 @@ class SearchWindow(AcrylicWindow):
         title_label.setToolTip(str(data.get("name", "")).strip())
         title_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
 
-        path_label = QLabel(self._item_location_text(data), row)
+        location_text = self._item_location_text(data)
+        path_label = QLabel(location_text, row)
         path_label.setObjectName("resultPath")
-        path_label.setToolTip(self._item_location_text(data))
+        path_label.setToolTip(location_text)
+        path_label.setVisible(bool(location_text))
 
         meta_label = QLabel(self._item_meta_text(data), row)
         meta_label.setObjectName("resultMeta")
@@ -793,9 +807,313 @@ class SearchWindow(AcrylicWindow):
 
     def _set_preview_empty(self):
         self._current_preview_data = None
+        self._current_preview_actions = []
+        self.preview_title.setText("结果预览")
         self.preview_empty_label.show()
         self.preview_content.hide()
         self.preview_text.clear()
+        if hasattr(self, "preview_actions_container"):
+            self.preview_actions_container.hide()
+
+    @staticmethod
+    def _normalize_preview_action(action):
+        if not isinstance(action, dict):
+            return None
+
+        label = str(action.get("label") or action.get("name") or "").strip()
+        if not label:
+            return None
+
+        action_id = str(action.get("id") or action.get("action") or "").strip()
+        command = action.get("command", action.get("path"))
+        target = action.get("target", action.get("value"))
+
+        if not action_id:
+            action_id = "plugin" if command is not None else "default"
+
+        return {
+            "id": action_id,
+            "label": label,
+            "icon": str(action.get("icon") or "").strip(),
+            "command": command,
+            "target": target,
+            "enabled": bool(action.get("enabled", True)),
+            "hide": action.get("hide"),
+            "refresh": bool(action.get("refresh", False)),
+        }
+
+    def _plugin_preview_actions_for_item(self, data):
+        actions = []
+        raw_actions = data.get("preview_actions")
+        if isinstance(raw_actions, list):
+            actions.extend(raw_actions)
+
+        plugin = data.get("plugin") or self.plugin_mode
+        if plugin is not None and hasattr(plugin, "get_preview_actions"):
+            try:
+                plugin_actions = plugin.get_preview_actions(data)
+            except Exception as e:
+                logger.warning("Failed to load preview actions from plugin: %s", e)
+                plugin_actions = []
+            if isinstance(plugin_actions, list):
+                actions.extend(plugin_actions)
+
+        normalized = []
+        for action in actions:
+            item = self._normalize_preview_action(action)
+            if item is not None:
+                normalized.append(item)
+        return normalized
+
+    @staticmethod
+    def _preview_action(label, action_id="default", icon="", **kwargs):
+        action = {
+            "id": action_id,
+            "label": label,
+            "icon": icon,
+        }
+        action.update(kwargs)
+        return action
+
+    def _default_preview_actions_for_item(self, data):
+        item_type = str(data.get("type", "")).strip()
+        path = str(data.get("path", "")).strip()
+
+        if item_type == "qr_generate":
+            return [self._preview_action("贴到屏幕", icon="pin")]
+
+        if item_type in {"copy_result", "calc_result"}:
+            return [
+                self._preview_action(
+                    "复制结果", "copy_value", "copy", target=str(data.get("path", ""))
+                )
+            ]
+
+        if item_type in {"calc_error", "error"}:
+            return []
+
+        if item_type == "hosts_cmd":
+            return [self._preview_action("打开 Hosts 管理", icon="open")]
+
+        if item_type == "json_compare_cmd":
+            return [self._preview_action("打开 JSON 对比", icon="open")]
+
+        if item_type == "workflow_run":
+            return [self._preview_action("立即执行", icon="run")]
+
+        if item_type in {"clipboard_center", "capture_center"}:
+            return [self._preview_action("打开中心", icon="open")]
+
+        if item_type in {"clipboard_cmd", "capture_cmd"}:
+            return [self._preview_action("立即执行", icon="run")]
+
+        if item_type == "clipboard_entry":
+            entry_id = str(data.get("clipboard_id") or path).strip()
+            if not entry_id:
+                return []
+            pinned = bool(data.get("clipboard_pinned", False))
+            return [
+                self._preview_action(
+                    "复制该条目",
+                    "plugin",
+                    "copy",
+                    command=f"copy:{entry_id}",
+                    hide=False,
+                ),
+                self._preview_action(
+                    "取消置顶" if pinned else "置顶",
+                    "plugin",
+                    "pin",
+                    command=f"pin:{entry_id}",
+                    hide=False,
+                    refresh=True,
+                ),
+            ]
+
+        if item_type == "capture_entry":
+            entry_id = str(data.get("capture_id") or path).strip()
+            if not entry_id:
+                return []
+            pinned = bool(data.get("capture_pinned", False))
+            return [
+                self._preview_action(
+                    "复制截图",
+                    "plugin",
+                    "copy",
+                    command=f"copy:{entry_id}",
+                    hide=False,
+                ),
+                self._preview_action(
+                    "创建贴图",
+                    "plugin",
+                    "pin",
+                    command=f"pin-image:{entry_id}",
+                    hide=False,
+                ),
+                self._preview_action(
+                    "打开图片",
+                    "plugin",
+                    "open",
+                    command=f"open:{entry_id}",
+                    hide=False,
+                ),
+                self._preview_action(
+                    "打开目录",
+                    "plugin",
+                    "folder",
+                    command=f"folder:{entry_id}",
+                    hide=False,
+                ),
+                self._preview_action(
+                    "取消置顶" if pinned else "置顶",
+                    "plugin",
+                    "pin",
+                    command=f"pin:{entry_id}",
+                    hide=False,
+                    refresh=True,
+                ),
+            ]
+
+        if item_type == "custom_launch":
+            actions = [self._preview_action("启动", icon="run")]
+            target = str(data.get("launch_target", "")).strip()
+            if target:
+                actions.append(
+                    self._preview_action(
+                        "复制目标", "copy_value", "copy", target=target
+                    )
+                )
+                target_folder = (
+                    target if os.path.isdir(target) else os.path.dirname(target)
+                )
+                if target_folder and os.path.exists(target_folder):
+                    actions.append(
+                        self._preview_action(
+                            "打开目标目录",
+                            "open_path",
+                            "folder",
+                            target=target_folder,
+                        )
+                    )
+            return actions
+
+        if item_type == "command_form":
+            return [self._preview_action("打开参数面板", icon="open")]
+
+        if item_type in {"command_hint", "command_template", "command_correction"}:
+            return [
+                self._preview_action(
+                    "填充到输入框", "fill_input", "run", target=str(data.get("path", ""))
+                )
+            ]
+
+        if item_type == "command_recent":
+            return [
+                self._preview_action(
+                    "执行该命令", "fill_input", "run", target=str(data.get("path", ""))
+                )
+            ]
+
+        if item_type == "plugin_trigger":
+            return [self._preview_action("进入专属模式", icon="run")]
+
+        if item_type == "sys_cmd":
+            return [self._preview_action("执行命令", icon="run")]
+
+        if item_type == "app" and path:
+            actions = [self._preview_action("打开应用", "open", "open")]
+            if os.path.exists(path):
+                actions.append(self._preview_action("打开所在文件夹", "folder", "folder"))
+            actions.append(
+                self._preview_action("复制路径", "copy_value", "copy", target=path)
+            )
+            return actions
+
+        if item_type == "file" and path and os.path.exists(path):
+            if os.path.isdir(path):
+                return [
+                    self._preview_action("打开文件夹", "open", "folder"),
+                    self._preview_action("复制路径", "copy_value", "copy", target=path),
+                ]
+            return [
+                self._preview_action("打开文件", "open", "open"),
+                self._preview_action("打开所在文件夹", "folder", "folder"),
+                self._preview_action("复制路径", "copy_value", "copy", target=path),
+            ]
+
+        return []
+
+    def _preview_actions_for_item(self, data):
+        if not isinstance(data, dict):
+            return []
+
+        plugin_actions = self._plugin_preview_actions_for_item(data)
+        if plugin_actions:
+            return plugin_actions
+        return self._default_preview_actions_for_item(data)
+
+    def _preview_action_icon(self, action):
+        icon_key = str(action.get("icon", "")).strip()
+        standard = self.style().StandardPixmap
+        icon_map = {
+            "open": standard.SP_DialogOpenButton,
+            "folder": standard.SP_DirOpenIcon,
+            "copy": standard.SP_DialogSaveButton,
+            "pin": standard.SP_DialogApplyButton,
+            "run": standard.SP_DialogApplyButton,
+        }
+        try:
+            return self.style().standardIcon(
+                icon_map.get(icon_key, standard.SP_DialogApplyButton)
+            )
+        except Exception:
+            return QIcon()
+
+    def _configure_preview_action_button(self, button, action):
+        button.setText(str(action.get("label", "")).strip())
+        button.setIcon(self._preview_action_icon(action))
+        button.setEnabled(bool(action.get("enabled", True)))
+        button.show()
+
+    def _render_preview_actions(self, actions):
+        self._current_preview_actions = list(actions or [])
+
+        buttons = [self.preview_primary_button, self.preview_secondary_button]
+        for button in buttons:
+            button.hide()
+            button.setEnabled(False)
+
+        self.preview_more_button.hide()
+        self.preview_more_button.setEnabled(False)
+        try:
+            self.preview_more_button.setMenu(None)
+        except TypeError:
+            self.preview_more_button.setMenu(QMenu(self.preview_more_button))
+
+        if not self._current_preview_actions:
+            self.preview_actions_container.hide()
+            return
+
+        self.preview_actions_container.show()
+        for index, action in enumerate(self._current_preview_actions[:2]):
+            self._configure_preview_action_button(buttons[index], action)
+
+        extra_actions = self._current_preview_actions[2:]
+        if extra_actions:
+            menu = QMenu(self.preview_more_button)
+            for offset, action in enumerate(extra_actions, start=2):
+                menu_action = QAction(str(action.get("label", "")).strip(), self)
+                menu_action.setEnabled(bool(action.get("enabled", True)))
+                menu_action.setIcon(self._preview_action_icon(action))
+                menu_action.triggered.connect(
+                    lambda checked=False, action_index=offset: (
+                        self._trigger_preview_action_by_index(action_index)
+                    )
+                )
+                menu.addAction(menu_action)
+            self.preview_more_button.setMenu(menu)
+            self.preview_more_button.setEnabled(True)
+            self.preview_more_button.show()
 
     def _set_preview_data(self, data):
         if not isinstance(data, dict):
@@ -807,8 +1125,19 @@ class SearchWindow(AcrylicWindow):
         self.preview_content.show()
         self.preview_text.setPlainText(self._preview_text_for_item(data))
 
-        icon = self._icon_for_item(data)
-        self.preview_icon_box.setPixmap(icon.pixmap(QSize(82, 82)))
+        item_type = str(data.get("type", "")).strip()
+        is_qr = item_type == "qr_generate"
+
+        self.preview_title.setText("二维码预览" if is_qr else "结果预览")
+        self.preview_icon_box.setFixedSize(260 if is_qr else 136, 260 if is_qr else 136)
+
+        preview_pixmap = self._preview_pixmap_for_item(data, 220 if is_qr else 112)
+        if preview_pixmap is not None:
+            self.preview_icon_box.setPixmap(preview_pixmap)
+        else:
+            icon = self._icon_for_item(data)
+            self.preview_icon_box.setPixmap(icon.pixmap(QSize(82, 82)))
+        self.preview_name.setVisible(not is_qr)
         self.preview_name.setText(str(data.get("name", "")).strip() or "未命名")
 
         rows = [
@@ -823,30 +1152,159 @@ class SearchWindow(AcrylicWindow):
             key_label.setText(key)
             value_label.setText(value)
 
-        item_type = str(data.get("type", "")).strip()
-        path = str(data.get("path", "")).strip()
-        if item_type == "app":
-            self.preview_primary_button.setText("打开应用")
-        elif path and os.path.isdir(path):
-            self.preview_primary_button.setText("打开文件夹")
-        elif path:
-            self.preview_primary_button.setText("打开文件")
-        else:
-            self.preview_primary_button.setText("执行操作")
+        self.preview_details.setVisible(not is_qr)
 
-        self.preview_secondary_button.setEnabled(bool(path))
+        self._render_preview_actions(self._preview_actions_for_item(data))
+
+    def _preview_pixmap_for_item(self, data, target_size=112):
+        if not isinstance(data, dict) or data.get("type") != "qr_generate":
+            return None
+
+        qr_text = str(data.get("qr_text") or data.get("path", "")).strip()
+        plugin = data.get("plugin")
+        if qr_text and plugin is not None and hasattr(plugin, "build_pixmap"):
+            try:
+                pixmap = plugin.build_pixmap(qr_text)
+            except Exception as e:
+                logger.warning("QR preview generation failed: %s", e)
+                pixmap = None
+            if pixmap is not None and not pixmap.isNull():
+                return pixmap.scaled(
+                    QSize(target_size, target_size),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+
+        image_path = str(data.get("path", "")).strip()
+        if not image_path or not os.path.isfile(image_path):
+            return None
+
+        pixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            return None
+        return pixmap.scaled(
+            QSize(target_size, target_size),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
+    def _show_tray_message(self, message, icon=None):
+        if not message:
+            return
+        try:
+            self.tray_icon.showMessage(
+                "X-Tools",
+                str(message),
+                icon or QSystemTrayIcon.MessageIcon.Information,
+                2800,
+            )
+        except Exception:
+            pass
+
+    def _preview_action_button_for_index(self, index):
+        if index == 0:
+            return self.preview_primary_button
+        if index == 1:
+            return self.preview_secondary_button
+        if index is not None:
+            return self.preview_more_button
+        return None
+
+    def _show_preview_action_feedback(self, index, text):
+        button = self._preview_action_button_for_index(index)
+        if button is None or button.isHidden():
+            return
+
+        original_text = button.text()
+        button.setText(text)
+
+        def restore():
+            if button.isHidden():
+                return
+            button.setText(original_text)
+
+        QTimer.singleShot(1200, restore)
+
+    def _run_plugin_preview_action(self, data, action):
+        plugin = data.get("plugin") or self.plugin_mode
+        if plugin is None or not hasattr(plugin, "handle_action"):
+            return
+
+        command = action.get("command")
+        if command is None:
+            command = data.get("path", "")
+
+        message = plugin.handle_action(str(command).strip())
+        self._show_tray_message(message)
+        self._record_item_usage(data)
+
+        if action.get("refresh"):
+            self.on_search_query(self.search_bar.text())
+
+        hide = action.get("hide")
+        if hide is None:
+            hide = True
+        if hide:
+            self.hide()
+
+    def _trigger_preview_action(self, action, action_index=None):
+        data = self._current_preview_data
+        if not isinstance(data, dict) or not isinstance(action, dict):
+            return
+
+        action_id = str(action.get("id", "")).strip()
+        path = str(data.get("path", "")).strip()
+
+        if action_id == "open":
+            self.launch_item(path, data)
+            return
+
+        if action_id == "folder":
+            self.open_folder(path)
+            self._record_item_usage(data)
+            return
+
+        if action_id == "copy_value":
+            value = action.get("target")
+            if value is None:
+                value = data.get("path", "")
+            QApplication.clipboard().setText(str(value))
+            self._record_item_usage(data)
+            self._show_preview_action_feedback(action_index, "已复制")
+            return
+
+        if action_id == "fill_input":
+            value = str(action.get("target") or data.get("path", "")).strip()
+            if value:
+                self.search_bar.setText(value)
+                self.search_bar.setFocus()
+                self.search_bar.end(False)
+            return
+
+        if action_id == "open_path":
+            target = str(action.get("target") or "").strip()
+            if target and open_path(target):
+                self._record_item_usage(data)
+            return
+
+        if action_id == "plugin":
+            self._run_plugin_preview_action(data, action)
+            return
+
+        self.handle_item_action(data)
+
+    def _trigger_preview_action_by_index(self, index):
+        try:
+            action = self._current_preview_actions[index]
+        except Exception:
+            return
+        self._trigger_preview_action(action, index)
 
     def _handle_preview_primary(self):
-        if isinstance(self._current_preview_data, dict):
-            self.handle_item_action(self._current_preview_data)
+        self._trigger_preview_action_by_index(0)
 
     def _handle_preview_secondary(self):
-        data = self._current_preview_data
-        if not isinstance(data, dict):
-            return
-        path = str(data.get("path", "")).strip()
-        if path:
-            self.open_folder(path)
+        self._trigger_preview_action_by_index(1)
 
     def on_result_item_changed(self, current, previous):
         del previous
@@ -946,6 +1404,7 @@ class SearchWindow(AcrylicWindow):
         self.container.setObjectName("searchContainer")
         self.container.installEventFilter(self)
         self._current_preview_data = None
+        self._current_preview_actions = []
         self._file_icon_provider = QFileIconProvider()
 
         # Frame our custom container inside the window without the titlebar gap
@@ -1060,26 +1519,39 @@ class SearchWindow(AcrylicWindow):
 
         content_layout.addStretch(1)
 
-        button_row = QHBoxLayout()
+        self.preview_actions_container = QWidget(self.preview_content)
+        self.preview_actions_container.setObjectName("previewActionsContainer")
+        button_row = QHBoxLayout(self.preview_actions_container)
         button_row.setContentsMargins(0, 0, 0, 0)
         button_row.setSpacing(18)
-        self.preview_primary_button = QPushButton("打开文件", self.preview_content)
+        self.preview_primary_button = QPushButton(
+            "打开文件", self.preview_actions_container
+        )
         self.preview_primary_button.setObjectName("previewPrimaryButton")
         self.preview_primary_button.setIcon(
             self.style().standardIcon(self.style().StandardPixmap.SP_DialogOpenButton)
         )
         self.preview_secondary_button = QPushButton(
-            "打开所在文件夹", self.preview_content
+            "打开所在文件夹", self.preview_actions_container
         )
         self.preview_secondary_button.setObjectName("previewSecondaryButton")
         self.preview_secondary_button.setIcon(
             self.style().standardIcon(self.style().StandardPixmap.SP_DirOpenIcon)
         )
+        self.preview_more_button = QPushButton("更多", self.preview_actions_container)
+        self.preview_more_button.setObjectName("previewSecondaryButton")
+        self.preview_more_button.setIcon(
+            self.style().standardIcon(
+                self.style().StandardPixmap.SP_DialogApplyButton
+            )
+        )
         self.preview_primary_button.clicked.connect(self._handle_preview_primary)
         self.preview_secondary_button.clicked.connect(self._handle_preview_secondary)
         button_row.addWidget(self.preview_primary_button)
         button_row.addWidget(self.preview_secondary_button)
-        content_layout.addLayout(button_row)
+        button_row.addWidget(self.preview_more_button)
+        self.preview_actions_container.hide()
+        content_layout.addWidget(self.preview_actions_container)
 
         preview_layout.addWidget(self.preview_content, 1)
         self.preview_content.hide()
@@ -2140,7 +2612,8 @@ class SearchWindow(AcrylicWindow):
             plugin = data.get("plugin") or self.plugin_mode
             if plugin is None:
                 return
-            plugin.handle_action(data["path"])
+            qr_text = str(data.get("qr_text") or data.get("path", "")).strip()
+            plugin.handle_action(qr_text)
             self._record_item_usage(data)
             self.hide()
         elif item_type == "hosts_cmd":
