@@ -48,14 +48,17 @@ from src.ui.screenshot_overlay import ScreenshotOverlay
 from src.ui.pinned_image_window import PinnedImageWindow
 from src.ui.network_monitor import NetworkMonitorWidget
 from src.core.clipboard_history import clipboard_history_manager
+from src.core.capture_history import capture_history_manager
 from src.core.custom_launch import custom_launch_manager
 from src.core.logger import get_logger, export_diagnostics, get_log_dir
 from src.core.metrics import metrics_store
+from src.core.work_memory import work_memory_manager
 from src.platform.applications import app_scanner
 from src.platform.file_search import file_search_provider
 from src.platform.hotkeys import create_hotkey_manager
 from src.platform.shell import open_parent, open_path
 from src.platform.windowing import force_foreground_window
+from src.ui.work_memory_window import WorkMemoryWindow
 
 
 logger = get_logger(__name__)
@@ -132,6 +135,16 @@ class SearchWindow(AcrylicWindow):
 
         self.clipboard_history = clipboard_history_manager
         self.clipboard_history.start(QApplication.clipboard())
+        self.work_memory_window = None
+        self.work_memory_manager = work_memory_manager
+        self.work_memory_manager.start(
+            clipboard_manager=self.clipboard_history,
+            capture_manager=capture_history_manager,
+        )
+        self.work_memory_manager.status_changed.connect(
+            self._sync_work_memory_tray_state
+        )
+        self._sync_work_memory_tray_state()
 
         threading.Thread(target=app_scanner.scan, daemon=True).start()
 
@@ -528,6 +541,33 @@ class SearchWindow(AcrylicWindow):
 
             return "清空所有未置顶的捕获历史记录。"
 
+        if item_type in {"work_memory_entry", "work_memory_cmd"}:
+            if item_type == "work_memory_cmd":
+                hint = str(data.get("work_memory_hint", "")).strip()
+                return hint or "执行工作记忆操作。"
+
+            lines = [
+                f"来源: {data.get('work_memory_source_label', '')}",
+                f"类型: {data.get('work_memory_type_label', '')}",
+                f"时间: {data.get('work_memory_time', '')}",
+            ]
+            if data.get("work_memory_window_title"):
+                lines.append(f"窗口: {data.get('work_memory_window_title')}")
+            if data.get("work_memory_app_name"):
+                lines.append(f"应用: {data.get('work_memory_app_name')}")
+            if data.get("work_memory_tags"):
+                lines.append("标签: " + ", ".join(data.get("work_memory_tags", [])))
+            if data.get("work_memory_match_reason"):
+                lines.append(f"匹配原因: {data.get('work_memory_match_reason')}")
+            body = (
+                str(data.get("work_memory_text", "")).strip()
+                or str(data.get("work_memory_ocr_text", "")).strip()
+                or str(data.get("work_memory_summary", "")).strip()
+            )
+            if body:
+                lines.append("\n" + body)
+            return "\n".join(lines).strip()
+
         if item_type in {"copy_result", "calc_result", "calc_error", "error"}:
             value = str(data.get("path", "")).strip()
             if value:
@@ -646,6 +686,8 @@ class SearchWindow(AcrylicWindow):
             )
         if item_type in {"capture_entry", "capture_center", "capture_cmd"}:
             return self.style().standardIcon(self.style().StandardPixmap.SP_FileIcon)
+        if item_type in {"work_memory_entry", "work_memory_cmd"}:
+            return self.style().standardIcon(self.style().StandardPixmap.SP_FileDialogDetailedView)
         if item_type == "hosts_cmd":
             return self.style().standardIcon(self.style().StandardPixmap.SP_DriveNetIcon)
         if item_type == "json_compare_cmd":
@@ -681,6 +723,10 @@ class SearchWindow(AcrylicWindow):
             return "捕获截图"
         if item_type in {"capture_center", "capture_cmd"}:
             return "捕获历史"
+        if item_type == "work_memory_entry":
+            return str(data.get("work_memory_type_label", "工作记忆")) or "工作记忆"
+        if item_type == "work_memory_cmd":
+            return "工作记忆"
         if item_type == "hosts_cmd":
             return "系统工具"
         if item_type == "json_compare_cmd":
@@ -708,6 +754,8 @@ class SearchWindow(AcrylicWindow):
             return str(data.get("clipboard_size"))
         if data.get("capture_size"):
             return str(data.get("capture_size"))
+        if data.get("work_memory_source_label"):
+            return str(data.get("work_memory_source_label"))
         return ""
 
     def _item_location_text(self, data):
@@ -719,6 +767,13 @@ class SearchWindow(AcrylicWindow):
             return (
                 str(data.get("capture_saved_path", "")).strip()
                 or str(data.get("capture_image_path", "")).strip()
+            )
+
+        if item_type == "work_memory_entry":
+            return (
+                str(data.get("work_memory_file_path", "")).strip()
+                or str(data.get("work_memory_image_path", "")).strip()
+                or str(data.get("work_memory_thumbnail_path", "")).strip()
             )
 
         path = str(data.get("path", "")).strip() if isinstance(data, dict) else ""
@@ -1050,7 +1105,33 @@ class SearchWindow(AcrylicWindow):
         plugin_actions = self._plugin_preview_actions_for_item(data)
         if plugin_actions:
             return plugin_actions
-        return self._default_preview_actions_for_item(data)
+
+        actions = self._default_preview_actions_for_item(data)
+        if self._can_remember_preview_item(data):
+            actions = list(actions) + [
+                self._preview_action("加入记忆", "remember", "pin", hide=False)
+            ]
+        return actions
+
+    @staticmethod
+    def _can_remember_preview_item(data):
+        item_type = str(data.get("type", "")).strip()
+        if not item_type or item_type in {
+            "work_memory_entry",
+            "work_memory_cmd",
+            "command_hint",
+            "command_template",
+            "command_recent",
+            "command_correction",
+            "command_form",
+            "plugin_trigger",
+            "calc_error",
+            "calc_result",
+            "copy_result",
+            "error",
+        }:
+            return False
+        return True
 
     def _preview_action_icon(self, action):
         icon_key = str(action.get("icon", "")).strip()
@@ -1157,7 +1238,25 @@ class SearchWindow(AcrylicWindow):
         self._render_preview_actions(self._preview_actions_for_item(data))
 
     def _preview_pixmap_for_item(self, data, target_size=112):
-        if not isinstance(data, dict) or data.get("type") != "qr_generate":
+        if not isinstance(data, dict):
+            return None
+
+        if data.get("type") == "work_memory_entry":
+            image_path = (
+                str(data.get("work_memory_thumbnail_path", "")).strip()
+                or str(data.get("work_memory_image_path", "")).strip()
+            )
+            if image_path and os.path.isfile(image_path):
+                pixmap = QPixmap(image_path)
+                if not pixmap.isNull():
+                    return pixmap.scaled(
+                        QSize(target_size, target_size),
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+            return None
+
+        if data.get("type") != "qr_generate":
             return None
 
         qr_text = str(data.get("qr_text") or data.get("path", "")).strip()
@@ -1225,7 +1324,7 @@ class SearchWindow(AcrylicWindow):
 
         QTimer.singleShot(1200, restore)
 
-    def _run_plugin_preview_action(self, data, action):
+    def _run_plugin_preview_action(self, data, action, action_index=None):
         plugin = data.get("plugin") or self.plugin_mode
         if plugin is None or not hasattr(plugin, "handle_action"):
             return
@@ -1234,8 +1333,13 @@ class SearchWindow(AcrylicWindow):
         if command is None:
             command = data.get("path", "")
 
-        message = plugin.handle_action(str(command).strip())
-        self._show_tray_message(message)
+        command_text = str(command).strip()
+        message = plugin.handle_action(command_text)
+        if message:
+            if command_text.startswith("copy:") or str(message).strip() == "已复制":
+                self._show_preview_action_feedback(action_index, "已复制")
+            else:
+                self._show_tray_message(message)
         self._record_item_usage(data)
 
         if action.get("refresh"):
@@ -1273,6 +1377,16 @@ class SearchWindow(AcrylicWindow):
             self._show_preview_action_feedback(action_index, "已复制")
             return
 
+        if action_id == "remember":
+            entry = work_memory_manager.add_favorite_item(
+                data, query=self.search_bar.text().strip()
+            )
+            self._record_item_usage(data)
+            self._show_preview_action_feedback(
+                action_index, "已加入" if entry else "未加入"
+            )
+            return
+
         if action_id == "fill_input":
             value = str(action.get("target") or data.get("path", "")).strip()
             if value:
@@ -1288,7 +1402,7 @@ class SearchWindow(AcrylicWindow):
             return
 
         if action_id == "plugin":
-            self._run_plugin_preview_action(data, action)
+            self._run_plugin_preview_action(data, action, action_index)
             return
 
         self.handle_item_action(data)
@@ -2108,6 +2222,20 @@ class SearchWindow(AcrylicWindow):
         menu.addAction(self.monitor_action)
         menu.addSeparator()
 
+        memory_action = QAction("工作记忆中心", self)
+        memory_action.triggered.connect(self.open_work_memory_center)
+        menu.addAction(memory_action)
+
+        self.time_machine_action = QAction("屏幕时间机器", self)
+        self.time_machine_action.setCheckable(True)
+        self.time_machine_action.triggered.connect(self.toggle_work_memory_time_machine)
+        menu.addAction(self.time_machine_action)
+
+        capture_memory_action = QAction("手动补记当前屏幕", self)
+        capture_memory_action.triggered.connect(self.capture_work_memory_now)
+        menu.addAction(capture_memory_action)
+        menu.addSeparator()
+
         export_logs_action = QAction("导出诊断日志", self)
         export_logs_action.triggered.connect(self.export_diagnostics_package)
         menu.addAction(export_logs_action)
@@ -2136,6 +2264,43 @@ class SearchWindow(AcrylicWindow):
         if is_visible:
             self.monitor_action.setChecked(True)
             self.toggle_network_monitor(True)
+
+        self._sync_work_memory_tray_state()
+
+    def _sync_work_memory_tray_state(self):
+        if not hasattr(self, "time_machine_action"):
+            return
+        try:
+            status = work_memory_manager.status()
+            self.time_machine_action.blockSignals(True)
+            self.time_machine_action.setChecked(bool(status.get("time_machine_enabled")))
+            state = "记录中" if status.get("running") else "已暂停"
+            self.time_machine_action.setText(f"屏幕时间机器（{state}）")
+        finally:
+            self.time_machine_action.blockSignals(False)
+
+    def open_work_memory_center(self):
+        if self.work_memory_window is None:
+            self.work_memory_window = WorkMemoryWindow(manager=work_memory_manager)
+        self.work_memory_window.refresh_all()
+        self.work_memory_window.show()
+        self.work_memory_window.raise_()
+        self.work_memory_window.activateWindow()
+
+    def toggle_work_memory_time_machine(self, checked):
+        work_memory_manager.set_time_machine_enabled(bool(checked))
+        self._sync_work_memory_tray_state()
+
+    def capture_work_memory_now(self):
+        entry = work_memory_manager.capture_current_screen(
+            source="time_machine", manual=True
+        )
+        if entry:
+            self._show_tray_message("已补记当前屏幕")
+        else:
+            self._show_tray_message(
+                "未补记: " + str(work_memory_manager.status().get("pause_reason", ""))
+            )
 
     def toggle_network_monitor(self, checked):
         if not self.network_monitor:
@@ -2552,6 +2717,8 @@ class SearchWindow(AcrylicWindow):
             "capture_center",
             "capture_cmd",
             "capture_entry",
+            "work_memory_cmd",
+            "work_memory_entry",
         }:
             plugin = data.get("plugin") or self.plugin_mode
             if plugin is None or not hasattr(plugin, "handle_action"):
@@ -2564,6 +2731,9 @@ class SearchWindow(AcrylicWindow):
             elif item_type == "capture_entry":
                 capture_id = str(data.get("capture_id") or action)
                 action = f"copy:{capture_id}"
+            elif item_type == "work_memory_entry":
+                memory_id = str(data.get("work_memory_id") or action)
+                action = f"open:{memory_id}"
 
             message = plugin.handle_action(action)
             if message:
@@ -2578,7 +2748,7 @@ class SearchWindow(AcrylicWindow):
                     pass
 
             self._record_item_usage(data)
-            if item_type not in {"clipboard_center", "capture_center"}:
+            if item_type not in {"clipboard_center", "capture_center", "work_memory_cmd"}:
                 self.hide()
         elif item_type in ["calc_result", "copy_result"]:
             path_value = data.get("path", "")

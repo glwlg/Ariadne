@@ -1,7 +1,7 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -131,10 +131,38 @@ class TestSearchWindowQRCodeResult(unittest.TestCase):
         finally:
             os.unlink(path)
 
-        self.assertEqual(
-            [action["label"] for action in actions],
-            ["打开文件", "打开所在文件夹", "复制路径"],
-        )
+        labels = [action["label"] for action in actions]
+        self.assertEqual(labels[:3], ["打开文件", "打开所在文件夹", "复制路径"])
+        self.assertIn("加入记忆", labels)
+
+    def test_remember_preview_action_adds_result_to_work_memory(self):
+        window = type(
+            "SearchWindowShim",
+            (),
+            {
+                "_current_preview_data": {
+                    "type": "file",
+                    "name": "demo.txt",
+                    "path": r"C:\tmp\demo.txt",
+                },
+                "search_bar": Mock(text=Mock(return_value="demo")),
+                "_record_item_usage": Mock(),
+                "_show_preview_action_feedback": Mock(),
+            },
+        )()
+
+        with patch(
+            "src.ui.search_window.work_memory_manager.add_favorite_item",
+            return_value={"id": "mem-1"},
+        ) as add_mock:
+            SearchWindow._trigger_preview_action(
+                window,
+                {"id": "remember", "label": "加入记忆"},
+                0,
+            )
+
+        add_mock.assert_called_once_with(window._current_preview_data, query="demo")
+        window._show_preview_action_feedback.assert_called_once_with(0, "已加入")
 
 
 if __name__ == "__main__":

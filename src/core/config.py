@@ -34,6 +34,61 @@ DEFAULT_CONFIG = {
     "screenshot_filename_template": "x-tools_{date}_{time}",
     "workflows": copy.deepcopy(DEFAULT_WORKFLOWS),
     "custom_launch_items": [],
+    "work_memory": {
+        "enabled": True,
+        "time_machine_enabled": False,
+        "auto_capture_interval_seconds": 300,
+        "capture_scope": "all_screens",
+        "screenshot_quality": 90,
+        "source_clipboard": True,
+        "source_capture_history": True,
+        "source_manual_note": True,
+        "source_search_favorite": True,
+        "source_actions": True,
+        "auto_ocr": False,
+        "embedding_enabled": False,
+        "ai_enabled": False,
+        "opscore_sync_enabled": False,
+        "agents_sdk_enabled": False,
+        "trace_mode": "off",
+        "experience_discovery_enabled": True,
+        "skill_suggestion_enabled": True,
+        "workflow_suggestion_enabled": True,
+        "external_agent_enabled": True,
+        "codex_collaboration_enabled": False,
+        "retention_days": 30,
+        "thumbnail_retention_days": 90,
+        "max_storage_mb": 1024,
+        "privacy_mode": False,
+        "exclude_apps": [
+            "1password.exe",
+            "bitwarden.exe",
+            "keepass.exe",
+            "lastpass.exe",
+            "credentialuibroker.exe",
+            "lockapp.exe",
+            "logonui.exe",
+            "mstsc.exe",
+        ],
+        "exclude_window_keywords": [
+            "password",
+            "token",
+            "secret",
+            "验证码",
+            "密码",
+            "登录",
+            "支付",
+            "隐私",
+            "无痕",
+            "远程桌面",
+            "堡垒机",
+            "vpn",
+            "sso",
+        ],
+        "exclude_paths": [],
+        "exclude_content_patterns": [],
+        "allow_sensitive_export": False,
+    },
 }
 
 
@@ -100,6 +155,13 @@ class ConfigManager:
                     merged["custom_launch_items"] = []
 
                 merged["workflows"] = normalize_workflows(merged.get("workflows"))
+
+                if not isinstance(merged.get("work_memory"), dict):
+                    merged["work_memory"] = copy.deepcopy(DEFAULT_CONFIG["work_memory"])
+                else:
+                    work_memory_defaults = copy.deepcopy(DEFAULT_CONFIG["work_memory"])
+                    work_memory_defaults.update(merged["work_memory"])
+                    merged["work_memory"] = work_memory_defaults
 
                 return merged
         except:

@@ -160,7 +160,16 @@ class ClipboardHistoryManager(QObject):
             return
 
         entry = None
-        if mime.hasImage():
+        if mime.hasUrls():
+            paths = []
+            for url in mime.urls():
+                if url.isLocalFile():
+                    paths.append(url.toLocalFile())
+                else:
+                    paths.append(url.toString())
+            if paths:
+                entry = self._make_text_entry("\n".join(paths))
+        elif mime.hasImage():
             image = self._clipboard.image()
             if image is not None and not image.isNull():
                 entry = self._make_image_entry(image)
