@@ -20,6 +20,7 @@ from PyQt6.QtGui import (
     QSyntaxHighlighter,
     QFont,
     QIcon,
+    QPalette,
 )
 from PyQt6.QtWidgets import (
     QWidget,
@@ -144,6 +145,8 @@ class CodeEditor(QPlainTextEdit):
         self.setFont(font)
         self.bg_color = QColor(0, 0, 0, 0)
         self.text_color = QColor("#bdc3c7")
+        self.cursor_color = QColor("#C8CAD4")
+        self.setCursorWidth(2)
         self.setStyleSheet("""
             QPlainTextEdit {
                 background-color: transparent;
@@ -170,7 +173,42 @@ class CodeEditor(QPlainTextEdit):
             }}
         """
         self.setStyleSheet(qss)
+        self.cursor_color = QColor(color)
+        self.setCursorWidth(2)
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Text, QColor(color))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(color))
+        palette.setColor(
+            QPalette.ColorRole.Highlight,
+            QColor(theme.get("selection_bg", "#094771")),
+        )
+        palette.setColor(
+            QPalette.ColorRole.HighlightedText,
+            QColor(theme.get("selection_text", "#FFFFFF")),
+        )
+        palette.setColor(QPalette.ColorRole.Base, QColor(0, 0, 0, 0))
+        self.setPalette(palette)
+        self.viewport().setPalette(palette)
+        self.viewport().update()
         self.line_number_area.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self.hasFocus():
+            return
+
+        rect = self.cursorRect()
+        caret_rect = QRect(
+            rect.x(),
+            rect.y(),
+            max(2, self.cursorWidth()),
+            max(1, rect.height()),
+        ).intersected(self.viewport().rect())
+        if caret_rect.isEmpty():
+            return
+
+        painter = QPainter(self.viewport())
+        painter.fillRect(caret_rect, getattr(self, "cursor_color", QColor("#C8CAD4")))
 
     def lineNumberAreaWidth(self):
         digits = 1

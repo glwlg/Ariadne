@@ -47,32 +47,48 @@ class QRCodePlugin(PluginBase):
 
         return [
             {
-                "name": f"生成二维码: {query}",
-                "path": query,
+                "name": "生成二维码",
+                "path": "",
+                "qr_text": query,
                 "type": "qr_generate",
             }
         ]
+
+    def get_preview_actions(self, item):
+        qr_text = str(item.get("qr_text") or item.get("path", "")).strip()
+        if not qr_text:
+            return []
+        return [
+            {
+                "label": "贴到屏幕",
+                "command": qr_text,
+                "icon": "pin",
+            }
+        ]
+
+    @staticmethod
+    def _build_qr_image(query):
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(query)
+        qr.make(fit=True)
+        return qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+
+    def build_pixmap(self, query):
+        img = self._build_qr_image(query)
+        qim = ImageQt.ImageQt(img)
+        return QPixmap.fromImage(qim)
 
     def handle_action(self, query):
         if not query:
             return
 
         try:
-            # Generate QR code
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            qr.add_data(query)
-            qr.make(fit=True)
-
-            img = qr.make_image(fill_color="black", back_color="white")
-
-            # Convert PIL image to QPixmap
-            qim = ImageQt.ImageQt(img.convert("RGBA"))
-            pixmap = QPixmap.fromImage(qim)
+            pixmap = self.build_pixmap(query)
 
             # Show as pinned window
             pin_win = PinnedImageWindow(pixmap)

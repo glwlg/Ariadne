@@ -36,6 +36,18 @@ class JsonComparePlugin(PluginBase):
             }
         ]
 
+    def get_preview_actions(self, item):
+        if str(item.get("type", "")).strip() != "json_compare_cmd":
+            return []
+        return [
+            {
+                "label": "打开 JSON 对比",
+                "command": str(item.get("path", "open_json_compare")).strip()
+                or "open_json_compare",
+                "icon": "open",
+            }
+        ]
+
     def handle_action(self, action):
         if str(action).strip() != "open_json_compare":
             return ""

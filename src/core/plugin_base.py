@@ -46,6 +46,10 @@ class PluginBase(ABC):
             "params": [],
         }
 
+    def get_preview_actions(self, item: dict[str, Any]) -> list[dict[str, Any]]:
+        """Returns right-side preview action descriptors for a search result."""
+        return []
+
     @abstractmethod
     def on_enter(self) -> None:
         """Called when plugin mode is activated."""

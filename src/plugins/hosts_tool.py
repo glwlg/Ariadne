@@ -36,6 +36,17 @@ class HostsPlugin(PluginBase):
             }
         ]
 
+    def get_preview_actions(self, item):
+        if str(item.get("type", "")).strip() != "hosts_cmd":
+            return []
+        return [
+            {
+                "label": "打开 Hosts 管理",
+                "command": str(item.get("path", "open_hosts")).strip() or "open_hosts",
+                "icon": "open",
+            }
+        ]
+
     def handle_action(self, query):
         if query == "open_hosts":
             if not self.hosts_window:
