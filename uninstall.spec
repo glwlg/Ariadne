@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['W:\\glwlg\\app\\x-tools\\logo.ico'],
+    icon=['P:\\workspace\\glwlg\\app\\x-tools\\logo.ico'],
 )
