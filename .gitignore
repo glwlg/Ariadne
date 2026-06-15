@@ -13,3 +13,7 @@ wheels/
 .worktrees/
 
 app_archive.zip
+
+# Ariadne generated artifacts
+experiments/ariadne/bin/
+experiments/ariadne/dist/

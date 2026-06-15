@@ -1,0 +1,476 @@
+package main
+
+import (
+	"embed"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"strings"
+	"time"
+
+	"ariadne/internal/aiclient"
+	"ariadne/internal/applog"
+	"ariadne/internal/apps"
+	"ariadne/internal/capturehistory"
+	"ariadne/internal/captureoverlay"
+	"ariadne/internal/checklists"
+	"ariadne/internal/clipboardhistory"
+	"ariadne/internal/contracts"
+	"ariadne/internal/filesearch"
+	"ariadne/internal/hosts"
+	"ariadne/internal/imageindex"
+	"ariadne/internal/jsoncompare"
+	"ariadne/internal/launchers"
+	"ariadne/internal/launcherwindow"
+	"ariadne/internal/legacybridge"
+	"ariadne/internal/migration"
+	"ariadne/internal/networkmonitor"
+	"ariadne/internal/ocr"
+	"ariadne/internal/pinnedimage"
+	"ariadne/internal/platform"
+	"ariadne/internal/plugins"
+	"ariadne/internal/qrscan"
+	"ariadne/internal/release"
+	"ariadne/internal/search"
+	"ariadne/internal/secrets"
+	"ariadne/internal/settings"
+	"ariadne/internal/shell"
+	"ariadne/internal/skills"
+	"ariadne/internal/toolwindows"
+	"ariadne/internal/workflows"
+	"ariadne/internal/workmemory"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
+
+//go:embed frontend/dist
+var assets embed.FS
+
+//go:embed assets/logo.ico
+var appIcon []byte
+
+func main() {
+	logService := applog.NewService()
+	if err := logService.Start(); err != nil {
+		log.Printf("start app log: %v", err)
+	} else {
+		log.SetOutput(io.MultiWriter(os.Stderr, logService))
+		log.Println("Ariadne starting")
+	}
+	appService := apps.NewService()
+	fileSearchService := filesearch.NewService()
+	launcherService := launchers.NewService()
+	captureService := capturehistory.NewService()
+	clipboardService := clipboardhistory.NewService(captureService)
+	pinnedImageService := pinnedimage.NewService(captureService, clipboardService)
+	captureOverlayService := captureoverlay.NewService(captureService, pinnedImageService)
+	hostsService := hosts.NewService()
+	jsonCompareService := jsoncompare.NewService()
+	networkMonitorService := networkmonitor.NewService()
+	qrScanService := qrscan.NewService(captureService)
+	legacyBridgeService := legacybridge.New(legacybridge.DefaultOptions())
+	pluginService := plugins.NewServiceWithLegacyBridge(legacyBridgeService)
+	workflowService := workflows.NewService(pluginService)
+	checklistService := checklists.NewService()
+	skillService := skills.NewService()
+	secretsService := secrets.NewService()
+	settingsService := settings.NewService()
+	pluginService.ApplyEnabled(settingsService.GetSettings().Plugins.Enabled)
+	workMemoryService := workmemory.NewService(captureService)
+	clipboardhistory.RegisterEntryObserver(clipboardService, func(entry clipboardhistory.Entry) {
+		config := settingsService.GetSettings().WorkMemory
+		if !config.Enabled || config.PrivacyMode || !config.SourceClipboard {
+			return
+		}
+		workMemoryService.RememberClipboardEntry(entry)
+	})
+	capturehistory.RegisterEntryObserver(captureService, func(entry capturehistory.Entry) {
+		config := settingsService.GetSettings().WorkMemory
+		if !config.Enabled || config.PrivacyMode || !config.SourceCaptureHistory {
+			return
+		}
+		workMemoryService.RememberCaptureHistoryEntry(entry)
+	})
+	migrationService := migration.NewService(clipboardService, captureService, workMemoryService)
+	releaseService := release.NewService()
+	ocrService := ocr.NewService(captureService, clipboardService, workMemoryService)
+	workmemory.RegisterAutoOCRProcessor(workMemoryService, func(entry workmemory.Entry) workmemory.Entry {
+		result := ocrService.RecognizeWorkMemory(entry.ID)
+		if result.WorkMemory == nil {
+			return entry
+		}
+		return *result.WorkMemory
+	})
+	workmemory.RegisterDraftPolisher(workMemoryService, aiclient.NewOpenAICompatiblePolisher())
+	workmemory.RegisterExperienceDiscoverer(workMemoryService, aiclient.NewOpenAICompatibleExperienceDiscoverer())
+	workmemory.RegisterEmbeddingClient(workMemoryService, aiclient.NewOpenAICompatibleEmbedder())
+	imageIndexService := imageindex.NewService(captureService, clipboardService, ocrService)
+	searchService := search.NewService(fileSearchService, appService, launcherService, clipboardService, captureService, imageIndexService, workflowService, pluginService, workMemoryService)
+	toolWindowService := toolwindows.NewService()
+	initialHotkeys := settingsService.GetSettings().Hotkeys
+	shellManager := shell.NewManager(
+		initialHotkeys.ToggleWindow,
+		initialHotkeys.Screenshot,
+		initialHotkeys.PinClipboard,
+		toolWindowService.OpenFromShell,
+		func() bool {
+			result := captureOverlayService.Open()
+			if !result.OK {
+				log.Printf("open screenshot overlay: %s", result.Message)
+			}
+			return result.OK
+		},
+		func() bool {
+			result := pinnedImageService.OpenCurrentClipboard()
+			if !result.OK {
+				log.Printf("pin clipboard: %s", result.Message)
+			}
+			return result.OK
+		},
+	)
+	platformService := platform.NewService(
+		platform.WithShellStatus(func() platform.ShellStatus {
+			return platformShellStatus(shellManager.Status())
+		}),
+		platform.WithHotkeyRetry(func() platform.ShellStatus {
+			return platformShellStatus(shellManager.RetryHotkeyRegistration())
+		}),
+		platform.WithRememberActionHandler(func(action contracts.PreviewAction) contracts.ActionResult {
+			return rememberActionResult(action, clipboardService, captureService, workMemoryService)
+		}),
+		platform.WithSearchPerformance(func() platform.SearchPerformanceStatus {
+			status := searchService.PerformanceStatus()
+			return platform.SearchPerformanceStatus{
+				SampleCount:     status.SampleCount,
+				TargetP95Ms:     status.TargetP95Ms,
+				LastQuery:       status.LastQuery,
+				LastElapsedMs:   status.LastElapsedMs,
+				LastResultCount: status.LastResultCount,
+				AverageMs:       status.AverageMs,
+				P95Ms:           status.P95Ms,
+				MaxMs:           status.MaxMs,
+				WithinTarget:    status.WithinTarget,
+				LastUpdatedAt:   status.LastUpdatedAt,
+			}
+		}),
+		platform.WithFileSearchStatus(func() platform.FileSearchStatus {
+			status := fileSearchService.Status()
+			return platform.FileSearchStatus{
+				DLLPath:         status.DLLPath,
+				DLLFound:        status.DLLFound,
+				Ready:           status.Ready,
+				LastError:       status.LastError,
+				LastQuery:       status.LastQuery,
+				LastElapsedMs:   status.LastElapsedMs,
+				LastResultCount: status.LastResultCount,
+				LastUpdatedAt:   status.LastUpdatedAt,
+				CoverageHint:    status.CoverageHint,
+			}
+		}),
+		platform.WithLogStatus(func() platform.LogStatus {
+			return appLogStatus(logService.Status())
+		}),
+	)
+
+	app := application.New(application.Options{
+		Name:        "Ariadne",
+		Description: "Ariadne command launcher and work memory center",
+		Icon:        appIcon,
+		Windows: application.WindowsOptions{
+			DisableQuitOnLastWindowClosed: true,
+		},
+		SingleInstance: shellManager.SingleInstanceOptions(),
+		OnShutdown: func() {
+			log.Println("Ariadne shutting down")
+			if err := shellManager.Stop(); err != nil {
+				log.Printf("stop shell: %v", err)
+			}
+			toolWindowService.Stop()
+			clipboardService.StopWatcher()
+			workMemoryService.Stop()
+			if err := logService.Stop(); err != nil {
+				log.Printf("stop app log: %v", err)
+			}
+		},
+		Services: []application.Service{
+			application.NewService(searchService),
+			application.NewService(pluginService),
+			application.NewService(launcherService),
+			application.NewService(clipboardService),
+			application.NewService(captureService),
+			application.NewService(captureOverlayService),
+			application.NewService(pinnedImageService),
+			application.NewService(hostsService),
+			application.NewService(jsonCompareService),
+			application.NewService(networkMonitorService),
+			application.NewService(qrScanService),
+			application.NewService(ocrService),
+			application.NewService(imageIndexService),
+			application.NewService(workflowService),
+			application.NewService(checklistService),
+			application.NewService(skillService),
+			application.NewService(secretsService),
+			application.NewService(migrationService),
+			application.NewService(releaseService),
+			application.NewService(toolWindowService),
+			application.NewService(settingsService),
+			application.NewService(workMemoryService),
+			application.NewService(platformService),
+		},
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
+		},
+	})
+	captureOverlayService.Attach(app)
+	pinnedImageService.Attach(app)
+	toolWindowService.Attach(app)
+
+	settings.RegisterChangeHandler(settingsService, func(next settings.AppSettings) {
+		shellManager.ApplyHotkeys(next.Hotkeys.ToggleWindow, next.Hotkeys.Screenshot, next.Hotkeys.PinClipboard)
+		if err := shellManager.ApplyAutostart(next.General.RunOnStartup); err != nil {
+			log.Printf("apply autostart: %v", err)
+		}
+		applyCaptureOverlayRuntime(captureOverlayService, next.Screenshot)
+		applyWorkMemoryRuntime(workMemoryService, next.WorkMemory)
+		applyWorkMemoryAIRuntime(workMemoryService, next.AI, next.WorkMemory)
+		applyRetentionPolicies(workMemoryService, captureService, clipboardService, imageIndexService, next.WorkMemory)
+		clipboardService.ApplyWatcherSettings(next.WorkMemory.PrivacyMode, next.WorkMemory.SourceClipboard)
+		pluginService.ApplyEnabled(next.Plugins.Enabled)
+	})
+	initialSettings := settingsService.GetSettings()
+	applyCaptureOverlayRuntime(captureOverlayService, initialSettings.Screenshot)
+	applyWorkMemoryAIRuntime(workMemoryService, initialSettings.AI, initialSettings.WorkMemory)
+
+	launcherPosition, launcherX, launcherY, launcherScreen := launcherwindow.InitialPlacement(app.Screen.GetPrimary())
+	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:             "main",
+		Title:            "Ariadne",
+		Width:            launcherwindow.Width,
+		Height:           launcherwindow.CollapsedHeight,
+		X:                launcherX,
+		Y:                launcherY,
+		AlwaysOnTop:      false,
+		Frameless:        true,
+		DisableResize:    true,
+		BackgroundType:   application.BackgroundTypeTransparent,
+		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
+		InitialPosition:  launcherPosition,
+		Screen:           launcherScreen,
+		Hidden:           shouldStartHidden(),
+		Windows: application.WindowsWindow{
+			Theme:                             application.Light,
+			DisableIcon:                       true,
+			DisableFramelessWindowDecorations: true,
+		},
+	})
+	shellManager.Attach(app, mainWindow, appIcon)
+	if err := shellManager.ApplyAutostart(settingsService.GetSettings().General.RunOnStartup); err != nil {
+		log.Printf("apply autostart: %v", err)
+	}
+	deferStartupMaintenance(func() {
+		latest := settingsService.GetSettings()
+		applyWorkMemoryRuntime(workMemoryService, latest.WorkMemory)
+		applyWorkMemoryAIRuntime(workMemoryService, latest.AI, latest.WorkMemory)
+		applyRetentionPolicies(workMemoryService, captureService, clipboardService, imageIndexService, latest.WorkMemory)
+		clipboardService.ApplyWatcherSettings(latest.WorkMemory.PrivacyMode, latest.WorkMemory.SourceClipboard)
+	})
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func platformShellStatus(status shell.Status) platform.ShellStatus {
+	return platform.ShellStatus{
+		SingleInstanceConfigured:     status.SingleInstanceConfigured,
+		TrayConfigured:               status.TrayConfigured,
+		GlobalHotkeyRegistered:       status.GlobalHotkeyRegistered,
+		GlobalHotkey:                 status.GlobalHotkey,
+		ScreenshotHotkeyRegistered:   status.ScreenshotHotkeyRegistered,
+		ScreenshotHotkey:             status.ScreenshotHotkey,
+		PinClipboardHotkeyRegistered: status.PinClipboardHotkeyRegistered,
+		PinClipboardHotkey:           status.PinClipboardHotkey,
+		AutostartSupported:           status.AutostartSupported,
+		AutostartEnabled:             status.AutostartEnabled,
+		AutostartPath:                status.AutostartPath,
+		AutostartIdentifier:          status.AutostartIdentifier,
+		AutostartValueName:           status.AutostartValueName,
+		AutostartCommand:             status.AutostartCommand,
+		AutostartCommandValid:        status.AutostartCommandValid,
+		AutostartHiddenArgPresent:    status.AutostartHiddenArgPresent,
+		AutostartNotes:               status.AutostartNotes,
+		LastError:                    status.LastError,
+	}
+}
+
+func appLogStatus(status applog.Status) platform.LogStatus {
+	return platform.LogStatus{
+		Path:            status.Path,
+		Directory:       status.Directory,
+		DirectoryExists: status.DirectoryExists,
+		Exists:          status.Exists,
+		Bytes:           status.Bytes,
+		LastModifiedAt:  status.LastModifiedAt,
+		LastError:       status.LastError,
+	}
+}
+
+func shouldStartHidden() bool {
+	for _, arg := range os.Args[1:] {
+		if arg == "--hidden" || arg == "/hidden" {
+			return true
+		}
+	}
+	return false
+}
+
+func deferStartupMaintenance(fn func()) {
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		fn()
+	}()
+}
+
+func applyRetentionPolicies(
+	workMemoryService *workmemory.Service,
+	captureService *capturehistory.Service,
+	clipboardService *clipboardhistory.Service,
+	imageIndexService *imageindex.Service,
+	config settings.WorkMemorySettings,
+) {
+	workMemoryService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
+	captureService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
+	clipboardService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
+	imageIndexService.ApplyRetentionPolicy(config.RetentionDays)
+}
+
+func applyCaptureOverlayRuntime(service *captureoverlay.Service, config settings.ScreenshotSettings) {
+	service.ApplyScreenshotPolicy(captureoverlay.ScreenshotPolicy{
+		AutoCopy:         config.AutoCopy,
+		AutoPin:          config.AutoPin,
+		AutoSave:         config.AutoSave,
+		SaveDir:          config.SaveDir,
+		FilenameTemplate: config.FilenameTemplate,
+	})
+}
+
+func applyWorkMemoryRuntime(service *workmemory.Service, config settings.WorkMemorySettings) {
+	service.ApplyCapturePolicy(workmemory.CapturePolicy{
+		ExcludeApps:            config.ExcludeApps,
+		ExcludeWindowKeywords:  config.ExcludeWindowKeywords,
+		ExcludePaths:           config.ExcludePaths,
+		ExcludeContentPatterns: config.ExcludeContentPatterns,
+		AutoOCR:                config.AutoOCR,
+		CaptureScope:           config.CaptureScope,
+		MultiMonitor:           config.MultiMonitor,
+		CaptureOnWindowChange:  config.WindowSwitchCaptureEnabled,
+		WindowChangeCooldown:   config.WindowSwitchCooldownSecs,
+		PauseOnIdle:            config.PauseOnIdle,
+		IdlePauseSeconds:       config.IdlePauseSeconds,
+		PauseOnLock:            config.PauseOnLock,
+	})
+	service.ApplySettings(
+		config.Enabled,
+		config.PrivacyMode,
+		config.TimeMachineEnabled,
+		config.AutoCaptureIntervalSeconds,
+	)
+	service.ApplyDraftSchedule(workmemory.DraftSchedulePolicy{
+		Enabled:                 config.DraftScheduleEnabled,
+		IntervalMinutes:         config.DraftScheduleIntervalMin,
+		DailyDraftEnabled:       config.DailyDraftScheduleEnabled,
+		RetrospectiveEnabled:    config.RetroDraftScheduleEnabled,
+		ExperienceReportEnabled: config.ExperienceScheduleEnabled,
+		ExperiencePeriodDays:    config.ExperienceDiscoveryDays,
+	})
+}
+
+func applyWorkMemoryAIRuntime(service *workmemory.Service, config settings.AISettings, memory settings.WorkMemorySettings) {
+	service.ApplyDraftPolishPolicy(workmemory.DraftPolishPolicy{
+		Enabled:  config.Enabled,
+		Provider: firstNonEmpty(config.Provider, "openai-compatible"),
+		BaseURL:  firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
+		Model:    firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL")),
+	})
+	service.ApplyExperienceDiscoveryPolicy(workmemory.ExperienceDiscoveryPolicy{
+		Enabled:  config.Enabled && memory.ExperienceDiscoveryEnabled,
+		Provider: firstNonEmpty(config.Provider, "openai-compatible"),
+		BaseURL:  firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
+		Model:    firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL")),
+	})
+	service.ApplyEmbeddingPolicy(workmemory.EmbeddingPolicy{
+		Enabled:          config.EmbeddingEnabled,
+		Provider:         firstNonEmpty(config.EmbeddingProvider, "openai-compatible"),
+		BaseURL:          firstNonEmpty(config.EmbeddingBaseURL, os.Getenv("EMBED__BASE_URL")),
+		Model:            firstNonEmpty(config.EmbeddingModel, os.Getenv("EMBED__MODEL")),
+		VectorStoreType:  config.VectorStoreType,
+		VectorStoreURI:   config.VectorStoreURI,
+		VectorCollection: config.VectorCollection,
+	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func rememberActionResult(
+	action contracts.PreviewAction,
+	clipboardService *clipboardhistory.Service,
+	captureService *capturehistory.Service,
+	workMemoryService *workmemory.Service,
+) contracts.ActionResult {
+	targetID := actionPayloadString(action.Payload, "targetId")
+	if targetID == "" {
+		return contracts.ActionResult{OK: false, Message: "缺少加入记忆目标"}
+	}
+	switch {
+	case strings.HasPrefix(targetID, "clipboard-"):
+		clipboardID := strings.TrimPrefix(targetID, "clipboard-")
+		entry := clipboardService.Entry(clipboardID)
+		if entry.ID == "" {
+			return contracts.ActionResult{OK: false, Message: "未找到剪贴板记录"}
+		}
+		memory := workMemoryService.RememberClipboardEntry(entry)
+		return rememberMemoryResult(memory, workMemoryService.Status())
+	case strings.HasPrefix(targetID, "capture-"):
+		captureID := strings.TrimPrefix(targetID, "capture-")
+		entry := captureService.Entry(captureID)
+		if entry.ID == "" {
+			return contracts.ActionResult{OK: false, Message: "未找到截图记录"}
+		}
+		memory := workMemoryService.RememberCaptureHistoryEntry(entry)
+		return rememberMemoryResult(memory, workMemoryService.Status())
+	default:
+		return contracts.ActionResult{OK: false, Message: "当前结果暂不支持加入工作记忆"}
+	}
+}
+
+func rememberMemoryResult(memory workmemory.Entry, status workmemory.Status) contracts.ActionResult {
+	if memory.ID != "" {
+		return contracts.ActionResult{OK: true, Message: "已加入工作记忆"}
+	}
+	if !status.Enabled {
+		return contracts.ActionResult{OK: false, Message: "工作记忆已停用"}
+	}
+	if status.PrivacyMode {
+		return contracts.ActionResult{OK: false, Message: "隐私模式已开启，已阻断加入记忆"}
+	}
+	return contracts.ActionResult{OK: false, Message: "未能加入工作记忆"}
+}
+
+func actionPayloadString(payload map[string]interface{}, key string) string {
+	if payload == nil {
+		return ""
+	}
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.Trim(fmt.Sprint(value), `"`))
+}
