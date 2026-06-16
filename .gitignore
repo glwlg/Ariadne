@@ -1,19 +1,25 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
+# Local generated files
 build/
 dist/
+bin/
+app_archive.zip
+
+# Python-generated files retained for the archived x-tools code.
+__pycache__/
+*.py[oc]
 wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
+legacy/x-tools-python/.venv/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
 
 # Local git worktrees
 .worktrees/
 
-app_archive.zip
-
-# Ariadne generated artifacts
-experiments/ariadne/bin/
-experiments/ariadne/dist/
+# Pre-replacement Ariadne generated leftovers
+experiments/ariadne/

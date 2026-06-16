@@ -1,0 +1,71 @@
+version: '3'
+
+vars:
+  APP_NAME: ariadne
+  BIN_DIR: bin
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+tasks:
+  build:
+    summary: Build Ariadne for the current platform.
+    cmds:
+      - wails3 task windows:build
+
+  windows:build:
+    summary: Build Ariadne for Windows.
+    cmds:
+      - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
+      - wails3 generate bindings -clean=false
+      - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
+      - wails3 task windows:resources
+      - go build -ldflags="-H windowsgui" -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" .
+
+  windows:resources:
+    summary: Generate Windows icon, manifest, and version resources for Ariadne.
+    cmds:
+      - go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --out ariadne_resource.syso --no-suffix
+
+  windows:package:
+    summary: Build Ariadne and create a user-level Windows release package.
+    cmds:
+      - wails3 task windows:build
+      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/releasepack -version dev } else { go run ./cmd/releasepack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) }"
+
+  windows:msix:
+    summary: Build Ariadne and create an unsigned MSIX layout.
+    cmds:
+      - wails3 task windows:build
+      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/msixpack -version dev } else { go run ./cmd/msixpack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) }"
+
+  windows:msix-pack:
+    summary: Build Ariadne and pack an unsigned MSIX with makeappx.exe.
+    cmds:
+      - wails3 task windows:build
+      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/msixpack -version dev -pack } else { go run ./cmd/msixpack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) -pack }"
+
+  windows:perf:
+    summary: Run the Windows desktop performance acceptance probe.
+    cmds:
+      - go run ./cmd/perfcheck -iterations 3 -pretty -output dist/perf/ariadne-perf-latest.json
+
+  windows:search-perf:
+    summary: Run the repeatable Ariadne search p95 benchmark.
+    cmds:
+      - go run ./cmd/searchbench -iterations 20 -warmup 2 -pretty -output dist/perf/ariadne-search-perf-latest.json
+
+  windows:autostart-smoke:
+    summary: Run a non-destructive HKCU Run autostart registration smoke.
+    cmds:
+      - go run ./cmd/autostartsmoke -exe bin/ariadne.exe -output dist/perf/ariadne-autostart-smoke-latest.json
+
+  dev:
+    summary: Run the Ariadne frontend in browser development mode.
+    cmds:
+      - powershell -NoProfile -Command "Set-Location frontend; pnpm dev -- --host 127.0.0.1 --port {{.VITE_PORT}}"
+
+  test:
+    summary: Run Ariadne backend and frontend checks.
+    cmds:
+      - go test . ./cmd/... ./internal/...
+      - wails3 generate bindings -clean=false
+      - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
