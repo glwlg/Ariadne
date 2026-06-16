@@ -10,7 +10,7 @@ import (
 	"ariadne/internal/securestore"
 )
 
-func TestDefaultSettingsKeepConservativeWorkMemoryPolicy(t *testing.T) {
+func TestDefaultSettingsEnableAutonomousFlowWithoutStartingCapture(t *testing.T) {
 	service := NewServiceWithPaths("", "")
 	settings := service.GetSettings()
 
@@ -20,11 +20,11 @@ func TestDefaultSettingsKeepConservativeWorkMemoryPolicy(t *testing.T) {
 	if settings.WorkMemory.TimeMachineEnabled {
 		t.Fatal("time machine should not start enabled by default")
 	}
-	if settings.WorkMemory.WindowSwitchCaptureEnabled || settings.WorkMemory.WindowSwitchCooldownSecs != 30 {
-		t.Fatalf("window switch capture should default to off with a safe cooldown: %#v", settings.WorkMemory)
+	if !settings.WorkMemory.WindowSwitchCaptureEnabled || settings.WorkMemory.WindowSwitchCooldownSecs != 3 || settings.WorkMemory.AutoCaptureIntervalSeconds != 30 {
+		t.Fatalf("window capture strategy should default to delayed 3s and 30s active interval: %#v", settings.WorkMemory)
 	}
-	if settings.WorkMemory.DraftScheduleEnabled {
-		t.Fatal("draft schedule should not start enabled by default")
+	if !settings.WorkMemory.DraftScheduleEnabled {
+		t.Fatal("draft schedule should run by default so Flow can autonomously settle low-risk artifacts")
 	}
 	if settings.WorkMemory.DraftScheduleIntervalMin != 240 || !settings.WorkMemory.DailyDraftScheduleEnabled || !settings.WorkMemory.RetroDraftScheduleEnabled || !settings.WorkMemory.ExperienceScheduleEnabled {
 		t.Fatalf("unexpected draft schedule defaults: %#v", settings.WorkMemory)
@@ -60,6 +60,11 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	next.WorkMemory.ExcludeApps = []string{" bitwarden.exe ", "BITWARDEN.exe", ""}
 	next.WorkMemory.ExcludeWindowKeywords = nil
 	next.WorkMemory.ExcludeURLs = []string{" https://internal.example.com/private ", "HTTPS://INTERNAL.EXAMPLE.COM/PRIVATE", ""}
+	next.WorkMemory.AppCaptureProfiles = []WorkMemoryAppCaptureProfile{
+		{DisplayName: "微信", ProcessName: " Weixin.exe ", Enabled: true, WindowSwitchDelaySeconds: -1, ActiveIntervalSeconds: 1},
+		{DisplayName: "重复微信", ProcessName: "weixin.EXE", Enabled: true, WindowSwitchDelaySeconds: 30, ActiveIntervalSeconds: 300},
+		{DisplayName: "", ProcessName: "", Enabled: true},
+	}
 	next.AI.TraceMode = "external"
 
 	updated := service.UpdateSettings(next)
@@ -87,6 +92,16 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	if len(updated.WorkMemory.ExcludeURLs) != 1 || updated.WorkMemory.ExcludeURLs[0] != "https://internal.example.com/private" {
 		t.Fatalf("exclude URLs should be trimmed and deduplicated: %#v", updated.WorkMemory.ExcludeURLs)
 	}
+	if len(updated.WorkMemory.AppCaptureProfiles) != 1 {
+		t.Fatalf("app capture profiles should be deduplicated: %#v", updated.WorkMemory.AppCaptureProfiles)
+	}
+	profile := updated.WorkMemory.AppCaptureProfiles[0]
+	if profile.ID != "weixin.exe" || profile.ProcessName != "Weixin.exe" || profile.DisplayName != "微信" || !profile.Enabled {
+		t.Fatalf("unexpected app capture profile identity: %#v", profile)
+	}
+	if profile.WindowSwitchDelaySeconds != 0 || profile.ActiveIntervalSeconds != 10 {
+		t.Fatalf("app capture profile timings should use safe defaults: %#v", profile)
+	}
 	if updated.AI.TraceMode != "off" {
 		t.Fatalf("unknown trace mode should normalize to off, got %q", updated.AI.TraceMode)
 	}
@@ -111,6 +126,7 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 	legacy := defaultSettings()
 	legacy.Version = currentSettingsVersion - 1
 	legacy.General.Theme = "dark"
+	legacy.WorkMemory.DraftScheduleEnabled = false
 	raw, err := json.Marshal(legacy)
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +142,7 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 	if migrated.General.Theme != "light" {
 		t.Fatalf("legacy experimental dark should reset to light, got %q", migrated.General.Theme)
 	}
-	if migrated.WorkMemory.DraftScheduleEnabled || migrated.WorkMemory.DraftScheduleIntervalMin != 240 || !migrated.WorkMemory.DailyDraftScheduleEnabled || !migrated.WorkMemory.RetroDraftScheduleEnabled || !migrated.WorkMemory.ExperienceScheduleEnabled {
+	if !migrated.WorkMemory.DraftScheduleEnabled || migrated.WorkMemory.DraftScheduleIntervalMin != 240 || !migrated.WorkMemory.DailyDraftScheduleEnabled || !migrated.WorkMemory.RetroDraftScheduleEnabled || !migrated.WorkMemory.ExperienceScheduleEnabled {
 		t.Fatalf("legacy settings should get safe draft schedule defaults: %#v", migrated.WorkMemory)
 	}
 

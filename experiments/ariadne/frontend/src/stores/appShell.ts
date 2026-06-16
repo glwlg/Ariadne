@@ -1,8 +1,8 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { Events, Window } from '@wailsio/runtime'
-import { applyLauncherWindowGeometry, launcherGeometry } from '../lib/launcherGeometry'
-import { openToolWindow, showLauncherWindow } from '../services/toolWindowsApi'
+import { launcherGeometry } from '../lib/launcherGeometry'
+import { enableTaskbarToggle, openToolWindow, showLauncherWindow } from '../services/toolWindowsApi'
 
 export type AppToolView =
   | 'work-memory'
@@ -31,7 +31,7 @@ const viewSizes: Record<AppView, { width: number; height: number }> = {
 
 const viewTitles: Record<AppView, string> = {
   launcher: 'Ariadne',
-  'work-memory': 'Ariadne - 工作记忆',
+  'work-memory': 'Ariadne - 心流',
   clipboard: 'Ariadne - 剪贴板历史',
   capture: 'Ariadne - 捕获历史',
   hosts: 'Ariadne - Hosts',
@@ -43,12 +43,16 @@ const viewTitles: Record<AppView, string> = {
 }
 
 export const useAppShellStore = defineStore('app-shell', () => {
-  const activeView = ref<AppView>('launcher')
+  const activeView = ref<AppView>('work-memory')
 
-  async function setWindowSize(width: number, height: number) {
+  async function setWindowSize(width: number, height: number, resizable = true, frameless = true) {
     try {
       await Window.Restore()
-      await Window.SetFrameless(true)
+      await Window.SetFrameless(frameless)
+      await Window.SetResizable(resizable)
+      if (resizable) {
+        await Window.SetMinSize(Math.min(width, 900), Math.min(height, 620))
+      }
       await Window.SetSize(width, height)
       await Window.Center()
     } catch {
@@ -57,53 +61,54 @@ export const useAppShellStore = defineStore('app-shell', () => {
   }
 
   function openLauncher() {
-    if (isStandaloneToolWindow()) {
-      void showLauncherWindow().finally(() => {
-        void Window.Close()
-      })
+    if (isLauncherWindow()) {
+      activeView.value = 'launcher'
+      document.title = viewTitles.launcher
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { reset: true } })), 0)
       return
     }
+    void showLauncherWindow()
+  }
 
-    activeView.value = 'launcher'
-    document.title = viewTitles.launcher
-    void applyLauncherWindowGeometry(false, { restore: true, reservePosition: true })
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { reset: true } })), 0)
+  function activateMainView(view: AppView) {
+    activeView.value = view
+    document.title = viewTitles[activeView.value]
   }
 
   function openWorkMemory() {
-    openView('work-memory')
+    return openView('work-memory')
   }
 
   function openClipboard() {
-    openView('clipboard')
+    return openView('clipboard')
   }
 
   function openCaptureHistory() {
-    openView('capture')
+    return openView('capture')
   }
 
   function openHosts() {
-    openView('hosts')
+    return openView('hosts')
   }
 
   function openWorkflow() {
-    openView('workflow')
+    return openView('workflow')
   }
 
   function openJsonCompare() {
-    openView('json-compare')
+    return openView('json-compare')
   }
 
   function openNetworkMonitor() {
-    openView('network-monitor')
+    return openView('network-monitor')
   }
 
   function openNetworkMini() {
-    openView('network-mini')
+    return openView('network-mini')
   }
 
   function openSettings() {
-    openView('settings')
+    return openView('settings')
   }
 
   async function closeCurrentWindow() {
@@ -121,28 +126,36 @@ export const useAppShellStore = defineStore('app-shell', () => {
   function openView(view: AppView) {
     if (view === 'launcher') {
       openLauncher()
-      return
+      return Promise.resolve(true)
     }
-    openToolView(view)
+    return openToolView(view)
   }
 
-  function openToolView(view: AppToolView) {
-    void openToolWindow(view).then((result) => {
-      if (result.ok) {
-        if (!isStandaloneToolWindow()) {
-          void Window.Hide()
-        }
-        return
+  async function openToolView(view: AppToolView) {
+    const result = await openToolWindow(view)
+    if (result.ok) {
+      if (isLauncherWindow()) {
+        void Window.Hide()
       }
+      return true
+    }
+    if (import.meta.env.DEV) {
       openViewFallback(view)
-    })
+      return true
+    }
+    console.warn(`Ariadne tool window failed: ${result.message}`)
+    return false
   }
 
   function openViewFallback(view: AppView) {
     activeView.value = view
     document.title = viewTitles[view]
     const size = viewSizes[view]
-    void setWindowSize(size.width, size.height)
+    void setWindowSize(size.width, size.height, view !== 'network-mini', view === 'launcher' || view === 'network-mini').then(() => {
+      if (view !== 'launcher' && view !== 'network-mini') {
+        void enableTaskbarToggle(view)
+      }
+    })
   }
 
   function installShellEventListeners() {
@@ -150,8 +163,10 @@ export const useAppShellStore = defineStore('app-shell', () => {
       if (!isAppView(view)) return
       if (view === 'launcher') {
         openLauncher()
+      } else if (view === 'work-memory' && !isStandaloneToolWindow()) {
+        activateMainView('work-memory')
       } else {
-        openToolView(view)
+        void openToolView(view)
       }
     }
     const handleDomNavigate = (event: Event) => {
@@ -184,8 +199,14 @@ export const useAppShellStore = defineStore('app-shell', () => {
     return view !== '' && view !== 'pinned-image' && view !== 'capture-overlay'
   }
 
+  function isLauncherWindow() {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('view') === 'launcher'
+  }
+
   return {
     activeView,
+    activateMainView,
     openView,
     openLauncher,
     openWorkMemory,

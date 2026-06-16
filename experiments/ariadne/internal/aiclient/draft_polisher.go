@@ -28,6 +28,12 @@ type OpenAICompatiblePolisher struct {
 	SecretTargets []string
 }
 
+type OpenAICompatibleOCRSummarizer struct {
+	HTTPClient    *http.Client
+	APIKeyEnv     []string
+	SecretTargets []string
+}
+
 type OpenAICompatibleExperienceDiscoverer struct {
 	HTTPClient    *http.Client
 	APIKeyEnv     []string
@@ -44,6 +50,14 @@ func NewOpenAICompatibleEmbedder() *OpenAICompatibleEmbedder {
 
 func NewOpenAICompatiblePolisher() *OpenAICompatiblePolisher {
 	return &OpenAICompatiblePolisher{
+		HTTPClient:    &http.Client{Timeout: 45 * time.Second},
+		APIKeyEnv:     []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+		SecretTargets: []string{securestore.TargetOpenAIAPIKey},
+	}
+}
+
+func NewOpenAICompatibleOCRSummarizer() *OpenAICompatibleOCRSummarizer {
+	return &OpenAICompatibleOCRSummarizer{
 		HTTPClient:    &http.Client{Timeout: 45 * time.Second},
 		APIKeyEnv:     []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
 		SecretTargets: []string{securestore.TargetOpenAIAPIKey},
@@ -233,6 +247,91 @@ func (p *OpenAICompatiblePolisher) apiKey() string {
 	return apiKeyFromCredentialManager(p.SecretTargets)
 }
 
+func (s *OpenAICompatibleOCRSummarizer) SummarizeOCR(ctx context.Context, job workmemory.OCRSummaryJob) (workmemory.OCRSummaryResult, error) {
+	provider := strings.TrimSpace(strings.ToLower(job.Provider))
+	if provider != "openai-compatible" && provider != "openai" {
+		return workmemory.OCRSummaryResult{}, fmt.Errorf("不支持的 AI provider: %s", firstNonEmpty(job.Provider, "disabled"))
+	}
+	model := strings.TrimSpace(job.Model)
+	if model == "" {
+		return workmemory.OCRSummaryResult{}, errors.New("AI model 未配置")
+	}
+	if strings.TrimSpace(job.OCRText) == "" {
+		return workmemory.OCRSummaryResult{}, errors.New("OCR 文本为空")
+	}
+	apiKey := s.apiKey()
+	if apiKey == "" {
+		return workmemory.OCRSummaryResult{}, errors.New("未检测到 ARIADNE_AI_API_KEY 或 OPENAI_API_KEY")
+	}
+	endpoint := strings.TrimRight(strings.TrimSpace(job.BaseURL), "/")
+	if endpoint == "" {
+		endpoint = "https://api.openai.com/v1"
+	}
+	endpoint += "/chat/completions"
+
+	payload := chatCompletionRequest{
+		Model:       model,
+		Temperature: 0.1,
+		Messages: []chatMessage{
+			{Role: "system", Content: "你是 Ariadne 心流时间线的中文 OCR 整理器。只根据给定 OCR 和上下文生成标题、摘要和整理正文，不新增事实，不暴露敏感密钥。必须只输出 JSON。"},
+			{Role: "user", Content: ocrSummaryPrompt(job)},
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return workmemory.OCRSummaryResult{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return workmemory.OCRSummaryResult{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := s.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return workmemory.OCRSummaryResult{}, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 2*1024*1024))
+	if err != nil {
+		return workmemory.OCRSummaryResult{}, err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return workmemory.OCRSummaryResult{}, fmt.Errorf("AI provider 返回 HTTP %d: %s", response.StatusCode, truncate(string(body), 240))
+	}
+
+	var result chatCompletionResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return workmemory.OCRSummaryResult{}, err
+	}
+	if len(result.Choices) == 0 {
+		return workmemory.OCRSummaryResult{}, errors.New("AI provider 未返回 choices")
+	}
+	content := strings.TrimSpace(result.Choices[0].Message.Content)
+	if content == "" {
+		return workmemory.OCRSummaryResult{}, errors.New("AI provider 返回空内容")
+	}
+	return parseOCRSummary(content)
+}
+
+func (s *OpenAICompatibleOCRSummarizer) apiKey() string {
+	envs := s.APIKeyEnv
+	if len(envs) == 0 {
+		envs = []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
+	}
+	for _, name := range envs {
+		if value := cleanAPIKey(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return apiKeyFromCredentialManager(s.SecretTargets)
+}
+
 func (d *OpenAICompatibleExperienceDiscoverer) DiscoverExperiences(ctx context.Context, job workmemory.ExperienceDiscoveryJob) (workmemory.ExperienceReport, error) {
 	provider := strings.TrimSpace(strings.ToLower(job.Provider))
 	if provider != "openai-compatible" && provider != "openai" {
@@ -377,6 +476,48 @@ func polishPrompt(job workmemory.DraftPolishJob) string {
 	)
 }
 
+func ocrSummaryPrompt(job workmemory.OCRSummaryJob) string {
+	now := job.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	entry := job.Entry
+	return fmt.Sprintf(`请把下面的截图 OCR 结果整理成 Ariadne 心流时间线可以直接展示的内容。
+
+要求：
+1. 输出严格 JSON object，不要代码块，不要 Markdown 前言。
+2. title 使用中文或原文关键短语，8 到 24 个中文字符左右，避免使用“work”“截图”“当前屏幕”等泛标题。
+3. summary 用一句话概括这张截图主要在做什么。
+4. text 使用简洁 Markdown，优先整理成“要点”或“可见内容”，不要逐字堆叠原始 OCR 噪声。
+5. 只能使用输入里可见的信息，不要补充推测；信息不足时明确写“可见内容不足”。
+6. 删除明显重复、乱码、路径噪声和 UI 装饰词；不要输出密钥、token、密码等敏感值。
+
+JSON schema:
+{
+  "title": "可读标题",
+  "summary": "一句摘要",
+  "text": "## 可见内容\n- 整理后的要点"
+}
+
+时间：%s
+应用：%s
+窗口：%s
+来源：%s
+当前标题：%s
+当前摘要：%s
+
+OCR 文本：
+%s`,
+		now.Format(time.RFC3339),
+		strings.TrimSpace(entry.AppName),
+		strings.TrimSpace(entry.WindowTitle),
+		strings.TrimSpace(entry.Source),
+		strings.TrimSpace(entry.Title),
+		strings.TrimSpace(entry.Summary),
+		truncate(strings.TrimSpace(job.OCRText), 8000),
+	)
+}
+
 func experienceDiscoveryPrompt(job workmemory.ExperienceDiscoveryJob) string {
 	now := job.Now
 	if now.IsZero() {
@@ -448,6 +589,18 @@ func parseExperienceDiscoveryReport(content string, job workmemory.ExperienceDis
 		})
 	}
 	return report, nil
+}
+
+func parseOCRSummary(content string) (workmemory.OCRSummaryResult, error) {
+	var payload ocrSummaryPayload
+	if err := json.Unmarshal([]byte(extractJSONObject(content)), &payload); err != nil {
+		return workmemory.OCRSummaryResult{}, err
+	}
+	return workmemory.OCRSummaryResult{
+		Title:   strings.TrimSpace(payload.Title),
+		Summary: strings.TrimSpace(payload.Summary),
+		Text:    strings.TrimSpace(payload.Text),
+	}, nil
 }
 
 func extractJSONObject(content string) string {
@@ -525,6 +678,12 @@ type experienceDiscoveryPayload struct {
 		Confidence     float64  `json:"confidence"`
 		Severity       string   `json:"severity"`
 	} `json:"insights"`
+}
+
+type ocrSummaryPayload struct {
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Text    string `json:"text"`
 }
 
 type embeddingRequest struct {

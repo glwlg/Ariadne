@@ -69,10 +69,11 @@ export const useLauncherStore = defineStore('launcher', () => {
 
     if (action.id === 'open_tool') {
       const appShell = useAppShellStore()
+      let opened = false
       if (command === 'open_clipboard_center') {
-        appShell.openClipboard()
+        opened = await appShell.openClipboard()
       } else if (command === 'open_capture_center') {
-        appShell.openCaptureHistory()
+        opened = await appShell.openCaptureHistory()
       } else if (command === 'open_capture_overlay') {
         const response = await openCaptureOverlay()
         lastAction.value = { ok: response.ok, message: response.message || (response.ok ? '已打开截图覆盖层' : '打开截图覆盖层失败') }
@@ -81,21 +82,23 @@ export const useLauncherStore = defineStore('launcher', () => {
         }, action.feedback?.durationMs ?? 1400)
         return
       } else if (command === 'open_work_memory_center') {
-        appShell.openWorkMemory()
+        opened = await appShell.openWorkMemory()
       } else if (command === 'open_hosts') {
-        appShell.openHosts()
+        opened = await appShell.openHosts()
       } else if (command === 'open_workflow_center') {
-        appShell.openWorkflow()
+        opened = await appShell.openWorkflow()
       } else if (command === 'open_json_compare') {
-        appShell.openJsonCompare()
+        opened = await appShell.openJsonCompare()
       } else if (command === 'open_network_monitor') {
-        appShell.openNetworkMonitor()
+        opened = await appShell.openNetworkMonitor()
       } else if (command === 'open_network_mini') {
-        appShell.openNetworkMini()
+        opened = await appShell.openNetworkMini()
       } else if (command === 'open_settings') {
-        appShell.openSettings()
+        opened = await appShell.openSettings()
       }
-      lastAction.value = { ok: true, message: action.feedback?.successLabel ?? `${action.label} 已打开` }
+      lastAction.value = opened
+        ? { ok: true, message: action.feedback?.successLabel ?? `${action.label} 已打开` }
+        : { ok: false, message: `${action.label} 打开失败：工具窗口服务不可用` }
       window.setTimeout(() => {
         lastAction.value = null
       }, action.feedback?.durationMs ?? 1400)

@@ -18,6 +18,7 @@ export interface NetworkMiniStatus {
   autoHideFullscreen: boolean
   fullscreenActive: boolean
   autoHidden: boolean
+  visible: boolean
   locked: boolean
   configPath?: string
   lastError?: string
@@ -39,8 +40,8 @@ export interface NetworkMiniScreenStatus {
 
 async function tryToolWindowBinding() {
   try {
-    const bindingPath = '../../bindings/ariadne/internal/toolwindows/service.js'
-    return await import(/* @vite-ignore */ bindingPath)
+    // @ts-expect-error Wails generated bindings are JavaScript-only, but this import must stay static for Vite packaging.
+    return await import('../../bindings/ariadne/internal/toolwindows/service.js')
   } catch {
     return null
   }
@@ -60,6 +61,12 @@ export async function showLauncherWindow(): Promise<ToolWindowOpenResult> {
     return { ok: false, message: '启动器窗口服务仅在桌面运行时可用', view: 'launcher' }
   }
   return await binding.ShowLauncher()
+}
+
+export async function enableTaskbarToggle(view: AppToolView): Promise<ToolWindowOpenResult | null> {
+  const binding = await tryToolWindowBinding()
+  if (!binding?.EnableTaskbarToggle) return null
+  return await binding.EnableTaskbarToggle(view)
 }
 
 export async function getNetworkMiniStatus(): Promise<NetworkMiniStatus | null> {

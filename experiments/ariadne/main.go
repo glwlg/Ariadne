@@ -22,7 +22,6 @@ import (
 	"ariadne/internal/imageindex"
 	"ariadne/internal/jsoncompare"
 	"ariadne/internal/launchers"
-	"ariadne/internal/launcherwindow"
 	"ariadne/internal/legacybridge"
 	"ariadne/internal/migration"
 	"ariadne/internal/networkmonitor"
@@ -49,6 +48,9 @@ var assets embed.FS
 
 //go:embed assets/logo.ico
 var appIcon []byte
+
+//go:embed assets/logo.png
+var trayIcon []byte
 
 func main() {
 	logService := applog.NewService()
@@ -102,12 +104,15 @@ func main() {
 		}
 		return *result.WorkMemory
 	})
+	workmemory.RegisterOCRSummarizer(workMemoryService, aiclient.NewOpenAICompatibleOCRSummarizer())
 	workmemory.RegisterDraftPolisher(workMemoryService, aiclient.NewOpenAICompatiblePolisher())
+	workmemory.RegisterFlowAgentRunner(workMemoryService, aiclient.NewCodexFlowAgent())
 	workmemory.RegisterExperienceDiscoverer(workMemoryService, aiclient.NewOpenAICompatibleExperienceDiscoverer())
 	workmemory.RegisterEmbeddingClient(workMemoryService, aiclient.NewOpenAICompatibleEmbedder())
 	imageIndexService := imageindex.NewService(captureService, clipboardService, ocrService)
 	searchService := search.NewService(fileSearchService, appService, launcherService, clipboardService, captureService, imageIndexService, workflowService, pluginService, workMemoryService)
 	toolWindowService := toolwindows.NewService()
+	toolWindowService.SetWindowIcon(appIcon)
 	initialHotkeys := settingsService.GetSettings().Hotkeys
 	shellManager := shell.NewManager(
 		initialHotkeys.ToggleWindow,
@@ -242,29 +247,28 @@ func main() {
 	applyCaptureOverlayRuntime(captureOverlayService, initialSettings.Screenshot)
 	applyWorkMemoryAIRuntime(workMemoryService, initialSettings.AI, initialSettings.WorkMemory)
 
-	launcherPosition, launcherX, launcherY, launcherScreen := launcherwindow.InitialPlacement(app.Screen.GetPrimary())
 	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
-		Title:            "Ariadne",
-		Width:            launcherwindow.Width,
-		Height:           launcherwindow.CollapsedHeight,
-		X:                launcherX,
-		Y:                launcherY,
+		Title:            "Ariadne - 心流",
+		Width:            1280,
+		Height:           820,
+		MinWidth:         1040,
+		MinHeight:        640,
 		AlwaysOnTop:      false,
-		Frameless:        true,
-		DisableResize:    true,
-		BackgroundType:   application.BackgroundTypeTransparent,
-		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
-		InitialPosition:  launcherPosition,
-		Screen:           launcherScreen,
+		Frameless:        false,
+		DisableResize:    false,
+		BackgroundColour: application.NewRGB(244, 244, 245),
+		InitialPosition:  application.WindowCentered,
 		Hidden:           shouldStartHidden(),
 		Windows: application.WindowsWindow{
 			Theme:                             application.Light,
-			DisableIcon:                       true,
-			DisableFramelessWindowDecorations: true,
+			DisableIcon:                       false,
+			DisableFramelessWindowDecorations: false,
+			HiddenOnTaskbar:                   false,
 		},
 	})
-	shellManager.Attach(app, mainWindow, appIcon)
+	toolWindowService.ApplyMainWindowPolicy()
+	shellManager.Attach(app, mainWindow, trayIcon)
 	if err := shellManager.ApplyAutostart(settingsService.GetSettings().General.RunOnStartup); err != nil {
 		log.Printf("apply autostart: %v", err)
 	}
@@ -361,6 +365,7 @@ func applyWorkMemoryRuntime(service *workmemory.Service, config settings.WorkMem
 		ExcludeWindowKeywords:  config.ExcludeWindowKeywords,
 		ExcludePaths:           config.ExcludePaths,
 		ExcludeContentPatterns: config.ExcludeContentPatterns,
+		AppCaptureProfiles:     workMemoryAppProfiles(config.AppCaptureProfiles),
 		AutoOCR:                config.AutoOCR,
 		CaptureScope:           config.CaptureScope,
 		MultiMonitor:           config.MultiMonitor,
@@ -386,12 +391,39 @@ func applyWorkMemoryRuntime(service *workmemory.Service, config settings.WorkMem
 	})
 }
 
+func workMemoryAppProfiles(config []settings.WorkMemoryAppCaptureProfile) []workmemory.AppCaptureProfile {
+	profiles := make([]workmemory.AppCaptureProfile, 0, len(config))
+	for _, profile := range config {
+		profiles = append(profiles, workmemory.AppCaptureProfile{
+			ID:                       profile.ID,
+			DisplayName:              profile.DisplayName,
+			ProcessName:              profile.ProcessName,
+			Icon:                     profile.Icon,
+			Enabled:                  profile.Enabled,
+			WindowSwitchDelaySeconds: profile.WindowSwitchDelaySeconds,
+			ActiveIntervalSeconds:    profile.ActiveIntervalSeconds,
+		})
+	}
+	return profiles
+}
+
 func applyWorkMemoryAIRuntime(service *workmemory.Service, config settings.AISettings, memory settings.WorkMemorySettings) {
 	service.ApplyDraftPolishPolicy(workmemory.DraftPolishPolicy{
 		Enabled:  config.Enabled,
 		Provider: firstNonEmpty(config.Provider, "openai-compatible"),
 		BaseURL:  firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
 		Model:    firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL")),
+	})
+	service.ApplyOCRSummaryPolicy(workmemory.OCRSummaryPolicy{
+		Enabled:  config.Enabled,
+		Provider: firstNonEmpty(config.Provider, "openai-compatible"),
+		BaseURL:  firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
+		Model:    firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL")),
+	})
+	service.ApplyFlowAgentPolicy(workmemory.FlowAgentPolicy{
+		Enabled: flowAgentEnabled(config, memory),
+		Runner:  flowAgentRunner(config),
+		Model:   strings.TrimSpace(os.Getenv("ARIADNE_FLOW_CODEX_MODEL")),
 	})
 	service.ApplyExperienceDiscoveryPolicy(workmemory.ExperienceDiscoveryPolicy{
 		Enabled:  config.Enabled && memory.ExperienceDiscoveryEnabled,
@@ -408,6 +440,28 @@ func applyWorkMemoryAIRuntime(service *workmemory.Service, config settings.AISet
 		VectorStoreURI:   config.VectorStoreURI,
 		VectorCollection: config.VectorCollection,
 	})
+}
+
+func flowAgentEnabled(config settings.AISettings, memory settings.WorkMemorySettings) bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ARIADNE_FLOW_AGENT")))
+	switch env {
+	case "off", "none", "disabled":
+		return false
+	case "codex":
+		return memory.Enabled
+	}
+	return memory.Enabled && (config.CodexCollaborationEnabled || config.AgentsSDKEnabled || config.ExternalAgentEnabled || config.Enabled)
+}
+
+func flowAgentRunner(config settings.AISettings) string {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ARIADNE_FLOW_AGENT")))
+	if env == "codex" {
+		return "codex"
+	}
+	if config.CodexCollaborationEnabled || config.AgentsSDKEnabled || config.ExternalAgentEnabled || config.Enabled {
+		return "codex"
+	}
+	return "disabled"
 }
 
 func firstNonEmpty(values ...string) string {

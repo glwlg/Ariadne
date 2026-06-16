@@ -641,6 +641,76 @@ export class StorageStatus {
     }
 }
 
+export class WorkMemoryAppCaptureProfile {
+    /**
+     * Creates a new WorkMemoryAppCaptureProfile instance.
+     * @param {Partial<WorkMemoryAppCaptureProfile>} [$$source = {}] - The source object to create the WorkMemoryAppCaptureProfile.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("displayName" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["displayName"] = "";
+        }
+        if (!("processName" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["processName"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["icon"] = undefined;
+        }
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("windowSwitchDelaySeconds" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["windowSwitchDelaySeconds"] = 0;
+        }
+        if (!("activeIntervalSeconds" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["activeIntervalSeconds"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorkMemoryAppCaptureProfile instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {WorkMemoryAppCaptureProfile}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WorkMemoryAppCaptureProfile(/** @type {Partial<WorkMemoryAppCaptureProfile>} */($$parsedSource));
+    }
+}
+
 export class WorkMemorySettings {
     /**
      * Creates a new WorkMemorySettings instance.
@@ -681,6 +751,13 @@ export class WorkMemorySettings {
              * @type {number}
              */
             this["windowSwitchCooldownSeconds"] = 0;
+        }
+        if (!("appCaptureProfiles" in $$source)) {
+            /**
+             * @member
+             * @type {WorkMemoryAppCaptureProfile[]}
+             */
+            this["appCaptureProfiles"] = [];
         }
         if (!("captureScope" in $$source)) {
             /**
@@ -923,26 +1000,30 @@ export class WorkMemorySettings {
      * @returns {WorkMemorySettings}
      */
     static createFrom($$source = {}) {
-        const $$createField31_0 = $$createType6;
+        const $$createField5_0 = $$createType9;
         const $$createField32_0 = $$createType6;
         const $$createField33_0 = $$createType6;
         const $$createField34_0 = $$createType6;
         const $$createField35_0 = $$createType6;
+        const $$createField36_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("appCaptureProfiles" in $$parsedSource) {
+            $$parsedSource["appCaptureProfiles"] = $$createField5_0($$parsedSource["appCaptureProfiles"]);
+        }
         if ("excludeApps" in $$parsedSource) {
-            $$parsedSource["excludeApps"] = $$createField31_0($$parsedSource["excludeApps"]);
+            $$parsedSource["excludeApps"] = $$createField32_0($$parsedSource["excludeApps"]);
         }
         if ("excludeWindowKeywords" in $$parsedSource) {
-            $$parsedSource["excludeWindowKeywords"] = $$createField32_0($$parsedSource["excludeWindowKeywords"]);
+            $$parsedSource["excludeWindowKeywords"] = $$createField33_0($$parsedSource["excludeWindowKeywords"]);
         }
         if ("excludePaths" in $$parsedSource) {
-            $$parsedSource["excludePaths"] = $$createField33_0($$parsedSource["excludePaths"]);
+            $$parsedSource["excludePaths"] = $$createField34_0($$parsedSource["excludePaths"]);
         }
         if ("excludeUrls" in $$parsedSource) {
-            $$parsedSource["excludeUrls"] = $$createField34_0($$parsedSource["excludeUrls"]);
+            $$parsedSource["excludeUrls"] = $$createField35_0($$parsedSource["excludeUrls"]);
         }
         if ("excludeContentPatterns" in $$parsedSource) {
-            $$parsedSource["excludeContentPatterns"] = $$createField35_0($$parsedSource["excludeContentPatterns"]);
+            $$parsedSource["excludeContentPatterns"] = $$createField36_0($$parsedSource["excludeContentPatterns"]);
         }
         return new WorkMemorySettings(/** @type {Partial<WorkMemorySettings>} */($$parsedSource));
     }
@@ -957,3 +1038,5 @@ const $$createType4 = AISettings.createFrom;
 const $$createType5 = PluginSettings.createFrom;
 const $$createType6 = $Create.Array($Create.Any);
 const $$createType7 = $Create.Map($Create.Any, $Create.Any);
+const $$createType8 = WorkMemoryAppCaptureProfile.createFrom;
+const $$createType9 = $Create.Array($$createType8);

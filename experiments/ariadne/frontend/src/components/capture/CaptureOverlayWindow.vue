@@ -1681,6 +1681,37 @@ function clampNumber(value: number, min: number, max: number) {
       >
         选择
       </button>
+      <button type="button" :disabled="isBusy" title="保存到截图历史" @click="runSelectionAction('capture')">
+        <Check :size="14" />
+        保存
+      </button>
+      <button type="button" :disabled="isBusy" title="另存为" @click="runSaveAsAction">
+        <Save :size="14" />
+        另存
+      </button>
+      <button type="button" :disabled="isBusy" title="复制到剪贴板 (Enter)" @click="runSelectionAction('copy')">
+        <Copy :size="14" />
+        复制
+      </button>
+      <button type="button" :disabled="isBusy" title="贴图 (P)" @click="runSelectionAction('pin')">
+        <Pin :size="14" />
+        贴图
+      </button>
+      <button type="button" :disabled="isBusy || !annotationOperations.length" title="撤销标注" @click="undoAnnotation">
+        <RotateCcw :size="14" />
+      </button>
+      <button type="button" :disabled="isBusy || !redoAnnotationOperations.length" title="重做标注" @click="redoAnnotation">
+        <Redo2 :size="14" />
+      </button>
+      <button type="button" :disabled="isBusy || !annotationOperations.length" title="清空标注" @click="clearAnnotations">
+        清空
+      </button>
+      <button type="button" :disabled="isBusy || selectedAnnotationIndex === null" title="删除选中标注" @click="deleteSelectedAnnotation">
+        删除
+      </button>
+      <button type="button" :disabled="isBusy" title="重新选择" @click="resetSelection">
+        <X :size="14" />
+      </button>
       <div class="capture-color-strip" role="group" aria-label="标注颜色">
         <button
           v-for="color in colorPalette"
@@ -1698,37 +1729,6 @@ function clampNumber(value: number, min: number, max: number) {
         <input v-model.number="annotationThickness" type="range" min="1" max="24" step="1" />
         <strong>{{ annotationThickness }}</strong>
       </label>
-      <button type="button" :disabled="isBusy || !annotationOperations.length" title="撤销标注" @click="undoAnnotation">
-        <RotateCcw :size="14" />
-      </button>
-      <button type="button" :disabled="isBusy || !redoAnnotationOperations.length" title="重做标注" @click="redoAnnotation">
-        <Redo2 :size="14" />
-      </button>
-      <button type="button" :disabled="isBusy || !annotationOperations.length" title="清空标注" @click="clearAnnotations">
-        清空
-      </button>
-      <button type="button" :disabled="isBusy || selectedAnnotationIndex === null" title="删除选中标注" @click="deleteSelectedAnnotation">
-        删除
-      </button>
-      <button type="button" :disabled="isBusy" title="重新选择" @click="resetSelection">
-        <X :size="14" />
-      </button>
-      <button type="button" :disabled="isBusy" title="保存到截图历史" @click="runSelectionAction('capture')">
-        <Check :size="14" />
-        保存
-      </button>
-      <button type="button" :disabled="isBusy" title="另存为" @click="runSaveAsAction">
-        <Save :size="14" />
-        另存
-      </button>
-      <button type="button" :disabled="isBusy" title="复制到剪贴板 (Enter)" @click="runSelectionAction('copy')">
-        <Copy :size="14" />
-        复制
-      </button>
-      <button type="button" :disabled="isBusy" title="贴图 (P)" @click="runSelectionAction('pin')">
-        <Pin :size="14" />
-        贴图
-      </button>
     </div>
 
     <button class="capture-overlay-close" type="button" title="退出" @click.stop="closeWindow(true)">

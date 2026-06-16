@@ -187,6 +187,13 @@ export class NetworkMiniStatus {
              */
             this["autoHidden"] = false;
         }
+        if (!("visible" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["visible"] = false;
+        }
         if (!("locked" in $$source)) {
             /**
              * @member

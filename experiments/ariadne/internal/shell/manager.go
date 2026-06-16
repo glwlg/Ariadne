@@ -79,7 +79,7 @@ func (m *Manager) SingleInstanceOptions() *application.SingleInstanceOptions {
 	return &application.SingleInstanceOptions{
 		UniqueID: "com.glwlg.ariadne",
 		OnSecondInstanceLaunch: func(application.SecondInstanceData) {
-			m.ShowLauncher()
+			m.OpenWorkMemory()
 		},
 	}
 }
@@ -300,7 +300,7 @@ func (m *Manager) configureTray(icon []byte) {
 
 	menu := application.NewMenu()
 	menu.Add("打开启动器").OnClick(func(*application.Context) { m.ShowLauncher() })
-	menu.Add("工作记忆中心").OnClick(func(*application.Context) { m.openView("work-memory") })
+	menu.Add("心流").OnClick(func(*application.Context) { m.OpenWorkMemory() })
 	menu.Add("剪贴板历史").OnClick(func(*application.Context) { m.openView("clipboard") })
 	menu.Add("截图历史").OnClick(func(*application.Context) { m.openView("capture") })
 	menu.Add("Hosts 管理").OnClick(func(*application.Context) { m.openView("hosts") })
@@ -319,7 +319,7 @@ func (m *Manager) configureTray(icon []byte) {
 	if len(icon) > 0 {
 		tray.SetIcon(icon)
 	}
-	tray.OnClick(func() { m.ShowLauncher() })
+	tray.OnClick(func() { m.OpenWorkMemory() })
 	tray.OnRightClick(func() { tray.OpenMenu() })
 
 	m.mu.Lock()
@@ -455,7 +455,10 @@ func (m *Manager) openPinClipboard() {
 }
 
 func (m *Manager) openView(view string) {
-	if view != "launcher" && m.toolOpener != nil && m.toolOpener(view) {
+	if view == "launcher" && m.toolOpener != nil && m.toolOpener(view) {
+		return
+	}
+	if view != "launcher" && view != "work-memory" && m.toolOpener != nil && m.toolOpener(view) {
 		return
 	}
 	m.mu.RLock()
@@ -470,6 +473,9 @@ func (m *Manager) openView(view string) {
 	window.SetAlwaysOnTop(false)
 	if view == "launcher" {
 		launcherwindow.ApplyCollapsed(window, primaryScreen(app))
+	} else if view == "work-memory" {
+		window.SetSize(1280, 820)
+		window.Center()
 	} else {
 		width, height := viewSize(view)
 		window.SetSize(width, height)

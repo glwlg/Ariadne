@@ -77,6 +77,53 @@ func TestOpenAICompatiblePolisherRequiresKeyAndSupportedProvider(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleOCRSummarizerPostsChatCompletion(t *testing.T) {
+	t.Setenv("ARIADNE_AI_API_KEY", "test-key")
+	var captured chatCompletionRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("unexpected authorization header: %s", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		response := `{"choices":[{"message":{"role":"assistant","content":"{\"title\":\"时间线标题优化\",\"summary\":\"正在整理截图后的 OCR 内容。\",\"text\":\"## 可见内容\\n- 时间线标题需要更有意义\"}"}}]}`
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	summarizer := &OpenAICompatibleOCRSummarizer{HTTPClient: server.Client(), APIKeyEnv: []string{"ARIADNE_AI_API_KEY"}}
+	result, err := summarizer.SummarizeOCR(context.Background(), workmemory.OCRSummaryJob{
+		Provider: "openai-compatible",
+		BaseURL:  server.URL + "/v1",
+		Model:    "test-model",
+		Now:      time.Unix(1781404200, 0),
+		Entry: workmemory.Entry{
+			ID:          "memory-a",
+			Title:       "work",
+			AppName:     "msedge.exe",
+			WindowTitle: "work",
+			Source:      "work_memory_time_machine",
+		},
+		OCRText: "时间线里的标题还是没什么意义\n截图之后应该自动 OCR",
+	})
+	if err != nil {
+		t.Fatalf("summarize OCR: %v", err)
+	}
+	if captured.Model != "test-model" || len(captured.Messages) != 2 {
+		t.Fatalf("unexpected request payload: %#v", captured)
+	}
+	if !strings.Contains(captured.Messages[1].Content, "截图之后应该自动 OCR") || !strings.Contains(captured.Messages[1].Content, "JSON schema") {
+		t.Fatalf("prompt lost OCR context: %s", captured.Messages[1].Content)
+	}
+	if result.Title != "时间线标题优化" || !strings.Contains(result.Text, "时间线标题") {
+		t.Fatalf("unexpected OCR summary: %#v", result)
+	}
+}
+
 func TestOpenAICompatibleExperienceDiscovererPostsChatCompletion(t *testing.T) {
 	t.Setenv("ARIADNE_AI_API_KEY", "test-key")
 	var captured chatCompletionRequest
@@ -169,6 +216,7 @@ func TestOpenAICompatibleEmbedderPostsEmbeddingRequest(t *testing.T) {
 }
 
 func TestOpenAICompatibleEmbedderRequiresKey(t *testing.T) {
+	t.Setenv("EMBED__API_KEY", "")
 	embedder := &OpenAICompatibleEmbedder{APIKeyEnv: []string{"EMBED__API_KEY"}}
 	_, err := embedder.EmbedTexts(context.Background(), workmemory.EmbeddingJob{
 		Provider: "openai-compatible",

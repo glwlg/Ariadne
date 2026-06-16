@@ -99,6 +99,467 @@ export class AgentTaskPackage {
     }
 }
 
+export class AppCaptureProfile {
+    /**
+     * Creates a new AppCaptureProfile instance.
+     * @param {Partial<AppCaptureProfile>} [$$source = {}] - The source object to create the AppCaptureProfile.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("displayName" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["displayName"] = "";
+        }
+        if (!("processName" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["processName"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["icon"] = undefined;
+        }
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("windowSwitchDelaySeconds" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["windowSwitchDelaySeconds"] = 0;
+        }
+        if (!("activeIntervalSeconds" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["activeIntervalSeconds"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AppCaptureProfile instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AppCaptureProfile}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AppCaptureProfile(/** @type {Partial<AppCaptureProfile>} */($$parsedSource));
+    }
+}
+
+export class AutonomousArtifact {
+    /**
+     * Creates a new AutonomousArtifact instance.
+     * @param {Partial<AutonomousArtifact>} [$$source = {}] - The source object to create the AutonomousArtifact.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("kind" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("summary" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["summary"] = "";
+        }
+        if (!("body" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["body"] = "";
+        }
+        if (!("evidence" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["evidence"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["sourceInsightId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["dedupKey"] = undefined;
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["deleteReason"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["confidence"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["agentExecutable"] = undefined;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["updatedAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["deletedAt"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutonomousArtifact instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutonomousArtifact}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("evidence" in $$parsedSource) {
+            $$parsedSource["evidence"] = $$createField5_0($$parsedSource["evidence"]);
+        }
+        return new AutonomousArtifact(/** @type {Partial<AutonomousArtifact>} */($$parsedSource));
+    }
+}
+
+export class AutonomousArtifactRejectRequest {
+    /**
+     * Creates a new AutonomousArtifactRejectRequest instance.
+     * @param {Partial<AutonomousArtifactRejectRequest>} [$$source = {}] - The source object to create the AutonomousArtifactRejectRequest.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("reason" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["reason"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutonomousArtifactRejectRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutonomousArtifactRejectRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AutonomousArtifactRejectRequest(/** @type {Partial<AutonomousArtifactRejectRequest>} */($$parsedSource));
+    }
+}
+
+export class AutonomousArtifactRejectResult {
+    /**
+     * Creates a new AutonomousArtifactRejectResult instance.
+     * @param {Partial<AutonomousArtifactRejectResult>} [$$source = {}] - The source object to create the AutonomousArtifactRejectResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {AutonomousArtifact | undefined}
+             */
+            this["artifact"] = undefined;
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {ScheduledDraftStatus}
+             */
+            this["status"] = (new ScheduledDraftStatus());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutonomousArtifactRejectResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutonomousArtifactRejectResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType1;
+        const $$createField3_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("artifact" in $$parsedSource) {
+            $$parsedSource["artifact"] = $$createField2_0($$parsedSource["artifact"]);
+        }
+        if ("status" in $$parsedSource) {
+            $$parsedSource["status"] = $$createField3_0($$parsedSource["status"]);
+        }
+        return new AutonomousArtifactRejectResult(/** @type {Partial<AutonomousArtifactRejectResult>} */($$parsedSource));
+    }
+}
+
+export class AutonomousRunResult {
+    /**
+     * Creates a new AutonomousRunResult instance.
+     * @param {Partial<AutonomousRunResult>} [$$source = {}] - The source object to create the AutonomousRunResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("generated" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["generated"] = 0;
+        }
+        if (!("skipped" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["skipped"] = 0;
+        }
+        if (!("artifacts" in $$source)) {
+            /**
+             * @member
+             * @type {AutonomousArtifact[]}
+             */
+            this["artifacts"] = [];
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {ScheduledDraftStatus}
+             */
+            this["status"] = (new ScheduledDraftStatus());
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AutonomousRunResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {AutonomousRunResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType3;
+        const $$createField5_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("artifacts" in $$parsedSource) {
+            $$parsedSource["artifacts"] = $$createField4_0($$parsedSource["artifacts"]);
+        }
+        if ("status" in $$parsedSource) {
+            $$parsedSource["status"] = $$createField5_0($$parsedSource["status"]);
+        }
+        return new AutonomousRunResult(/** @type {Partial<AutonomousRunResult>} */($$parsedSource));
+    }
+}
+
+export class CaptureFrame {
+    /**
+     * Creates a new CaptureFrame instance.
+     * @param {Partial<CaptureFrame>} [$$source = {}] - The source object to create the CaptureFrame.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["captureId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["imagePath"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["imageSignature"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["imageFingerprint"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["width"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["height"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["bytes"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["windowTitle"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["appName"] = undefined;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CaptureFrame instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {CaptureFrame}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CaptureFrame(/** @type {Partial<CaptureFrame>} */($$parsedSource));
+    }
+}
+
 export class CapturePolicy {
     /**
      * Creates a new CapturePolicy instance.
@@ -139,6 +600,13 @@ export class CapturePolicy {
              * @type {string[] | undefined}
              */
             this["excludeContentPatterns"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {AppCaptureProfile[] | undefined}
+             */
+            this["appCaptureProfiles"] = undefined;
         }
         if (!("autoOcr" in $$source)) {
             /**
@@ -211,6 +679,7 @@ export class CapturePolicy {
         const $$createField2_0 = $$createType0;
         const $$createField3_0 = $$createType0;
         const $$createField4_0 = $$createType0;
+        const $$createField5_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("excludeApps" in $$parsedSource) {
             $$parsedSource["excludeApps"] = $$createField0_0($$parsedSource["excludeApps"]);
@@ -226,6 +695,9 @@ export class CapturePolicy {
         }
         if ("excludeContentPatterns" in $$parsedSource) {
             $$parsedSource["excludeContentPatterns"] = $$createField4_0($$parsedSource["excludeContentPatterns"]);
+        }
+        if ("appCaptureProfiles" in $$parsedSource) {
+            $$parsedSource["appCaptureProfiles"] = $$createField5_0($$parsedSource["appCaptureProfiles"]);
         }
         return new CapturePolicy(/** @type {Partial<CapturePolicy>} */($$parsedSource));
     }
@@ -455,7 +927,7 @@ export class DraftPolishRequest {
      * @returns {DraftPolishRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType1;
+        const $$createField0_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("draft" in $$parsedSource) {
             $$parsedSource["draft"] = $$createField0_0($$parsedSource["draft"]);
@@ -543,8 +1015,8 @@ export class DraftPolishResult {
      * @returns {DraftPolishResult}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType1;
-        const $$createField3_0 = $$createType1;
+        const $$createField2_0 = $$createType6;
+        const $$createField3_0 = $$createType6;
         const $$createField8_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("draft" in $$parsedSource) {
@@ -779,7 +1251,7 @@ export class EmbeddingRefreshResult {
      * @returns {EmbeddingRefreshResult}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType2;
+        const $$createField2_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("status" in $$parsedSource) {
             $$parsedSource["status"] = $$createField2_0($$parsedSource["status"]);
@@ -895,6 +1367,41 @@ export class Entry {
         if (/** @type {any} */(false)) {
             /**
              * @member
+             * @type {CaptureFrame[] | undefined}
+             */
+            this["frames"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["frameCount"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["qualityStatus"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["qualityCheckedAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["qualityReason"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
              * @type {number | undefined}
              */
             this["width"] = undefined;
@@ -965,10 +1472,14 @@ export class Entry {
      * @returns {Entry}
      */
     static createFrom($$source = {}) {
-        const $$createField17_0 = $$createType0;
+        const $$createField14_0 = $$createType9;
+        const $$createField22_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("frames" in $$parsedSource) {
+            $$parsedSource["frames"] = $$createField14_0($$parsedSource["frames"]);
+        }
         if ("tags" in $$parsedSource) {
-            $$parsedSource["tags"] = $$createField17_0($$parsedSource["tags"]);
+            $$parsedSource["tags"] = $$createField22_0($$parsedSource["tags"]);
         }
         return new Entry(/** @type {Partial<Entry>} */($$parsedSource));
     }
@@ -1067,7 +1578,7 @@ export class ExperienceDecisionResult {
      * @returns {ExperienceDecisionResult}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType3;
+        const $$createField2_0 = $$createType10;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("decision" in $$parsedSource) {
             $$parsedSource["decision"] = $$createField2_0($$parsedSource["decision"]);
@@ -1239,7 +1750,7 @@ export class ExperienceDiscoveryResult {
      * @returns {ExperienceDiscoveryResult}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType4;
+        const $$createField2_0 = $$createType11;
         const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("report" in $$parsedSource) {
@@ -1454,7 +1965,7 @@ export class ExperienceReport {
      * @returns {ExperienceReport}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType6;
+        const $$createField6_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("insights" in $$parsedSource) {
             $$parsedSource["insights"] = $$createField6_0($$parsedSource["insights"]);
@@ -1677,12 +2188,311 @@ export class ExportResult {
      * @returns {ExportResult}
      */
     static createFrom($$source = {}) {
-        const $$createField8_0 = $$createType7;
+        const $$createField8_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("filter" in $$parsedSource) {
             $$parsedSource["filter"] = $$createField8_0($$parsedSource["filter"]);
         }
         return new ExportResult(/** @type {Partial<ExportResult>} */($$parsedSource));
+    }
+}
+
+export class FlowAgentPolicy {
+    /**
+     * Creates a new FlowAgentPolicy instance.
+     * @param {Partial<FlowAgentPolicy>} [$$source = {}] - The source object to create the FlowAgentPolicy.
+     */
+    constructor($$source = {}) {
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("runner" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["runner"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["model"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["workDir"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowAgentPolicy instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowAgentPolicy}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowAgentPolicy(/** @type {Partial<FlowAgentPolicy>} */($$parsedSource));
+    }
+}
+
+export class FlowAskEvidence {
+    /**
+     * Creates a new FlowAskEvidence instance.
+     * @param {Partial<FlowAskEvidence>} [$$source = {}] - The source object to create the FlowAskEvidence.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("summary" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["summary"] = "";
+        }
+        if (!("source" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["source"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["appName"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["windowTitle"] = undefined;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["score"] = undefined;
+        }
+        if (!("hasImage" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["hasImage"] = false;
+        }
+        if (!("sensitive" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["sensitive"] = false;
+        }
+        if (!("tags" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["tags"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowAskEvidence instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowAskEvidence}
+     */
+    static createFrom($$source = {}) {
+        const $$createField10_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("tags" in $$parsedSource) {
+            $$parsedSource["tags"] = $$createField10_0($$parsedSource["tags"]);
+        }
+        return new FlowAskEvidence(/** @type {Partial<FlowAskEvidence>} */($$parsedSource));
+    }
+}
+
+export class FlowAskRequest {
+    /**
+     * Creates a new FlowAskRequest instance.
+     * @param {Partial<FlowAskRequest>} [$$source = {}] - The source object to create the FlowAskRequest.
+     */
+    constructor($$source = {}) {
+        if (!("question" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["question"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["limit"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["since"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowAskRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowAskRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowAskRequest(/** @type {Partial<FlowAskRequest>} */($$parsedSource));
+    }
+}
+
+export class FlowAskResponse {
+    /**
+     * Creates a new FlowAskResponse instance.
+     * @param {Partial<FlowAskResponse>} [$$source = {}] - The source object to create the FlowAskResponse.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("question" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["question"] = "";
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("answer" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["answer"] = "";
+        }
+        if (!("intent" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["intent"] = "";
+        }
+        if (!("mode" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["mode"] = "";
+        }
+        if (!("evidence" in $$source)) {
+            /**
+             * @member
+             * @type {FlowAskEvidence[]}
+             */
+            this["evidence"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["suggestedQuestions"] = undefined;
+        }
+        if (!("usedAi" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["usedAi"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["message"] = undefined;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowAskResponse instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowAskResponse}
+     */
+    static createFrom($$source = {}) {
+        const $$createField6_0 = $$createType16;
+        const $$createField7_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("evidence" in $$parsedSource) {
+            $$parsedSource["evidence"] = $$createField6_0($$parsedSource["evidence"]);
+        }
+        if ("suggestedQuestions" in $$parsedSource) {
+            $$parsedSource["suggestedQuestions"] = $$createField7_0($$parsedSource["suggestedQuestions"]);
+        }
+        return new FlowAskResponse(/** @type {Partial<FlowAskResponse>} */($$parsedSource));
     }
 }
 
@@ -1885,8 +2695,8 @@ export class ImportMaterialResult {
      * @returns {ImportMaterialResult}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType9;
-        const $$createField6_0 = $$createType11;
+        const $$createField5_0 = $$createType18;
+        const $$createField6_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("entries" in $$parsedSource) {
             $$parsedSource["entries"] = $$createField5_0($$parsedSource["entries"]);
@@ -1955,6 +2765,132 @@ export class NoteRequest {
             $$parsedSource["tags"] = $$createField2_0($$parsedSource["tags"]);
         }
         return new NoteRequest(/** @type {Partial<NoteRequest>} */($$parsedSource));
+    }
+}
+
+export class OCRSummaryPolicy {
+    /**
+     * Creates a new OCRSummaryPolicy instance.
+     * @param {Partial<OCRSummaryPolicy>} [$$source = {}] - The source object to create the OCRSummaryPolicy.
+     */
+    constructor($$source = {}) {
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("provider" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["provider"] = "";
+        }
+        if (!("baseUrl" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["baseUrl"] = "";
+        }
+        if (!("model" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["model"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new OCRSummaryPolicy instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {OCRSummaryPolicy}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new OCRSummaryPolicy(/** @type {Partial<OCRSummaryPolicy>} */($$parsedSource));
+    }
+}
+
+export class QualityReviewResult {
+    /**
+     * Creates a new QualityReviewResult instance.
+     * @param {Partial<QualityReviewResult>} [$$source = {}] - The source object to create the QualityReviewResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("checked" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["checked"] = 0;
+        }
+        if (!("collapsedEntries" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["collapsedEntries"] = 0;
+        }
+        if (!("removedFrames" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["removedFrames"] = 0;
+        }
+        if (!("skippedActive" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["skippedActive"] = 0;
+        }
+        if (!("pendingRemaining" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["pendingRemaining"] = 0;
+        }
+        if (!("reviewedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["reviewedAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new QualityReviewResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {QualityReviewResult}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new QualityReviewResult(/** @type {Partial<QualityReviewResult>} */($$parsedSource));
     }
 }
 
@@ -2128,6 +3064,27 @@ export class ScheduledDraftStatus {
         if (/** @type {any} */(false)) {
             /**
              * @member
+             * @type {number | undefined}
+             */
+            this["lastAutonomousRunAt"] = undefined;
+        }
+        if (!("autonomousGenerated" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["autonomousGenerated"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["autonomousMessage"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
              * @type {Draft | undefined}
              */
             this["dailyDraft"] = undefined;
@@ -2156,18 +3113,18 @@ export class ScheduledDraftStatus {
      * @returns {ScheduledDraftStatus}
      */
     static createFrom($$source = {}) {
-        const $$createField11_0 = $$createType1;
-        const $$createField12_0 = $$createType1;
-        const $$createField13_0 = $$createType4;
+        const $$createField14_0 = $$createType6;
+        const $$createField15_0 = $$createType6;
+        const $$createField16_0 = $$createType11;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("dailyDraft" in $$parsedSource) {
-            $$parsedSource["dailyDraft"] = $$createField11_0($$parsedSource["dailyDraft"]);
+            $$parsedSource["dailyDraft"] = $$createField14_0($$parsedSource["dailyDraft"]);
         }
         if ("retrospectiveDraft" in $$parsedSource) {
-            $$parsedSource["retrospectiveDraft"] = $$createField12_0($$parsedSource["retrospectiveDraft"]);
+            $$parsedSource["retrospectiveDraft"] = $$createField15_0($$parsedSource["retrospectiveDraft"]);
         }
         if ("experienceReport" in $$parsedSource) {
-            $$parsedSource["experienceReport"] = $$createField13_0($$parsedSource["experienceReport"]);
+            $$parsedSource["experienceReport"] = $$createField16_0($$parsedSource["experienceReport"]);
         }
         return new ScheduledDraftStatus(/** @type {Partial<ScheduledDraftStatus>} */($$parsedSource));
     }
@@ -2238,8 +3195,8 @@ export class SemanticSearchResult {
      * @returns {SemanticSearchResult}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType13;
-        const $$createField4_0 = $$createType2;
+        const $$createField3_0 = $$createType22;
+        const $$createField4_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("results" in $$parsedSource) {
             $$parsedSource["results"] = $$createField3_0($$parsedSource["results"]);
@@ -2484,6 +3441,13 @@ export class Status {
         if (/** @type {any} */(false)) {
             /**
              * @member
+             * @type {AppCaptureProfile[] | undefined}
+             */
+            this["appCaptureProfiles"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
              * @type {number | undefined}
              */
             this["lastWindowSwitchAt"] = undefined;
@@ -2631,7 +3595,11 @@ export class Status {
      * @returns {Status}
      */
     static createFrom($$source = {}) {
+        const $$createField10_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("appCaptureProfiles" in $$parsedSource) {
+            $$parsedSource["appCaptureProfiles"] = $$createField10_0($$parsedSource["appCaptureProfiles"]);
+        }
         return new Status(/** @type {Partial<Status>} */($$parsedSource));
     }
 }
@@ -2722,7 +3690,7 @@ export class WorkflowDraft {
      * @returns {WorkflowDraft}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType15;
+        const $$createField4_0 = $$createType24;
         const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
@@ -2786,18 +3754,27 @@ export class WorkflowDraftStep {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = Draft.createFrom;
-const $$createType2 = SemanticStatus.createFrom;
-const $$createType3 = ExperienceDecision.createFrom;
-const $$createType4 = ExperienceReport.createFrom;
-const $$createType5 = ExperienceInsight.createFrom;
-const $$createType6 = $Create.Array($$createType5);
-const $$createType7 = ExportFilter.createFrom;
-const $$createType8 = Entry.createFrom;
+const $$createType1 = AutonomousArtifact.createFrom;
+const $$createType2 = ScheduledDraftStatus.createFrom;
+const $$createType3 = $Create.Array($$createType1);
+const $$createType4 = AppCaptureProfile.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = Draft.createFrom;
+const $$createType7 = SemanticStatus.createFrom;
+const $$createType8 = CaptureFrame.createFrom;
 const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = ImportMaterialItemResult.createFrom;
-const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = contracts$0.SearchResult.createFrom;
+const $$createType10 = ExperienceDecision.createFrom;
+const $$createType11 = ExperienceReport.createFrom;
+const $$createType12 = ExperienceInsight.createFrom;
 const $$createType13 = $Create.Array($$createType12);
-const $$createType14 = WorkflowDraftStep.createFrom;
-const $$createType15 = $Create.Array($$createType14);
+const $$createType14 = ExportFilter.createFrom;
+const $$createType15 = FlowAskEvidence.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = Entry.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = ImportMaterialItemResult.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = contracts$0.SearchResult.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = WorkflowDraftStep.createFrom;
+const $$createType24 = $Create.Array($$createType23);

@@ -55,51 +55,62 @@ type AISettings struct {
 }
 
 type WorkMemorySettings struct {
-	Enabled                    bool     `json:"enabled"`
-	TimeMachineEnabled         bool     `json:"timeMachineEnabled"`
-	AutoCaptureIntervalSeconds int      `json:"autoCaptureIntervalSeconds"`
-	WindowSwitchCaptureEnabled bool     `json:"windowSwitchCaptureEnabled"`
-	WindowSwitchCooldownSecs   int      `json:"windowSwitchCooldownSeconds"`
-	CaptureScope               string   `json:"captureScope"`
-	ScreenshotQuality          int      `json:"screenshotQuality"`
-	MultiMonitor               string   `json:"multiMonitor"`
-	PrivacyMode                bool     `json:"privacyMode"`
-	PauseOnIdle                bool     `json:"pauseOnIdle"`
-	IdlePauseSeconds           int      `json:"idlePauseSeconds"`
-	PauseOnLock                bool     `json:"pauseOnLock"`
-	SourceClipboard            bool     `json:"sourceClipboard"`
-	SourceCaptureHistory       bool     `json:"sourceCaptureHistory"`
-	SourceManualNote           bool     `json:"sourceManualNote"`
-	SourceSearchFavorite       bool     `json:"sourceSearchFavorite"`
-	SourceActions              bool     `json:"sourceActions"`
-	AutoOCR                    bool     `json:"autoOcr"`
-	DraftScheduleEnabled       bool     `json:"draftScheduleEnabled"`
-	DraftScheduleIntervalMin   int      `json:"draftScheduleIntervalMinutes"`
-	DailyDraftScheduleEnabled  bool     `json:"dailyDraftScheduleEnabled"`
-	RetroDraftScheduleEnabled  bool     `json:"retrospectiveDraftScheduleEnabled"`
-	ExperienceScheduleEnabled  bool     `json:"experienceScheduleEnabled"`
-	ExperienceDiscoveryEnabled bool     `json:"experienceDiscoveryEnabled"`
-	ExperienceDiscoveryDays    int      `json:"experienceDiscoveryDays"`
-	SkillSuggestionEnabled     bool     `json:"skillSuggestionEnabled"`
-	WorkflowSuggestionEnabled  bool     `json:"workflowSuggestionEnabled"`
-	RetentionDays              int      `json:"retentionDays"`
-	ThumbnailRetentionDays     int      `json:"thumbnailRetentionDays"`
-	MaxStorageMB               int      `json:"maxStorageMb"`
-	KeepFavoritesForever       bool     `json:"keepFavoritesForever"`
-	ExcludeApps                []string `json:"excludeApps"`
-	ExcludeWindowKeywords      []string `json:"excludeWindowKeywords"`
-	ExcludePaths               []string `json:"excludePaths"`
-	ExcludeURLs                []string `json:"excludeUrls"`
-	ExcludeContentPatterns     []string `json:"excludeContentPatterns"`
-	SensitiveRulesEnabled      bool     `json:"sensitiveRulesEnabled"`
-	AllowSensitiveExport       bool     `json:"allowSensitiveExport"`
+	Enabled                    bool                          `json:"enabled"`
+	TimeMachineEnabled         bool                          `json:"timeMachineEnabled"`
+	AutoCaptureIntervalSeconds int                           `json:"autoCaptureIntervalSeconds"`
+	WindowSwitchCaptureEnabled bool                          `json:"windowSwitchCaptureEnabled"`
+	WindowSwitchCooldownSecs   int                           `json:"windowSwitchCooldownSeconds"`
+	AppCaptureProfiles         []WorkMemoryAppCaptureProfile `json:"appCaptureProfiles"`
+	CaptureScope               string                        `json:"captureScope"`
+	ScreenshotQuality          int                           `json:"screenshotQuality"`
+	MultiMonitor               string                        `json:"multiMonitor"`
+	PrivacyMode                bool                          `json:"privacyMode"`
+	PauseOnIdle                bool                          `json:"pauseOnIdle"`
+	IdlePauseSeconds           int                           `json:"idlePauseSeconds"`
+	PauseOnLock                bool                          `json:"pauseOnLock"`
+	SourceClipboard            bool                          `json:"sourceClipboard"`
+	SourceCaptureHistory       bool                          `json:"sourceCaptureHistory"`
+	SourceManualNote           bool                          `json:"sourceManualNote"`
+	SourceSearchFavorite       bool                          `json:"sourceSearchFavorite"`
+	SourceActions              bool                          `json:"sourceActions"`
+	AutoOCR                    bool                          `json:"autoOcr"`
+	DraftScheduleEnabled       bool                          `json:"draftScheduleEnabled"`
+	DraftScheduleIntervalMin   int                           `json:"draftScheduleIntervalMinutes"`
+	DailyDraftScheduleEnabled  bool                          `json:"dailyDraftScheduleEnabled"`
+	RetroDraftScheduleEnabled  bool                          `json:"retrospectiveDraftScheduleEnabled"`
+	ExperienceScheduleEnabled  bool                          `json:"experienceScheduleEnabled"`
+	ExperienceDiscoveryEnabled bool                          `json:"experienceDiscoveryEnabled"`
+	ExperienceDiscoveryDays    int                           `json:"experienceDiscoveryDays"`
+	SkillSuggestionEnabled     bool                          `json:"skillSuggestionEnabled"`
+	WorkflowSuggestionEnabled  bool                          `json:"workflowSuggestionEnabled"`
+	RetentionDays              int                           `json:"retentionDays"`
+	ThumbnailRetentionDays     int                           `json:"thumbnailRetentionDays"`
+	MaxStorageMB               int                           `json:"maxStorageMb"`
+	KeepFavoritesForever       bool                          `json:"keepFavoritesForever"`
+	ExcludeApps                []string                      `json:"excludeApps"`
+	ExcludeWindowKeywords      []string                      `json:"excludeWindowKeywords"`
+	ExcludePaths               []string                      `json:"excludePaths"`
+	ExcludeURLs                []string                      `json:"excludeUrls"`
+	ExcludeContentPatterns     []string                      `json:"excludeContentPatterns"`
+	SensitiveRulesEnabled      bool                          `json:"sensitiveRulesEnabled"`
+	AllowSensitiveExport       bool                          `json:"allowSensitiveExport"`
+}
+
+type WorkMemoryAppCaptureProfile struct {
+	ID                       string `json:"id"`
+	DisplayName              string `json:"displayName"`
+	ProcessName              string `json:"processName"`
+	Icon                     string `json:"icon,omitempty"`
+	Enabled                  bool   `json:"enabled"`
+	WindowSwitchDelaySeconds int    `json:"windowSwitchDelaySeconds"`
+	ActiveIntervalSeconds    int    `json:"activeIntervalSeconds"`
 }
 
 type PluginSettings struct {
 	Enabled map[string]bool `json:"enabled"`
 }
 
-const currentSettingsVersion = 9
+const currentSettingsVersion = 11
 
 type AppSettings struct {
 	Version    int                `json:"version"`
@@ -580,9 +591,9 @@ func defaultSettings() AppSettings {
 		WorkMemory: WorkMemorySettings{
 			Enabled:                    true,
 			TimeMachineEnabled:         false,
-			AutoCaptureIntervalSeconds: 300,
-			WindowSwitchCaptureEnabled: false,
-			WindowSwitchCooldownSecs:   30,
+			AutoCaptureIntervalSeconds: 30,
+			WindowSwitchCaptureEnabled: true,
+			WindowSwitchCooldownSecs:   3,
 			CaptureScope:               "all_screens",
 			ScreenshotQuality:          90,
 			MultiMonitor:               "combined",
@@ -595,8 +606,8 @@ func defaultSettings() AppSettings {
 			SourceManualNote:           true,
 			SourceSearchFavorite:       true,
 			SourceActions:              true,
-			AutoOCR:                    false,
-			DraftScheduleEnabled:       false,
+			AutoOCR:                    true,
+			DraftScheduleEnabled:       true,
 			DraftScheduleIntervalMin:   240,
 			DailyDraftScheduleEnabled:  true,
 			RetroDraftScheduleEnabled:  true,
@@ -685,6 +696,7 @@ func normalizeSettings(value AppSettings) AppSettings {
 
 	value.WorkMemory.AutoCaptureIntervalSeconds = clamp(value.WorkMemory.AutoCaptureIntervalSeconds, 10, 86400, defaults.WorkMemory.AutoCaptureIntervalSeconds)
 	value.WorkMemory.WindowSwitchCooldownSecs = clamp(value.WorkMemory.WindowSwitchCooldownSecs, 3, 3600, defaults.WorkMemory.WindowSwitchCooldownSecs)
+	value.WorkMemory.AppCaptureProfiles = normalizeAppCaptureProfiles(value.WorkMemory.AppCaptureProfiles)
 	value.WorkMemory.CaptureScope = oneOf(value.WorkMemory.CaptureScope, defaults.WorkMemory.CaptureScope, "all_screens", "active_window", "primary_screen")
 	value.WorkMemory.ScreenshotQuality = clamp(value.WorkMemory.ScreenshotQuality, 1, 100, defaults.WorkMemory.ScreenshotQuality)
 	value.WorkMemory.MultiMonitor = oneOf(value.WorkMemory.MultiMonitor, defaults.WorkMemory.MultiMonitor, "combined", "per_monitor", "primary_only")
@@ -725,6 +737,67 @@ func normalizePluginEnabled(enabled map[string]bool) map[string]bool {
 	return normalized
 }
 
+func normalizeAppCaptureProfiles(profiles []WorkMemoryAppCaptureProfile) []WorkMemoryAppCaptureProfile {
+	if len(profiles) == 0 {
+		return []WorkMemoryAppCaptureProfile{}
+	}
+	seen := map[string]bool{}
+	normalized := make([]WorkMemoryAppCaptureProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		processName := strings.TrimSpace(profile.ProcessName)
+		displayName := strings.TrimSpace(profile.DisplayName)
+		icon := strings.TrimSpace(profile.Icon)
+		id := strings.TrimSpace(profile.ID)
+		if processName == "" && displayName == "" && id == "" {
+			continue
+		}
+		if processName == "" {
+			processName = firstNonEmpty(displayName, id)
+		}
+		if displayName == "" {
+			displayName = processName
+		}
+		key := normalizeAppProfileKey(firstNonEmpty(firstNonEmpty(processName, displayName), id))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if id == "" {
+			id = key
+		}
+		normalized = append(normalized, WorkMemoryAppCaptureProfile{
+			ID:                       key,
+			DisplayName:              displayName,
+			ProcessName:              processName,
+			Icon:                     icon,
+			Enabled:                  profile.Enabled,
+			WindowSwitchDelaySeconds: clampAllowZero(profile.WindowSwitchDelaySeconds, 3600),
+			ActiveIntervalSeconds:    clamp(profile.ActiveIntervalSeconds, 10, 86400, 120),
+		})
+	}
+	return normalized
+}
+
+func clampAllowZero(value int, max int) int {
+	if value < 0 {
+		return 0
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func normalizeAppProfileKey(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\\", "/")
+	value = filepath.Base(value)
+	return strings.ToLower(value)
+}
+
 func migrateSettings(value AppSettings) AppSettings {
 	if value.Version < currentSettingsVersion && legacyThemeNeedsLightReset(value.General.Theme) {
 		value.General.Theme = "light"
@@ -740,6 +813,10 @@ func migrateSettings(value AppSettings) AppSettings {
 		defaults := defaultSettings()
 		value.WorkMemory.WindowSwitchCaptureEnabled = defaults.WorkMemory.WindowSwitchCaptureEnabled
 		value.WorkMemory.WindowSwitchCooldownSecs = defaults.WorkMemory.WindowSwitchCooldownSecs
+	}
+	if value.Version < 11 {
+		defaults := defaultSettings()
+		value.WorkMemory.DraftScheduleEnabled = defaults.WorkMemory.DraftScheduleEnabled
 	}
 	return value
 }

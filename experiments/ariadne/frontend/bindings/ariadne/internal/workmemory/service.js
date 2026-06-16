@@ -77,6 +77,22 @@ export function ApplyExperienceDiscoveryPolicy(policy) {
 }
 
 /**
+ * @param {$models.FlowAgentPolicy} policy
+ * @returns {$CancellablePromise<void>}
+ */
+export function ApplyFlowAgentPolicy(policy) {
+    return $Call.ByID(1239943620, policy);
+}
+
+/**
+ * @param {$models.OCRSummaryPolicy} policy
+ * @returns {$CancellablePromise<void>}
+ */
+export function ApplyOCRSummaryPolicy(policy) {
+    return $Call.ByID(3007072791, policy);
+}
+
+/**
  * @param {string} id
  * @param {string} text
  * @param {string} provider
@@ -109,6 +125,25 @@ export function ApplyRetentionPolicy(retentionDays, keepFavorites) {
 export function ApplySettings(enabled, privacyMode, timeMachineEnabled, intervalSeconds) {
     return $Call.ByID(2264642516, enabled, privacyMode, timeMachineEnabled, intervalSeconds).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType1($result);
+    }));
+}
+
+/**
+ * @param {$models.FlowAskRequest} request
+ * @returns {$CancellablePromise<$models.FlowAskResponse>}
+ */
+export function AskFlow(request) {
+    return $Call.ByID(417763280, request).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType5($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.AutonomousArtifact[]>}
+ */
+export function AutonomousArtifacts() {
+    return $Call.ByID(960718462).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType7($result);
     }));
 }
 
@@ -164,7 +199,7 @@ export function Delete(id) {
  */
 export function DiscoverExperiences(periodDays) {
     return $Call.ByID(3127362081, periodDays).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType5($result);
+        return $$createType8($result);
     }));
 }
 
@@ -174,7 +209,7 @@ export function DiscoverExperiences(periodDays) {
  */
 export function DiscoverExperiencesAI(request) {
     return $Call.ByID(4109429835, request).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
+        return $$createType9($result);
     }));
 }
 
@@ -194,7 +229,7 @@ export function Entry(id) {
  */
 export function ExportData(includeSensitive) {
     return $Call.ByID(2509923253, includeSensitive).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType10($result);
     }));
 }
 
@@ -204,7 +239,7 @@ export function ExportData(includeSensitive) {
  */
 export function ExportDataWithOptions(request) {
     return $Call.ByID(715353761, request).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType7($result);
+        return $$createType10($result);
     }));
 }
 
@@ -215,7 +250,7 @@ export function ExportDataWithOptions(request) {
  */
 export function GenerateAgentTaskPackage(goal, evidence) {
     return $Call.ByID(3355711264, goal, evidence).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType11($result);
     }));
 }
 
@@ -226,7 +261,7 @@ export function GenerateAgentTaskPackage(goal, evidence) {
  */
 export function GenerateChecklistDraft(title, evidence) {
     return $Call.ByID(3602889123, title, evidence).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType9($result);
+        return $$createType12($result);
     }));
 }
 
@@ -235,17 +270,17 @@ export function GenerateChecklistDraft(title, evidence) {
  */
 export function GenerateDailyDraft() {
     return $Call.ByID(1512268104).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType13($result);
     }));
 }
 
 /**
- * @param {string[]} entryIDs
+ * @param {string[]} requestedIDs
  * @returns {$CancellablePromise<$models.Draft>}
  */
-export function GenerateKnowledgeDraft(entryIDs) {
-    return $Call.ByID(834729239, entryIDs).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+export function GenerateKnowledgeDraft(requestedIDs) {
+    return $Call.ByID(834729239, requestedIDs).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType13($result);
     }));
 }
 
@@ -255,7 +290,7 @@ export function GenerateKnowledgeDraft(entryIDs) {
  */
 export function GenerateRetrospectiveDraft(ids) {
     return $Call.ByID(3598430440, ids).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType10($result);
+        return $$createType13($result);
     }));
 }
 
@@ -266,7 +301,7 @@ export function GenerateRetrospectiveDraft(ids) {
  */
 export function GenerateWorkflowDraft(title, evidence) {
     return $Call.ByID(830337844, title, evidence).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType11($result);
+        return $$createType14($result);
     }));
 }
 
@@ -286,7 +321,7 @@ export function ImportLegacyEntries(entries) {
  */
 export function ImportMaterials(request) {
     return $Call.ByID(1093064920, request).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType12($result);
+        return $$createType15($result);
     }));
 }
 
@@ -303,7 +338,7 @@ export function LegacyEntryCount() {
  */
 export function PolishDraft(request) {
     return $Call.ByID(1554284901, request).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType13($result);
+        return $$createType16($result);
     }));
 }
 
@@ -312,7 +347,17 @@ export function PolishDraft(request) {
  */
 export function RefreshEmbeddingIndex() {
     return $Call.ByID(3228022749).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType14($result);
+        return $$createType17($result);
+    }));
+}
+
+/**
+ * @param {$models.AutonomousArtifactRejectRequest} request
+ * @returns {$CancellablePromise<$models.AutonomousArtifactRejectResult>}
+ */
+export function RejectAutonomousArtifact(request) {
+    return $Call.ByID(567803582, request).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType18($result);
     }));
 }
 
@@ -333,6 +378,24 @@ export function RememberCaptureHistoryEntry(entry) {
 export function RememberClipboardEntry(entry) {
     return $Call.ByID(2704140702, entry).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.QualityReviewResult>}
+ */
+export function ReviewPendingCaptures() {
+    return $Call.ByID(2976925757).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType19($result);
+    }));
+}
+
+/**
+ * @returns {$CancellablePromise<$models.AutonomousRunResult>}
+ */
+export function RunAutonomousFlowNow() {
+    return $Call.ByID(2230000304).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType20($result);
     }));
 }
 
@@ -360,7 +423,7 @@ export function ScheduledDraftStatus() {
  */
 export function Search(query) {
     return $Call.ByID(1720770567, query).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType16($result);
+        return $$createType22($result);
     }));
 }
 
@@ -370,7 +433,7 @@ export function Search(query) {
  */
 export function SemanticSearchExternal(query) {
     return $Call.ByID(349971404, query).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType17($result);
+        return $$createType23($result);
     }));
 }
 
@@ -392,7 +455,7 @@ export function SemanticStatus() {
  */
 export function SetExperienceInsightDecision(insightID, status, note, taskPackageID) {
     return $Call.ByID(3962404189, insightID, status, note, taskPackageID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType18($result);
+        return $$createType24($result);
     }));
 }
 
@@ -437,7 +500,7 @@ export function Stop() {
  */
 export function Timeline() {
     return $Call.ByID(1998909596).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType19($result);
+        return $$createType25($result);
     }));
 }
 
@@ -447,18 +510,24 @@ const $$createType1 = $models.Status.createFrom;
 const $$createType2 = $models.ScheduledDraftStatus.createFrom;
 const $$createType3 = $models.SemanticStatus.createFrom;
 const $$createType4 = $models.RetentionResult.createFrom;
-const $$createType5 = $models.ExperienceReport.createFrom;
-const $$createType6 = $models.ExperienceDiscoveryResult.createFrom;
-const $$createType7 = $models.ExportResult.createFrom;
-const $$createType8 = $models.AgentTaskPackage.createFrom;
-const $$createType9 = $models.ChecklistDraft.createFrom;
-const $$createType10 = $models.Draft.createFrom;
-const $$createType11 = $models.WorkflowDraft.createFrom;
-const $$createType12 = $models.ImportMaterialResult.createFrom;
-const $$createType13 = $models.DraftPolishResult.createFrom;
-const $$createType14 = $models.EmbeddingRefreshResult.createFrom;
-const $$createType15 = contracts$0.SearchResult.createFrom;
-const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = $models.SemanticSearchResult.createFrom;
-const $$createType18 = $models.ExperienceDecisionResult.createFrom;
-const $$createType19 = $Create.Array($$createType0);
+const $$createType5 = $models.FlowAskResponse.createFrom;
+const $$createType6 = $models.AutonomousArtifact.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = $models.ExperienceReport.createFrom;
+const $$createType9 = $models.ExperienceDiscoveryResult.createFrom;
+const $$createType10 = $models.ExportResult.createFrom;
+const $$createType11 = $models.AgentTaskPackage.createFrom;
+const $$createType12 = $models.ChecklistDraft.createFrom;
+const $$createType13 = $models.Draft.createFrom;
+const $$createType14 = $models.WorkflowDraft.createFrom;
+const $$createType15 = $models.ImportMaterialResult.createFrom;
+const $$createType16 = $models.DraftPolishResult.createFrom;
+const $$createType17 = $models.EmbeddingRefreshResult.createFrom;
+const $$createType18 = $models.AutonomousArtifactRejectResult.createFrom;
+const $$createType19 = $models.QualityReviewResult.createFrom;
+const $$createType20 = $models.AutonomousRunResult.createFrom;
+const $$createType21 = contracts$0.SearchResult.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = $models.SemanticSearchResult.createFrom;
+const $$createType24 = $models.ExperienceDecisionResult.createFrom;
+const $$createType25 = $Create.Array($$createType0);

@@ -1,6 +1,7 @@
 package toolwindows
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 )
 
 const (
+	launcherWindowName       = "tool-launcher"
 	networkMiniView          = "network-mini"
 	networkMiniDefaultAnchor = "taskbar-left"
 	networkMiniWidth         = 156
@@ -43,6 +45,7 @@ type NetworkMiniStatus struct {
 	AutoHideFullscreen bool                      `json:"autoHideFullscreen"`
 	FullscreenActive   bool                      `json:"fullscreenActive"`
 	AutoHidden         bool                      `json:"autoHidden"`
+	Visible            bool                      `json:"visible"`
 	Locked             bool                      `json:"locked"`
 	ConfigPath         string                    `json:"configPath,omitempty"`
 	LastError          string                    `json:"lastError,omitempty"`
@@ -67,6 +70,7 @@ type networkMiniConfig struct {
 	ScreenMode         string `json:"screenMode,omitempty"`
 	ScreenID           string `json:"screenId,omitempty"`
 	AutoHideFullscreen bool   `json:"autoHideFullscreen"`
+	Visible            bool   `json:"visible,omitempty"`
 }
 
 type FullscreenDetector func() (bool, error)
@@ -74,6 +78,7 @@ type FullscreenDetector func() (bool, error)
 type Service struct {
 	mu                 sync.RWMutex
 	app                *application.App
+	windowIcon         []byte
 	networkMiniPath    string
 	networkMiniConfig  networkMiniConfig
 	fullscreenDetector FullscreenDetector
@@ -102,15 +107,35 @@ func NewServiceWithOptions(networkMiniPath string, detector FullscreenDetector) 
 
 func (s *Service) Attach(app *application.App) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.app = app
 	s.startNetworkMiniMonitorLocked()
+	restoreNetworkMini := s.networkMiniConfig.Visible
+	s.mu.Unlock()
+	if restoreNetworkMini {
+		s.restoreVisibleNetworkMiniAfterStartup()
+	}
+}
+
+func (s *Service) SetWindowIcon(icon []byte) {
+	s.mu.Lock()
+	if len(icon) == 0 {
+		s.windowIcon = nil
+	} else {
+		s.windowIcon = append([]byte(nil), icon...)
+	}
+	s.mu.Unlock()
 }
 
 func (s *Service) Open(view string) OpenResult {
 	view = normalizeView(view)
 	if view == "" {
 		return OpenResult{OK: false, Message: "未知工具窗口"}
+	}
+	if view == "work-memory" {
+		if err := s.showMainWorkMemory(); err != nil {
+			return OpenResult{OK: false, Message: err.Error(), View: view}
+		}
+		return OpenResult{OK: true, Message: "心流已打开", View: view}
 	}
 	if err := s.open(view); err != nil {
 		return OpenResult{OK: false, Message: err.Error(), View: view}
@@ -125,22 +150,93 @@ func (s *Service) ShowLauncher() OpenResult {
 	if app == nil {
 		return OpenResult{OK: false, Message: "Ariadne 窗口服务尚未就绪", View: "launcher"}
 	}
-	main, ok := app.Window.Get("main")
-	if !ok {
-		return OpenResult{OK: false, Message: "启动器窗口不存在", View: "launcher"}
+	if existing, ok := app.Window.Get(launcherWindowName); ok {
+		existing.Restore()
+		existing.SetAlwaysOnTop(false)
+		launcherwindow.ApplyCollapsed(existing, app.Screen.GetPrimary())
+		existing.Show().Focus()
+		focusLauncher(existing)
+		return OpenResult{OK: true, Message: "启动器已打开", View: "launcher"}
 	}
-	main.Restore()
-	main.SetAlwaysOnTop(false)
-	launcherwindow.ApplyCollapsed(main, app.Screen.GetPrimary())
-	main.Show().Focus()
-	main.EmitEvent("ariadne:navigate", "launcher")
-	main.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:navigate", { detail: "launcher" }));`)
-	main.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:focus-launcher", { detail: { reset: true } }));`)
+
+	launcherPosition, launcherX, launcherY, launcherScreen := launcherwindow.InitialPlacement(app.Screen.GetPrimary())
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:             launcherWindowName,
+		Title:            "Ariadne",
+		URL:              "/?view=launcher",
+		Width:            launcherwindow.Width,
+		Height:           launcherwindow.CollapsedHeight,
+		X:                launcherX,
+		Y:                launcherY,
+		AlwaysOnTop:      false,
+		Frameless:        true,
+		DisableResize:    false,
+		BackgroundType:   application.BackgroundTypeTransparent,
+		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
+		InitialPosition:  launcherPosition,
+		Screen:           launcherScreen,
+		Windows: application.WindowsWindow{
+			Theme:                             application.Light,
+			DisableIcon:                       true,
+			DisableFramelessWindowDecorations: true,
+			HiddenOnTaskbar:                   true,
+		},
+	})
+	launcherwindow.ApplyCollapsed(window, app.Screen.GetPrimary())
+	window.Show().Focus()
+	focusLauncher(window)
 	return OpenResult{OK: true, Message: "启动器已打开", View: "launcher"}
 }
 
 func (s *Service) OpenFromShell(view string) bool {
+	if strings.EqualFold(strings.TrimSpace(view), "launcher") {
+		return s.ShowLauncher().OK
+	}
 	return s.Open(view).OK
+}
+
+func (s *Service) ApplyMainWindowPolicy() OpenResult {
+	s.mu.RLock()
+	app := s.app
+	s.mu.RUnlock()
+	if app == nil {
+		return OpenResult{OK: false, Message: "Ariadne 窗口服务尚未就绪", View: "work-memory"}
+	}
+	main, ok := app.Window.Get("main")
+	if !ok {
+		return OpenResult{OK: false, Message: "心流主窗口不存在", View: "work-memory"}
+	}
+	s.applyOrdinaryWindowPolicy(main)
+	return OpenResult{OK: true, Message: "心流主窗口策略已应用", View: "work-memory"}
+}
+
+func (s *Service) EnableTaskbarToggle(ctx context.Context, view string) OpenResult {
+	view = normalizeView(view)
+	if !ordinaryTaskbarToggleAllowed(view) {
+		return OpenResult{OK: false, Message: "该窗口不使用任务栏最小化样式", View: view}
+	}
+
+	var window application.Window
+	if ctx != nil {
+		window, _ = ctx.Value(application.WindowKey).(application.Window)
+	}
+	if window == nil {
+		s.mu.RLock()
+		app := s.app
+		s.mu.RUnlock()
+		if app != nil {
+			if existing, ok := app.Window.Get("tool-" + view); ok {
+				window = existing
+			} else if existing, ok := app.Window.Get("main"); ok {
+				window = existing
+			}
+		}
+	}
+	if window == nil {
+		return OpenResult{OK: false, Message: "当前窗口不可用", View: view}
+	}
+	enableOrdinaryWindowTaskbarToggle(window)
+	return OpenResult{OK: true, Message: "窗口任务栏最小化样式已启用", View: view}
 }
 
 func (s *Service) NetworkMiniStatus() NetworkMiniStatus {
@@ -218,7 +314,9 @@ func (s *Service) SetNetworkMiniAutoHideFullscreen(enabled bool) NetworkMiniStat
 
 func (s *Service) ResetNetworkMiniPlacement() NetworkMiniStatus {
 	s.mu.Lock()
+	visible := s.networkMiniConfig.Visible
 	s.networkMiniConfig = defaultNetworkMiniConfig()
+	s.networkMiniConfig.Visible = visible
 	s.networkMiniError = ""
 	if err := s.saveNetworkMiniConfigLocked(); err != nil {
 		s.networkMiniError = err.Error()
@@ -255,13 +353,25 @@ func (s *Service) open(view string) error {
 			s.markNetworkMiniVisible()
 		} else {
 			existing.Show().Focus()
+			s.applyOrdinaryWindowPolicy(existing)
 		}
 		return nil
 	}
 
 	width, height := toolSize(view)
 	config := s.networkMiniConfigSnapshot()
-	position, x, y, screen := toolPlacement(view, width, height, screenForNetworkMini(app, config), config.Anchor)
+	placementScreen := screenForNetworkMini(app, config)
+	if view == networkMiniView && placementScreen == nil {
+		return errors.New("网速小窗屏幕信息尚未就绪")
+	}
+	position, x, y, screen := toolPlacement(view, width, height, placementScreen, config.Anchor)
+	if view == networkMiniView {
+		frame := networkMiniFrame(screen, config.Anchor, width, height)
+		width = frame.Width
+		height = frame.Height
+		x = frame.X
+		y = frame.Y
+	}
 	background := application.NewRGB(244, 244, 245)
 	if view == networkMiniView {
 		background = application.NewRGBA(0, 0, 0, 0)
@@ -286,23 +396,50 @@ func (s *Service) open(view string) error {
 		Screen:           screen,
 		Windows: application.WindowsWindow{
 			Theme:                             application.Light,
-			DisableIcon:                       true,
+			DisableIcon:                       disableIcon(view),
 			DisableFramelessWindowDecorations: frameless(view),
-			HiddenOnTaskbar:                   view == networkMiniView,
+			HiddenOnTaskbar:                   hiddenOnTaskbar(view),
 		},
 	})
 
 	if view == networkMiniView {
 		s.applyNetworkMiniPlacement(window, app)
+	} else {
+		s.applyOrdinaryWindowPolicy(window)
 	}
 
-	if main, ok := app.Window.Get("main"); ok && main.IsVisible() {
-		main.Hide()
-	}
 	if view == networkMiniView {
 		s.markNetworkMiniVisible()
 	}
 	return nil
+}
+
+func (s *Service) showMainWorkMemory() error {
+	s.mu.RLock()
+	app := s.app
+	s.mu.RUnlock()
+	if app == nil {
+		return errors.New("Ariadne 工具窗口服务尚未就绪")
+	}
+	main, ok := app.Window.Get("main")
+	if !ok {
+		return errors.New("心流主窗口不存在")
+	}
+	main.Restore()
+	main.SetAlwaysOnTop(false)
+	s.applyOrdinaryWindowPolicy(main)
+	main.Show().Focus()
+	main.EmitEvent("ariadne:navigate", "work-memory")
+	main.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:navigate", { detail: "work-memory" }));`)
+	return nil
+}
+
+func focusLauncher(window application.Window) {
+	if window == nil {
+		return
+	}
+	window.EmitEvent("ariadne:focus-launcher", map[string]any{"reset": true})
+	window.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:focus-launcher", { detail: { reset: true } }));`)
 }
 
 func normalizeView(view string) string {
@@ -317,7 +454,7 @@ func normalizeView(view string) string {
 func toolTitle(view string) string {
 	switch view {
 	case "work-memory":
-		return "Ariadne - 工作记忆"
+		return "Ariadne - 心流"
 	case "clipboard":
 		return "Ariadne - 剪贴板历史"
 	case "capture":
@@ -390,12 +527,39 @@ func disableResize(view string) bool {
 	return view == networkMiniView
 }
 
+func disableIcon(view string) bool {
+	return view == networkMiniView
+}
+
+func hiddenOnTaskbar(view string) bool {
+	return view == networkMiniView
+}
+
 func frameless(view string) bool {
 	return view == networkMiniView
 }
 
 func alwaysOnTop(view string) bool {
 	return view == networkMiniView
+}
+
+func ordinaryTaskbarToggleAllowed(view string) bool {
+	view = normalizeView(view)
+	return view != "" && view != networkMiniView
+}
+
+func (s *Service) applyOrdinaryWindowPolicy(window application.Window) {
+	enableOrdinaryWindowTaskbarToggle(window)
+	setOrdinaryWindowIcon(window, s.windowIconSnapshot())
+}
+
+func (s *Service) windowIconSnapshot() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.windowIcon) == 0 {
+		return nil
+	}
+	return append([]byte(nil), s.windowIcon...)
 }
 
 func toolPlacement(view string, width int, height int, screen *application.Screen, anchor string) (application.WindowStartPosition, int, int, *application.Screen) {
@@ -448,7 +612,8 @@ func networkMiniFrame(screen *application.Screen, anchor string, width int, heig
 
 func networkMiniTaskbarFrame(screen *application.Screen, width int, fallbackHeight int) networkMiniWindowFrame {
 	bounds := usableScreenBounds(screen)
-	taskbar := inferNetworkMiniTaskbarRect(bounds, usableWorkArea(screen, bounds), fallbackHeight)
+	work := usableWorkArea(screen, bounds)
+	taskbar := inferNetworkMiniTaskbarRect(bounds, work, fallbackHeight)
 	horizontal := taskbar.Width >= taskbar.Height
 	thickness := taskbar.Height
 	if !horizontal {
@@ -462,17 +627,19 @@ func networkMiniTaskbarFrame(screen *application.Screen, width int, fallbackHeig
 		width = networkMiniWidth
 	}
 
-	x := taskbar.X - bounds.X + networkMiniMargin
-	y := taskbar.Y - bounds.Y
+	x := taskbar.X + networkMiniMargin
+	y := taskbar.Y
 	if horizontal {
 		y += maxInt(0, (taskbar.Height-height)/2)
 	} else {
-		x = taskbar.X - bounds.X + maxInt(0, (taskbar.Width-width)/2)
+		x = taskbar.X + maxInt(0, (taskbar.Width-width)/2)
 		y += networkMiniMargin
 	}
+	x = clampInt(x, bounds.X, maxInt(bounds.X, rectRight(bounds)-width))
+	y = clampInt(y, bounds.Y, maxInt(bounds.Y, rectBottom(bounds)-height))
 	return networkMiniWindowFrame{
-		X:      clampInt(x, 0, maxInt(0, bounds.Width-width)),
-		Y:      clampInt(y, 0, maxInt(0, bounds.Height-height)),
+		X:      x - work.X,
+		Y:      y - work.Y,
 		Width:  width,
 		Height: height,
 	}
@@ -599,6 +766,7 @@ func (s *Service) networkMiniStatusLocked() NetworkMiniStatus {
 		AutoHideFullscreen: s.networkMiniConfig.AutoHideFullscreen,
 		FullscreenActive:   s.fullscreenActive,
 		AutoHidden:         s.networkMiniHidden,
+		Visible:            s.networkMiniConfig.Visible,
 		Locked:             true,
 		ConfigPath:         s.networkMiniPath,
 		LastError:          s.networkMiniError,
@@ -621,6 +789,7 @@ func (s *Service) loadNetworkMiniConfig() {
 		ScreenMode         string `json:"screenMode,omitempty"`
 		ScreenID           string `json:"screenId,omitempty"`
 		AutoHideFullscreen *bool  `json:"autoHideFullscreen"`
+		Visible            *bool  `json:"visible"`
 	}
 	if err := json.Unmarshal(raw, &config); err != nil {
 		s.networkMiniError = "解析网速小窗配置失败: " + err.Error()
@@ -639,6 +808,9 @@ func (s *Service) loadNetworkMiniConfig() {
 	}
 	if config.AutoHideFullscreen != nil {
 		s.networkMiniConfig.AutoHideFullscreen = *config.AutoHideFullscreen
+	}
+	if config.Visible != nil {
+		s.networkMiniConfig.Visible = *config.Visible
 	}
 }
 
@@ -792,16 +964,54 @@ func (s *Service) applyNetworkMiniPlacement(window application.Window, app *appl
 		return
 	}
 	frame := networkMiniFrame(screen, config.Anchor, networkMiniWidth, networkMiniHeight)
-	window.SetScreen(screen)
 	window.SetSize(frame.Width, frame.Height)
-	window.SetRelativePosition(frame.X, frame.Y)
+	x, y := networkMiniAbsolutePosition(screen, frame)
+	window.SetPosition(x, y)
 	applyNetworkMiniTaskbarOwner(window)
+}
+
+func (s *Service) restoreVisibleNetworkMiniAfterStartup() {
+	go func() {
+		var lastErr error
+		for attempt := 0; attempt < 12; attempt++ {
+			time.Sleep(250 * time.Millisecond)
+			s.mu.RLock()
+			visible := s.networkMiniConfig.Visible
+			s.mu.RUnlock()
+			if !visible {
+				return
+			}
+			if err := s.open(networkMiniView); err != nil {
+				lastErr = err
+				continue
+			}
+			return
+		}
+		if lastErr != nil {
+			s.mu.Lock()
+			s.networkMiniError = "恢复网速小窗失败: " + lastErr.Error()
+			s.mu.Unlock()
+		}
+	}()
+}
+
+func networkMiniAbsolutePosition(screen *application.Screen, frame networkMiniWindowFrame) (int, int) {
+	bounds := usableScreenBounds(screen)
+	work := usableWorkArea(screen, bounds)
+	return work.X + frame.X, work.Y + frame.Y
 }
 
 func (s *Service) markNetworkMiniVisible() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.networkMiniHidden = false
+	if !s.networkMiniConfig.Visible {
+		s.networkMiniConfig.Visible = true
+		s.networkMiniError = ""
+		if err := s.saveNetworkMiniConfigLocked(); err != nil {
+			s.networkMiniError = err.Error()
+		}
+	}
 }
 
 func screenForNetworkMini(app *application.App, config networkMiniConfig) *application.Screen {

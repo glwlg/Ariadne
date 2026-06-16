@@ -142,10 +142,7 @@ const settingsPages: Array<{
   { id: 'plugins', label: '插件', detail: '命令与能力开关', icon: Puzzle },
   { id: 'launchers', label: '启动项', detail: '应用、文件、URL', icon: Rocket },
   { id: 'screenshot', label: '截图', detail: '复制、贴图、保存', icon: Camera },
-  { id: 'work-memory', label: '工作记忆', detail: '采集、草稿、来源', icon: Brain },
-  { id: 'ai', label: 'AI 与向量', detail: '模型、Embedding、Milvus', icon: Bot },
-  { id: 'privacy', label: '隐私规则', detail: '排除与敏感边界', icon: Shield },
-  { id: 'data', label: '数据与存储', detail: '保留、配置、搜索数据', icon: Database },
+  { id: 'data', label: '数据与存储', detail: '配置、搜索数据', icon: Database },
   { id: 'advanced', label: '高级维护', detail: '诊断、导入、回滚', icon: HardDrive },
 ]
 
@@ -1351,33 +1348,6 @@ onMounted(() => {
                   {{ settings.secretActionResult.message }}
                 </p>
               </div>
-            </section>
-
-            <section v-if="activeSettingsPage === 'data'" class="settings-panel">
-              <div class="settings-panel-title">
-                <HardDrive :size="15" />
-                数据保留
-              </div>
-              <div class="settings-hotkey-grid">
-                <label class="settings-field">
-                  <span>记忆保留天数</span>
-                  <input v-model.number="settings.settings.workMemory.retentionDays" class="settings-input" type="number" min="1" />
-                </label>
-                <label class="settings-field">
-                  <span>缩略图保留天数</span>
-                  <input v-model.number="settings.settings.workMemory.thumbnailRetentionDays" class="settings-input" type="number" min="1" />
-                </label>
-                <label class="settings-field">
-                  <span>最大存储 MB</span>
-                  <input v-model.number="settings.settings.workMemory.maxStorageMb" class="settings-input" type="number" min="128" />
-                </label>
-              </div>
-              <label class="settings-toggle">
-                <input v-model="settings.settings.workMemory.keepFavoritesForever" type="checkbox" />
-                <span />
-                <strong>收藏永久保留</strong>
-                <small>保留策略清理过期数据时跳过收藏的记忆、截图和剪贴板条目。</small>
-              </label>
             </section>
 
             <section v-if="activeSettingsPage === 'data'" class="settings-panel settings-grid-panel">

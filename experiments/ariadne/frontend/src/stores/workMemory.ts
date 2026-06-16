@@ -18,13 +18,17 @@ import {
   generateKnowledgeDraft,
   generateRetrospectiveDraft,
   generateWorkflowDraft,
+  getAutonomousArtifacts,
   getScheduledDraftStatus,
   getSemanticStatus,
   getWorkMemoryStatus,
   getWorkMemoryTimeline,
   importWorkMemoryMaterials,
+  askWorkMemoryFlow,
   polishWorkMemoryDraft,
   refreshEmbeddingIndex,
+  rejectAutonomousArtifact as rejectAutonomousArtifactApi,
+  runAutonomousFlowNow,
   runScheduledDraftsNow,
   searchWorkMemory,
   semanticSearchExternal,
@@ -55,13 +59,17 @@ import type {
   SkillInstallResult,
   WorkflowDraft,
   WorkflowDraftSaveResult,
+  WorkMemoryAutonomousArtifact,
+  WorkMemoryAutonomousRunResult,
   WorkMemoryDraft,
   WorkMemoryDraftPolishResult,
   WorkMemoryEmbeddingRefreshResult,
   WorkMemoryEntry,
   WorkMemoryExportRequest,
   WorkMemoryExportResult,
+  WorkMemoryFlowAskResponse,
   WorkMemoryImportMaterialResult,
+  WorkMemoryNoteRequest,
   WorkMemorySemanticSearchResult,
   WorkMemorySemanticStatus,
   WorkMemoryStatus,
@@ -81,9 +89,9 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     pauseOnLock: true,
     sessionLocked: false,
     entryCount: 0,
-    autoCaptureIntervalSeconds: 300,
-    windowSwitchCaptureEnabled: false,
-    windowSwitchCooldownSeconds: 30,
+    autoCaptureIntervalSeconds: 30,
+    windowSwitchCaptureEnabled: true,
+    windowSwitchCooldownSeconds: 3,
     captureCount: 0,
   })
   const entries = ref<WorkMemoryEntry[]>([])
@@ -95,9 +103,12 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const retrospectiveDraft = ref<WorkMemoryDraft | null>(null)
   const knowledgeDraft = ref<WorkMemoryDraft | null>(null)
   const scheduledDraftStatus = ref<ScheduledDraftStatus | null>(null)
+  const autonomousArtifacts = ref<WorkMemoryAutonomousArtifact[]>([])
+  const autonomousRunResult = ref<WorkMemoryAutonomousRunResult | null>(null)
   const semanticStatus = ref<WorkMemorySemanticStatus | null>(null)
   const embeddingRefreshResult = ref<WorkMemoryEmbeddingRefreshResult | null>(null)
   const semanticSearchResult = ref<WorkMemorySemanticSearchResult | null>(null)
+  const flowAskResult = ref<WorkMemoryFlowAskResponse | null>(null)
   const dailyDraftPolishResult = ref<WorkMemoryDraftPolishResult | null>(null)
   const knowledgeDraftSaveResult = ref<SkillDraftSaveResult | null>(null)
   const knowledgeSkillExportResult = ref<SkillExportResult | null>(null)
@@ -158,10 +169,22 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const isSavingChecklistDraft = ref(false)
   const isSavingExclusions = ref(false)
   const isRunningScheduledDrafts = ref(false)
+  const isRunningAutonomousFlow = ref(false)
   const isPolishingDailyDraft = ref(false)
   const isRefreshingEmbedding = ref(false)
   const isSemanticSearching = ref(false)
+  const isAskingFlow = ref(false)
   const isDiscoveringExperienceAI = ref(false)
+  const isDeletingEntries = ref(false)
+  const isBatchRecognizingOCR = ref(false)
+  const experienceDiscoveryProgress = ref(0)
+  const experienceDiscoveryStage = ref('')
+  const deleteProgressDone = ref(0)
+  const deleteProgressTotal = ref(0)
+  const batchOcrProgressDone = ref(0)
+  const batchOcrProgressTotal = ref(0)
+  const batchOcrProgressStage = ref('')
+  let experienceProgressTimer: number | null = null
   const knowledgeDraftSaveArmed = ref(false)
   const knowledgeSkillExportArmed = ref(false)
   const knowledgeSkillInstallArmed = ref(false)
@@ -258,16 +281,18 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   async function load() {
     isLoading.value = true
     try {
-      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus] = await Promise.all([
+      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts] = await Promise.all([
         getWorkMemoryStatus(),
         getWorkMemoryTimeline(),
         getScheduledDraftStatus(),
         getSemanticStatus(),
+        getAutonomousArtifacts(),
       ])
       status.value = nextStatus
       entries.value = nextEntries
       scheduledDraftStatus.value = nextScheduledDrafts
       semanticStatus.value = nextSemanticStatus
+      autonomousArtifacts.value = nextAutonomousArtifacts
       pruneRetrospectiveSelection()
       if (!selectedId.value || !entries.value.some((entry) => entry.id === selectedId.value)) {
         selectedId.value = entries.value[0]?.id ?? ''
@@ -282,6 +307,75 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   async function setQuery(value: string) {
     query.value = value
     searchResults.value = value.trim() ? await searchWorkMemory(value) : []
+  }
+
+  async function askFlow(question: string, limit = 8) {
+    const normalized = question.trim()
+    if (!normalized) {
+      flowAskResult.value = await askWorkMemoryFlow({ question: '', limit })
+      return flowAskResult.value
+    }
+    isAskingFlow.value = true
+    try {
+      const result = await askWorkMemoryFlow({ question: normalized, limit })
+      flowAskResult.value = result
+      if (result.evidence.length) {
+        const evidenceIds = new Set(result.evidence.map((item) => item.id))
+        searchResults.value = entries.value
+          .filter((entry) => evidenceIds.has(entry.id))
+          .map((entry) => ({
+            id: entry.id,
+            type: 'memory',
+            title: entry.title,
+            subtitle: `心流证据 · ${entry.appName || entry.source}`,
+            detail: entry.summary,
+            icon: 'memory',
+            tags: entry.tags,
+            payload: { entryId: entry.id, source: entry.source },
+            preview: {
+              kind: 'memory',
+              title: entry.title,
+              subtitle: entry.windowTitle,
+              text: [entry.text, entry.ocrText ? `OCR:\n${entry.ocrText}` : ''].filter(Boolean).join('\n\n'),
+              evidence: [
+                { label: '记忆 ID', value: entry.id },
+                { label: '来源', value: entry.source },
+              ],
+            },
+            actions: [
+              {
+                id: 'copy_summary',
+                label: '复制摘要',
+                icon: 'copy',
+                kind: 'copy',
+                payload: { text: entry.summary },
+                feedback: { successLabel: '已复制' },
+              },
+            ],
+          }))
+      }
+      showFeedback(result.message || (result.ok ? '心流回答已更新' : '心流回答失败'))
+      return result
+    } catch {
+      showFeedback('心流问答失败')
+      const failed: WorkMemoryFlowAskResponse = {
+        ok: false,
+        question: normalized,
+        title: normalized || '心流回答',
+        answer: '心流问答暂时不可用。你可以稍后重试，或先切到时间线查看原始证据。',
+        intent: 'search',
+        mode: 'error',
+        evidence: [],
+        suggestedQuestions: ['我今天干了些什么？', '今天有哪些人找过我？', '今天我的哪些工作流可以优化？'],
+        usedAi: false,
+        message: '心流问答失败',
+        createdAt: Math.floor(Date.now() / 1000),
+      }
+      flowAskResult.value = failed
+      return failed
+    } finally {
+      isAskingFlow.value = false
+    }
   }
 
   function select(id: string) {
@@ -338,6 +432,18 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     showFeedback(selectable.length > ids.length ? '已选择前 12 条非敏感记忆' : `已选择 ${ids.length} 条非敏感记忆`)
   }
 
+  function selectEntriesForRetrospective(ids: string[]) {
+    const requested = new Set(ids.filter(Boolean))
+    const selectable = entries.value.filter((entry) => requested.has(entry.id) && !entry.sensitive)
+    const nextIds = selectable.map((entry) => entry.id).slice(0, 12)
+    if (!nextIds.length) {
+      showFeedback('当前选择没有非敏感可复盘记忆')
+      return
+    }
+    retrospectiveSelectedIds.value = nextIds
+    showFeedback(selectable.length > nextIds.length ? '已选择前 12 条非敏感记忆' : `已选择 ${nextIds.length} 条非敏感记忆`)
+  }
+
   async function addNote() {
     const text = noteDraft.value.text.trim()
     if (!text) {
@@ -365,6 +471,37 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       showFeedback('笔记已加入工作记忆')
     } catch {
       showFeedback('笔记保存失败')
+    }
+  }
+
+  async function addManualNote(request: WorkMemoryNoteRequest) {
+    const text = request.text.trim()
+    if (!text) {
+      showFeedback('先选择要沉淀的内容')
+      return null
+    }
+    try {
+      const entry = await addWorkMemoryNote({
+        ...request,
+        text,
+        tags: request.tags ?? [],
+        favorite: Boolean(request.favorite),
+        sensitive: Boolean(request.sensitive),
+      })
+      if (!entry.id) {
+        status.value = await getWorkMemoryStatus()
+        showFeedback(status.value.pauseReason || '心流沉淀当前已暂停')
+        return null
+      }
+      entries.value = [entry, ...entries.value.filter((item) => item.id !== entry.id)]
+      selectedId.value = entry.id
+      status.value = await getWorkMemoryStatus()
+      await refreshSearch()
+      showFeedback('已加入沉淀')
+      return entry
+    } catch {
+      showFeedback('沉淀保存失败')
+      return null
     }
   }
 
@@ -506,6 +643,40 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       showFeedback('定期草稿运行失败')
     } finally {
       isRunningScheduledDrafts.value = false
+    }
+  }
+
+  async function runAutonomousFlow() {
+    isRunningAutonomousFlow.value = true
+    try {
+      const result = await runAutonomousFlowNow()
+      autonomousRunResult.value = result
+      scheduledDraftStatus.value = result.status
+      autonomousArtifacts.value = await getAutonomousArtifacts()
+      showFeedback(result.message || (result.generated ? `心流生成 ${result.generated} 个自主产物` : '心流暂未生成新产物'))
+      return result
+    } catch {
+      showFeedback('自主整理运行失败')
+      return null
+    } finally {
+      isRunningAutonomousFlow.value = false
+    }
+  }
+
+  async function rejectAutonomousArtifact(id: string, reason: string) {
+    try {
+      const result = await rejectAutonomousArtifactApi({ id, reason })
+      scheduledDraftStatus.value = result.status
+      if (result.ok) {
+        autonomousArtifacts.value = autonomousArtifacts.value.filter((item) => item.id !== id)
+      } else {
+        autonomousArtifacts.value = await getAutonomousArtifacts()
+      }
+      showFeedback(result.message || (result.ok ? '已删除自主产物' : '自主产物删除失败'))
+      return result
+    } catch {
+      showFeedback('自主产物删除失败')
+      return null
     }
   }
 
@@ -662,13 +833,15 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   async function buildAgentTask() {
     const entry = selectedEntry.value
     if (!entry) {
-      return
+      return false
     }
     try {
       agentTask.value = await generateAgentTaskPackage(`沉淀 ${entry.title} 的可复用能力`, [entry.id])
       showFeedback('外部代理任务包已生成')
+      return true
     } catch {
       showFeedback('任务包生成失败')
+      return false
     }
   }
 
@@ -700,8 +873,11 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       return
     }
     isDiscoveringExperienceAI.value = true
+    startExperienceProgress('准备非敏感证据')
     try {
+      experienceDiscoveryStage.value = 'AI 正在归纳线索'
       const result = await discoverExperiencesAI({ periodDays, external: true, confirmed: true })
+      completeExperienceProgress('整理归纳结果')
       experienceDiscoveryResult.value = result
       experienceDiscoveryArmed.value = false
       if (result.report?.id) {
@@ -713,6 +889,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       showFeedback('AI 经验发现失败')
     } finally {
       isDiscoveringExperienceAI.value = false
+      stopExperienceProgress()
     }
   }
 
@@ -746,8 +923,10 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       } else {
         showFeedback('任务包已生成，状态保存失败')
       }
+      return true
     } catch {
       showFeedback('任务包生成失败')
+      return false
     }
   }
 
@@ -756,9 +935,15 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       workflowDraft.value = await generateWorkflowDraft(insight.recommendation || insight.title, insight.evidence)
       workflowDraftSaveResult.value = null
       workflowDraftSaveArmed.value = false
+      const result = await setExperienceInsightDecision(insight.id, 'workflow_draft', '', workflowDraft.value.id)
+      if (result.ok && result.decision) {
+        applyExperienceDecision(result.decision.insightId, result.decision.status, result.decision.updatedAt, result.decision.taskPackageId)
+      }
       showFeedback('候选工作流草稿已生成')
+      return true
     } catch {
       showFeedback('候选工作流生成失败')
+      return false
     }
   }
 
@@ -796,9 +981,15 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       checklistDraft.value = await generateChecklistDraft(insight.recommendation || insight.title, insight.evidence)
       checklistDraftSaveResult.value = null
       checklistDraftSaveArmed.value = false
+      const result = await setExperienceInsightDecision(insight.id, 'checklist_draft', '', checklistDraft.value.id)
+      if (result.ok && result.decision) {
+        applyExperienceDecision(result.decision.insightId, result.decision.status, result.decision.updatedAt, result.decision.taskPackageId)
+      }
       showFeedback('检查清单草稿已生成')
+      return true
     } catch {
       showFeedback('检查清单生成失败')
+      return false
     }
   }
 
@@ -873,6 +1064,67 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       showFeedback('OCR 识别失败')
     } finally {
       isRecognizingOCR.value = false
+    }
+  }
+
+  async function recognizeEntriesOCR(ids: string[]) {
+    const uniqueIds = [...new Set(ids.filter(Boolean))]
+    if (!uniqueIds.length) {
+      showFeedback('先选择要 OCR+总结的截图记忆')
+      return { processed: 0, failed: 0, skipped: 0, total: 0 }
+    }
+    const byId = new Map(entries.value.map((entry) => [entry.id, entry]))
+    const candidates = uniqueIds
+      .map((id) => byId.get(id))
+      .filter((entry): entry is WorkMemoryEntry => Boolean(entry))
+    const targets = candidates.filter((entry) => Boolean(entry.imagePath) && !entry.sensitive && entry.qualityStatus !== 'pending')
+    const skipped = uniqueIds.length - targets.length
+    if (!targets.length) {
+      showFeedback(skipped ? `没有可处理的图片记忆，已跳过 ${skipped} 条` : '没有可处理的图片记忆')
+      return { processed: 0, failed: 0, skipped, total: 0 }
+    }
+    isBatchRecognizingOCR.value = true
+    batchOcrProgressDone.value = 0
+    batchOcrProgressTotal.value = targets.length
+    batchOcrProgressStage.value = '准备 OCR+总结'
+    let processed = 0
+    let failed = 0
+    try {
+      for (const entry of targets) {
+        batchOcrProgressStage.value = entry.title || entry.windowTitle || entry.appName || entry.id
+        try {
+          const result = await recognizeWorkMemoryOCR(entry.id)
+          ocrResult.value = result
+          if (result.workMemory?.id) {
+            entries.value = entries.value.map((item) => (item.id === result.workMemory?.id ? result.workMemory : item))
+          }
+          if (result.ok) {
+            processed += 1
+          } else {
+            failed += 1
+          }
+        } catch {
+          failed += 1
+        } finally {
+          batchOcrProgressDone.value = processed + failed
+        }
+      }
+      await refreshSearch()
+      const parts = [`已完成 OCR+总结 ${processed} 条`]
+      if (failed) parts.push(`失败 ${failed} 条`)
+      if (skipped) parts.push(`跳过 ${skipped} 条`)
+      showFeedback(parts.join('，'))
+      return { processed, failed, skipped, total: targets.length }
+    } finally {
+      isBatchRecognizingOCR.value = false
+      batchOcrProgressStage.value = '完成'
+      window.setTimeout(() => {
+        if (!isBatchRecognizingOCR.value) {
+          batchOcrProgressDone.value = 0
+          batchOcrProgressTotal.value = 0
+          batchOcrProgressStage.value = ''
+        }
+      }, 1400)
     }
   }
 
@@ -1027,6 +1279,60 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     }
   }
 
+  async function deleteEntries(ids: string[]) {
+    const uniqueIds = [...new Set(ids.filter(Boolean))]
+    if (!uniqueIds.length) {
+      showFeedback('先选择要删除的记忆')
+      return 0
+    }
+    const removedIds: string[] = []
+    isDeletingEntries.value = true
+    deleteProgressDone.value = 0
+    deleteProgressTotal.value = uniqueIds.length
+    try {
+      for (const id of uniqueIds) {
+        status.value = await deleteWorkMemoryEntry(id)
+        removedIds.push(id)
+        deleteProgressDone.value = removedIds.length
+      }
+      const removed = new Set(removedIds)
+      entries.value = entries.value.filter((entry) => !removed.has(entry.id))
+      pruneRetrospectiveSelection()
+      if (!selectedId.value || removed.has(selectedId.value)) {
+        selectedId.value = entries.value[0]?.id ?? ''
+      }
+      deleteArmedId.value = ''
+      await loadSelectedImage()
+      await refreshSearch()
+      showFeedback(`已删除 ${removedIds.length} 条记忆`)
+      return removedIds.length
+    } catch {
+      if (removedIds.length) {
+        const removed = new Set(removedIds)
+        entries.value = entries.value.filter((entry) => !removed.has(entry.id))
+        deleteProgressDone.value = removedIds.length
+        pruneRetrospectiveSelection()
+        if (!selectedId.value || removed.has(selectedId.value)) {
+          selectedId.value = entries.value[0]?.id ?? ''
+        }
+        await loadSelectedImage()
+        await refreshSearch()
+        showFeedback(`已删除 ${removedIds.length} 条，后续删除失败`)
+        return removedIds.length
+      }
+      showFeedback('批量删除失败')
+      return 0
+    } finally {
+      isDeletingEntries.value = false
+      window.setTimeout(() => {
+        if (!isDeletingEntries.value) {
+          deleteProgressDone.value = 0
+          deleteProgressTotal.value = 0
+        }
+      }, 1200)
+    }
+  }
+
   async function clearUnpinned() {
     if (!clearUnpinnedArmed.value) {
       clearUnpinnedArmed.value = true
@@ -1091,6 +1397,46 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
         feedback.value = ''
       }
     }, 1600)
+  }
+
+  function startExperienceProgress(stage: string) {
+    stopExperienceProgress()
+    experienceDiscoveryStage.value = stage
+    experienceDiscoveryProgress.value = 8
+    experienceProgressTimer = window.setInterval(() => {
+      if (!isDiscoveringExperienceAI.value) return
+      const current = experienceDiscoveryProgress.value
+      if (current < 38) {
+        experienceDiscoveryProgress.value = current + 6
+      } else if (current < 72) {
+        experienceDiscoveryProgress.value = current + 3
+      } else if (current < 88) {
+        experienceDiscoveryProgress.value = current + 1
+      }
+    }, 700)
+  }
+
+  function completeExperienceProgress(stage: string) {
+    experienceDiscoveryStage.value = stage
+    experienceDiscoveryProgress.value = 100
+  }
+
+  function stopExperienceProgress() {
+    if (experienceProgressTimer !== null) {
+      window.clearInterval(experienceProgressTimer)
+      experienceProgressTimer = null
+    }
+    if (experienceDiscoveryProgress.value >= 100) {
+      window.setTimeout(() => {
+        if (!isDiscoveringExperienceAI.value) {
+          experienceDiscoveryProgress.value = 0
+          experienceDiscoveryStage.value = ''
+        }
+      }, 1000)
+    } else if (!isDiscoveringExperienceAI.value) {
+      experienceDiscoveryProgress.value = 0
+      experienceDiscoveryStage.value = ''
+    }
   }
 
   async function loadSelectedImage() {
@@ -1262,9 +1608,12 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     retrospectiveDraft,
     knowledgeDraft,
     scheduledDraftStatus,
+    autonomousArtifacts,
+    autonomousRunResult,
     semanticStatus,
     embeddingRefreshResult,
     semanticSearchResult,
+    flowAskResult,
     knowledgeDraftSaveResult,
     knowledgeSkillExportResult,
     knowledgeSkillInstallResult,
@@ -1304,10 +1653,21 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     isSavingChecklistDraft,
     isSavingExclusions,
     isRunningScheduledDrafts,
+    isRunningAutonomousFlow,
     isPolishingDailyDraft,
     isRefreshingEmbedding,
     isSemanticSearching,
+    isAskingFlow,
     isDiscoveringExperienceAI,
+    isDeletingEntries,
+    isBatchRecognizingOCR,
+    experienceDiscoveryProgress,
+    experienceDiscoveryStage,
+    deleteProgressDone,
+    deleteProgressTotal,
+    batchOcrProgressDone,
+    batchOcrProgressTotal,
+    batchOcrProgressStage,
     knowledgeDraftSaveArmed,
     dailyDraftPolishArmed,
     experienceDiscoveryArmed,
@@ -1317,12 +1677,15 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     checklistDraftSaveArmed,
     load,
     setQuery,
+    askFlow,
     select,
     isRetrospectiveSelected,
     toggleRetrospectiveSelection,
     clearRetrospectiveSelection,
     selectVisibleForRetrospective,
+    selectEntriesForRetrospective,
     addNote,
+    addManualNote,
     toggleTimeMachine,
     togglePrivacyMode,
     enableProactiveSinking,
@@ -1330,6 +1693,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     buildDailyDraft,
     polishDailyDraft,
     runScheduledDrafts,
+    runAutonomousFlow,
+    rejectAutonomousArtifact,
     refreshEmbedding,
     runSemanticSearch,
     buildRetrospectiveDraft,
@@ -1347,6 +1712,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     buildChecklistDraftFromInsight,
     saveCurrentChecklistDraft,
     recognizeSelectedText,
+    recognizeEntriesOCR,
     copyOCRText,
     copySelectedOCRText,
     isOCRLineSelected: ocrSelection.isOCRLineSelected,
@@ -1361,6 +1727,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     stepPlayback,
     selectPlayback,
     deleteSelected,
+    deleteEntries,
     clearUnpinned,
   }
 })

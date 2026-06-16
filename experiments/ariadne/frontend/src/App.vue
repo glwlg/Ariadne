@@ -9,76 +9,78 @@ import NetworkMonitorCenter from './components/network/NetworkMonitorCenter.vue'
 import NetworkMiniWindow from './components/network/NetworkMiniWindow.vue'
 import PinnedImageWindow from './components/pinned/PinnedImageWindow.vue'
 import SettingsCenter from './components/settings/SettingsCenter.vue'
-import WindowControls from './components/ui/WindowControls.vue'
 import WorkMemoryCenter from './components/workmemory/WorkMemoryCenter.vue'
 import WorkflowCenter from './components/workflows/WorkflowCenter.vue'
 import { installSystemThemeListener, syncThemeFromSettings } from './lib/theme'
+import { enableTaskbarToggle } from './services/toolWindowsApi'
 import { useAppShellStore, type AppToolView } from './stores/appShell'
 import { Window } from '@wailsio/runtime'
-import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 
 const appShell = useAppShellStore()
 const routeParams = new URLSearchParams(window.location.search)
 const routeView = routeParams.get('view') ?? ''
+const isLauncherWindow = routeView === 'launcher'
 const isPinnedImageWindow = routeView === 'pinned-image'
 const isCaptureOverlayWindow = routeView === 'capture-overlay'
 const standaloneToolView = isStandaloneToolView(routeView) ? routeView : ''
 const pinId = routeParams.get('pinId') ?? ''
 const captureOverlaySessionId = routeParams.get('sessionId') ?? ''
-const currentToolView = computed<AppToolView | ''>(() => {
-  if (standaloneToolView) return standaloneToolView
-  return appShell.activeView === 'launcher' ? '' : appShell.activeView
-})
-const showWindowControls = computed(() => Boolean(currentToolView.value && currentToolView.value !== 'network-mini'))
 const documentClass = isPinnedImageWindow
   ? 'pinned-image-document'
   : isCaptureOverlayWindow
     ? 'capture-overlay-document'
-    : standaloneToolView
+    : isLauncherWindow
+      ? 'launcher-document'
+      : standaloneToolView
       ? 'tool-window-document'
-      : 'launcher-document'
+      : 'tool-window-document'
 let uninstallShellEvents: (() => void) | null = null
 let uninstallThemeEvents: (() => void) | null = null
 
 onMounted(() => {
   document.documentElement.classList.add(documentClass)
-  watch(
-    showWindowControls,
-    (visible) => {
-      document.documentElement.classList.toggle('window-controls-visible', visible)
-    },
-    { immediate: true },
-  )
   if (isPinnedImageWindow || isCaptureOverlayWindow) {
-    void ensureUtilityWindow(true, isPinnedImageWindow)
+    void ensureUtilityWindow({
+      alwaysOnTop: true,
+      transparent: isPinnedImageWindow,
+      frameless: true,
+      resizable: false,
+    })
     void syncThemeFromSettings()
     uninstallThemeEvents = installSystemThemeListener()
     return
   }
   if (standaloneToolView) {
-    const compactUtility = standaloneToolView === 'network-mini'
-    void ensureUtilityWindow(compactUtility, compactUtility, compactUtility)
+    void ensureToolWindowMode(standaloneToolView)
     void syncThemeFromSettings()
     uninstallThemeEvents = installSystemThemeListener()
     return
   }
-  void ensureLauncherWindow()
+  if (isLauncherWindow) {
+    void ensureLauncherWindow()
+    void syncThemeFromSettings()
+    uninstallThemeEvents = installSystemThemeListener()
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { reset: true } })), 0)
+    return
+  }
+  void ensureMainWindow()
   void syncThemeFromSettings()
   uninstallThemeEvents = installSystemThemeListener()
   uninstallShellEvents = appShell.installShellEventListeners()
-  appShell.openLauncher()
+  appShell.activateMainView('work-memory')
 })
 
 onUnmounted(() => {
   uninstallShellEvents?.()
   uninstallThemeEvents?.()
   document.documentElement.classList.remove(documentClass)
-  document.documentElement.classList.remove('window-controls-visible')
 })
 
 async function ensureLauncherWindow() {
   try {
     await Window.SetFrameless(true)
+    await Window.SetResizable(false)
     await Window.SetAlwaysOnTop(false)
     await Window.SetBackgroundColour(0, 0, 0, 0)
   } catch {
@@ -86,9 +88,60 @@ async function ensureLauncherWindow() {
   }
 }
 
-async function ensureUtilityWindow(alwaysOnTop: boolean, transparent: boolean, frameless = true) {
+async function ensureMainWindow() {
   try {
-    await Window.SetFrameless(frameless)
+    await Window.SetFrameless(false)
+    await Window.SetResizable(true)
+    await Window.SetMinSize(1040, 640)
+    await Window.SetAlwaysOnTop(false)
+    await Window.SetBackgroundColour(244, 244, 245, 255)
+  } catch {
+    // Runtime calls are unavailable in browser-only dev mode.
+  }
+}
+
+async function ensureToolWindowMode(view: AppToolView) {
+  const compactUtility = view === 'network-mini'
+  await ensureUtilityWindow({
+    alwaysOnTop: compactUtility,
+    transparent: compactUtility,
+    frameless: true,
+    syncFrameless: compactUtility,
+    resizable: !compactUtility,
+    minWidth: view === 'work-memory' ? 1040 : 820,
+    minHeight: view === 'work-memory' ? 640 : 560,
+  })
+  if (!compactUtility) {
+    void enableTaskbarToggle(view)
+  }
+}
+
+async function ensureUtilityWindow(options: {
+  alwaysOnTop: boolean
+  transparent: boolean
+  frameless?: boolean
+  syncFrameless?: boolean
+  resizable?: boolean
+  minWidth?: number
+  minHeight?: number
+}) {
+  const {
+    alwaysOnTop,
+    transparent,
+    frameless = true,
+    syncFrameless = true,
+    resizable = false,
+    minWidth = 820,
+    minHeight = 560,
+  } = options
+  try {
+    if (syncFrameless) {
+      await Window.SetFrameless(frameless)
+    }
+    await Window.SetResizable(resizable)
+    if (resizable) {
+      await Window.SetMinSize(minWidth, minHeight)
+    }
     await Window.SetAlwaysOnTop(alwaysOnTop)
     if (transparent) {
       await Window.SetBackgroundColour(0, 0, 0, 0)
@@ -108,6 +161,7 @@ function isStandaloneToolView(view: string): view is AppToolView {
 <template>
   <PinnedImageWindow v-if="isPinnedImageWindow" :pin-id="pinId" />
   <CaptureOverlayWindow v-else-if="isCaptureOverlayWindow" :session-id="captureOverlaySessionId" />
+  <AriadneLauncher v-else-if="isLauncherWindow || appShell.activeView === 'launcher'" />
   <WorkMemoryCenter v-else-if="standaloneToolView === 'work-memory' || appShell.activeView === 'work-memory'" />
   <ClipboardCenter v-else-if="standaloneToolView === 'clipboard' || appShell.activeView === 'clipboard'" />
   <CaptureHistoryCenter v-else-if="standaloneToolView === 'capture' || appShell.activeView === 'capture'" />
@@ -117,6 +171,5 @@ function isStandaloneToolView(view: string): view is AppToolView {
   <NetworkMonitorCenter v-else-if="standaloneToolView === 'network-monitor' || appShell.activeView === 'network-monitor'" />
   <NetworkMiniWindow v-else-if="standaloneToolView === 'network-mini' || appShell.activeView === 'network-mini'" />
   <SettingsCenter v-else-if="standaloneToolView === 'settings' || appShell.activeView === 'settings'" />
-  <AriadneLauncher v-else />
-  <WindowControls v-if="showWindowControls" />
+  <WorkMemoryCenter v-else />
 </template>

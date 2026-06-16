@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
@@ -25,44 +26,48 @@ import (
 )
 
 const (
-	defaultAutoCaptureInterval = 5 * time.Minute
+	defaultAutoCaptureInterval = 30 * time.Second
 	defaultMaxEntries          = 1000
 	similarImageHashMaxBits    = 6
+	qualityStatusPending       = "pending"
+	qualityStatusChecked       = "checked"
 )
 
 var windowSwitchPollInterval = time.Second
+var qualityReviewInterval = time.Hour
 
 type Status struct {
-	Enabled                    bool   `json:"enabled"`
-	TimeMachineEnabled         bool   `json:"timeMachineEnabled"`
-	WorkerRunning              bool   `json:"workerRunning"`
-	PrivacyMode                bool   `json:"privacyMode"`
-	PauseReason                string `json:"pauseReason,omitempty"`
-	AutoOCREnabled             bool   `json:"autoOcrEnabled"`
-	CaptureScope               string `json:"captureScope,omitempty"`
-	MultiMonitor               string `json:"multiMonitor,omitempty"`
-	WindowSwitchCaptureEnabled bool   `json:"windowSwitchCaptureEnabled"`
-	WindowSwitchCooldownSecs   int    `json:"windowSwitchCooldownSeconds,omitempty"`
-	LastWindowSwitchAt         int64  `json:"lastWindowSwitchAt,omitempty"`
-	LastWindowSwitchCaptureAt  int64  `json:"lastWindowSwitchCaptureAt,omitempty"`
-	PauseOnIdle                bool   `json:"pauseOnIdle"`
-	IdlePauseSeconds           int    `json:"idlePauseSeconds,omitempty"`
-	PauseOnLock                bool   `json:"pauseOnLock"`
-	IdleSeconds                int    `json:"idleSeconds,omitempty"`
-	LastActivityAt             int64  `json:"lastActivityAt,omitempty"`
-	SessionLocked              bool   `json:"sessionLocked"`
-	EntryCount                 int    `json:"entryCount"`
-	AutoCaptureIntervalSeconds int    `json:"autoCaptureIntervalSeconds"`
-	LastCaptureAt              int64  `json:"lastCaptureAt,omitempty"`
-	LastCaptureID              string `json:"lastCaptureId,omitempty"`
-	LastCaptureError           string `json:"lastCaptureError,omitempty"`
-	LastSkippedAt              int64  `json:"lastSkippedAt,omitempty"`
-	LastSkippedReason          string `json:"lastSkippedReason,omitempty"`
-	LastAutoOCRAt              int64  `json:"lastAutoOcrAt,omitempty"`
-	LastAutoOCRID              string `json:"lastAutoOcrId,omitempty"`
-	LastAutoOCRError           string `json:"lastAutoOcrError,omitempty"`
-	CaptureCount               int    `json:"captureCount"`
-	StoragePath                string `json:"storagePath,omitempty"`
+	Enabled                    bool                `json:"enabled"`
+	TimeMachineEnabled         bool                `json:"timeMachineEnabled"`
+	WorkerRunning              bool                `json:"workerRunning"`
+	PrivacyMode                bool                `json:"privacyMode"`
+	PauseReason                string              `json:"pauseReason,omitempty"`
+	AutoOCREnabled             bool                `json:"autoOcrEnabled"`
+	CaptureScope               string              `json:"captureScope,omitempty"`
+	MultiMonitor               string              `json:"multiMonitor,omitempty"`
+	WindowSwitchCaptureEnabled bool                `json:"windowSwitchCaptureEnabled"`
+	WindowSwitchCooldownSecs   int                 `json:"windowSwitchCooldownSeconds,omitempty"`
+	AppCaptureProfiles         []AppCaptureProfile `json:"appCaptureProfiles,omitempty"`
+	LastWindowSwitchAt         int64               `json:"lastWindowSwitchAt,omitempty"`
+	LastWindowSwitchCaptureAt  int64               `json:"lastWindowSwitchCaptureAt,omitempty"`
+	PauseOnIdle                bool                `json:"pauseOnIdle"`
+	IdlePauseSeconds           int                 `json:"idlePauseSeconds,omitempty"`
+	PauseOnLock                bool                `json:"pauseOnLock"`
+	IdleSeconds                int                 `json:"idleSeconds,omitempty"`
+	LastActivityAt             int64               `json:"lastActivityAt,omitempty"`
+	SessionLocked              bool                `json:"sessionLocked"`
+	EntryCount                 int                 `json:"entryCount"`
+	AutoCaptureIntervalSeconds int                 `json:"autoCaptureIntervalSeconds"`
+	LastCaptureAt              int64               `json:"lastCaptureAt,omitempty"`
+	LastCaptureID              string              `json:"lastCaptureId,omitempty"`
+	LastCaptureError           string              `json:"lastCaptureError,omitempty"`
+	LastSkippedAt              int64               `json:"lastSkippedAt,omitempty"`
+	LastSkippedReason          string              `json:"lastSkippedReason,omitempty"`
+	LastAutoOCRAt              int64               `json:"lastAutoOcrAt,omitempty"`
+	LastAutoOCRID              string              `json:"lastAutoOcrId,omitempty"`
+	LastAutoOCRError           string              `json:"lastAutoOcrError,omitempty"`
+	CaptureCount               int                 `json:"captureCount"`
+	StoragePath                string              `json:"storagePath,omitempty"`
 }
 
 type DraftSchedulePolicy struct {
@@ -86,9 +91,61 @@ type ScheduledDraftStatus struct {
 	LastEntryCount          int              `json:"lastEntryCount"`
 	LastEntryCreatedAt      int64            `json:"lastEntryCreatedAt,omitempty"`
 	LastError               string           `json:"lastError,omitempty"`
+	LastAutonomousRunAt     int64            `json:"lastAutonomousRunAt,omitempty"`
+	AutonomousGenerated     int              `json:"autonomousGenerated"`
+	AutonomousMessage       string           `json:"autonomousMessage,omitempty"`
 	DailyDraft              Draft            `json:"dailyDraft,omitempty"`
 	RetrospectiveDraft      Draft            `json:"retrospectiveDraft,omitempty"`
 	ExperienceReport        ExperienceReport `json:"experienceReport,omitempty"`
+}
+
+type AutonomousArtifact struct {
+	ID              string   `json:"id"`
+	Kind            string   `json:"kind"`
+	Title           string   `json:"title"`
+	Summary         string   `json:"summary"`
+	Body            string   `json:"body"`
+	Evidence        []string `json:"evidence"`
+	SourceInsightID string   `json:"sourceInsightId,omitempty"`
+	DedupKey        string   `json:"dedupKey,omitempty"`
+	Status          string   `json:"status"`
+	DeleteReason    string   `json:"deleteReason,omitempty"`
+	Confidence      float64  `json:"confidence,omitempty"`
+	AgentExecutable bool     `json:"agentExecutable,omitempty"`
+	CreatedAt       int64    `json:"createdAt"`
+	UpdatedAt       int64    `json:"updatedAt,omitempty"`
+	DeletedAt       int64    `json:"deletedAt,omitempty"`
+}
+
+type AutonomousArtifactRejectRequest struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+type AutonomousArtifactRejectResult struct {
+	OK       bool                 `json:"ok"`
+	Message  string               `json:"message"`
+	Artifact AutonomousArtifact   `json:"artifact,omitempty"`
+	Status   ScheduledDraftStatus `json:"status"`
+}
+
+type AutonomousRunResult struct {
+	OK        bool                 `json:"ok"`
+	Message   string               `json:"message"`
+	Generated int                  `json:"generated"`
+	Skipped   int                  `json:"skipped"`
+	Artifacts []AutonomousArtifact `json:"artifacts"`
+	Status    ScheduledDraftStatus `json:"status"`
+	CreatedAt int64                `json:"createdAt"`
+}
+
+type AutonomousRejection struct {
+	Key        string `json:"key"`
+	ArtifactID string `json:"artifactId,omitempty"`
+	Kind       string `json:"kind"`
+	Title      string `json:"title"`
+	Reason     string `json:"reason"`
+	RejectedAt int64  `json:"rejectedAt"`
 }
 
 type SemanticStatus struct {
@@ -157,30 +214,124 @@ type SemanticSearchResult struct {
 	Model    string                   `json:"model,omitempty"`
 }
 
+type FlowAskRequest struct {
+	Question string `json:"question"`
+	Limit    int    `json:"limit,omitempty"`
+	Since    int64  `json:"since,omitempty"`
+}
+
+type FlowAskEvidence struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Summary     string   `json:"summary"`
+	Source      string   `json:"source"`
+	AppName     string   `json:"appName,omitempty"`
+	WindowTitle string   `json:"windowTitle,omitempty"`
+	CreatedAt   int64    `json:"createdAt"`
+	Score       float64  `json:"score,omitempty"`
+	HasImage    bool     `json:"hasImage"`
+	Sensitive   bool     `json:"sensitive"`
+	Tags        []string `json:"tags"`
+}
+
+type FlowAskResponse struct {
+	OK                 bool              `json:"ok"`
+	Question           string            `json:"question"`
+	Title              string            `json:"title"`
+	Answer             string            `json:"answer"`
+	Intent             string            `json:"intent"`
+	Mode               string            `json:"mode"`
+	Evidence           []FlowAskEvidence `json:"evidence"`
+	SuggestedQuestions []string          `json:"suggestedQuestions,omitempty"`
+	UsedAI             bool              `json:"usedAi"`
+	Message            string            `json:"message,omitempty"`
+	CreatedAt          int64             `json:"createdAt"`
+}
+
+type FlowAgentPolicy struct {
+	Enabled bool   `json:"enabled"`
+	Runner  string `json:"runner"`
+	Model   string `json:"model,omitempty"`
+	WorkDir string `json:"workDir,omitempty"`
+}
+
+type FlowAgentEvidence struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Summary     string   `json:"summary"`
+	Text        string   `json:"text,omitempty"`
+	OCRText     string   `json:"ocrText,omitempty"`
+	Source      string   `json:"source"`
+	AppName     string   `json:"appName,omitempty"`
+	WindowTitle string   `json:"windowTitle,omitempty"`
+	CreatedAt   int64    `json:"createdAt"`
+	HasImage    bool     `json:"hasImage"`
+	Tags        []string `json:"tags,omitempty"`
+}
+
+type FlowAgentJob struct {
+	Question    string              `json:"question"`
+	Intent      string              `json:"intent"`
+	LocalAnswer string              `json:"localAnswer"`
+	Evidence    []FlowAgentEvidence `json:"evidence"`
+	Runner      string              `json:"runner"`
+	Model       string              `json:"model,omitempty"`
+	WorkDir     string              `json:"workDir,omitempty"`
+	Now         time.Time           `json:"now"`
+}
+
+type FlowAgentResult struct {
+	Answer  string `json:"answer"`
+	Mode    string `json:"mode,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type FlowAgentRunner interface {
+	AnswerFlow(context.Context, FlowAgentJob) (FlowAgentResult, error)
+}
+
 type Entry struct {
-	ID               string   `json:"id"`
-	Source           string   `json:"source"`
-	ContentType      string   `json:"contentType"`
-	Title            string   `json:"title"`
-	Summary          string   `json:"summary"`
-	Text             string   `json:"text"`
-	OCRText          string   `json:"ocrText,omitempty"`
-	OCRStatus        string   `json:"ocrStatus,omitempty"`
-	WindowTitle      string   `json:"windowTitle,omitempty"`
-	AppName          string   `json:"appName,omitempty"`
-	CaptureID        string   `json:"captureId,omitempty"`
-	ImagePath        string   `json:"imagePath,omitempty"`
-	ImageSignature   string   `json:"imageSignature,omitempty"`
-	ImageFingerprint string   `json:"imageFingerprint,omitempty"`
-	Width            int      `json:"width,omitempty"`
-	Height           int      `json:"height,omitempty"`
-	Bytes            int64    `json:"bytes,omitempty"`
-	Tags             []string `json:"tags"`
-	Favorite         bool     `json:"favorite"`
-	Sensitive        bool     `json:"sensitive"`
-	MergedCount      int      `json:"mergedCount,omitempty"`
-	LastMergedAt     int64    `json:"lastMergedAt,omitempty"`
-	CreatedAt        int64    `json:"createdAt"`
+	ID               string         `json:"id"`
+	Source           string         `json:"source"`
+	ContentType      string         `json:"contentType"`
+	Title            string         `json:"title"`
+	Summary          string         `json:"summary"`
+	Text             string         `json:"text"`
+	OCRText          string         `json:"ocrText,omitempty"`
+	OCRStatus        string         `json:"ocrStatus,omitempty"`
+	WindowTitle      string         `json:"windowTitle,omitempty"`
+	AppName          string         `json:"appName,omitempty"`
+	CaptureID        string         `json:"captureId,omitempty"`
+	ImagePath        string         `json:"imagePath,omitempty"`
+	ImageSignature   string         `json:"imageSignature,omitempty"`
+	ImageFingerprint string         `json:"imageFingerprint,omitempty"`
+	Frames           []CaptureFrame `json:"frames,omitempty"`
+	FrameCount       int            `json:"frameCount,omitempty"`
+	QualityStatus    string         `json:"qualityStatus,omitempty"`
+	QualityCheckedAt int64          `json:"qualityCheckedAt,omitempty"`
+	QualityReason    string         `json:"qualityReason,omitempty"`
+	Width            int            `json:"width,omitempty"`
+	Height           int            `json:"height,omitempty"`
+	Bytes            int64          `json:"bytes,omitempty"`
+	Tags             []string       `json:"tags"`
+	Favorite         bool           `json:"favorite"`
+	Sensitive        bool           `json:"sensitive"`
+	MergedCount      int            `json:"mergedCount,omitempty"`
+	LastMergedAt     int64          `json:"lastMergedAt,omitempty"`
+	CreatedAt        int64          `json:"createdAt"`
+}
+
+type CaptureFrame struct {
+	CaptureID        string `json:"captureId,omitempty"`
+	ImagePath        string `json:"imagePath,omitempty"`
+	ImageSignature   string `json:"imageSignature,omitempty"`
+	ImageFingerprint string `json:"imageFingerprint,omitempty"`
+	Width            int    `json:"width,omitempty"`
+	Height           int    `json:"height,omitempty"`
+	Bytes            int64  `json:"bytes,omitempty"`
+	WindowTitle      string `json:"windowTitle,omitempty"`
+	AppName          string `json:"appName,omitempty"`
+	CreatedAt        int64  `json:"createdAt"`
 }
 
 type Draft struct {
@@ -196,6 +347,32 @@ type DraftPolishPolicy struct {
 	Provider string `json:"provider"`
 	BaseURL  string `json:"baseUrl"`
 	Model    string `json:"model"`
+}
+
+type OCRSummaryPolicy struct {
+	Enabled  bool   `json:"enabled"`
+	Provider string `json:"provider"`
+	BaseURL  string `json:"baseUrl"`
+	Model    string `json:"model"`
+}
+
+type OCRSummaryJob struct {
+	Entry    Entry     `json:"entry"`
+	OCRText  string    `json:"ocrText"`
+	Provider string    `json:"provider"`
+	BaseURL  string    `json:"baseUrl"`
+	Model    string    `json:"model"`
+	Now      time.Time `json:"now"`
+}
+
+type OCRSummaryResult struct {
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Text    string `json:"text"`
+}
+
+type OCRSummarizer interface {
+	SummarizeOCR(context.Context, OCRSummaryJob) (OCRSummaryResult, error)
 }
 
 type DraftPolishRequest struct {
@@ -437,6 +614,17 @@ type RetentionResult struct {
 	AppliedAt      int64 `json:"appliedAt"`
 }
 
+type QualityReviewResult struct {
+	OK               bool   `json:"ok"`
+	Message          string `json:"message"`
+	Checked          int    `json:"checked"`
+	CollapsedEntries int    `json:"collapsedEntries"`
+	RemovedFrames    int    `json:"removedFrames"`
+	SkippedActive    int    `json:"skippedActive"`
+	PendingRemaining int    `json:"pendingRemaining"`
+	ReviewedAt       int64  `json:"reviewedAt"`
+}
+
 type ScreenCapturer interface {
 	CaptureScreen(source string) capturehistory.Status
 }
@@ -446,19 +634,30 @@ type OptionScreenCapturer interface {
 }
 
 type CapturePolicy struct {
-	ExcludeApps            []string `json:"excludeApps,omitempty"`
-	ExcludeWindowKeywords  []string `json:"excludeWindowKeywords,omitempty"`
-	ExcludePaths           []string `json:"excludePaths,omitempty"`
-	ExcludeURLs            []string `json:"excludeUrls,omitempty"`
-	ExcludeContentPatterns []string `json:"excludeContentPatterns,omitempty"`
-	AutoOCR                bool     `json:"autoOcr"`
-	CaptureScope           string   `json:"captureScope,omitempty"`
-	MultiMonitor           string   `json:"multiMonitor,omitempty"`
-	CaptureOnWindowChange  bool     `json:"captureOnWindowChange"`
-	WindowChangeCooldown   int      `json:"windowChangeCooldownSeconds,omitempty"`
-	PauseOnIdle            bool     `json:"pauseOnIdle"`
-	IdlePauseSeconds       int      `json:"idlePauseSeconds,omitempty"`
-	PauseOnLock            bool     `json:"pauseOnLock"`
+	ExcludeApps            []string            `json:"excludeApps,omitempty"`
+	ExcludeWindowKeywords  []string            `json:"excludeWindowKeywords,omitempty"`
+	ExcludePaths           []string            `json:"excludePaths,omitempty"`
+	ExcludeURLs            []string            `json:"excludeUrls,omitempty"`
+	ExcludeContentPatterns []string            `json:"excludeContentPatterns,omitempty"`
+	AppCaptureProfiles     []AppCaptureProfile `json:"appCaptureProfiles,omitempty"`
+	AutoOCR                bool                `json:"autoOcr"`
+	CaptureScope           string              `json:"captureScope,omitempty"`
+	MultiMonitor           string              `json:"multiMonitor,omitempty"`
+	CaptureOnWindowChange  bool                `json:"captureOnWindowChange"`
+	WindowChangeCooldown   int                 `json:"windowChangeCooldownSeconds,omitempty"`
+	PauseOnIdle            bool                `json:"pauseOnIdle"`
+	IdlePauseSeconds       int                 `json:"idlePauseSeconds,omitempty"`
+	PauseOnLock            bool                `json:"pauseOnLock"`
+}
+
+type AppCaptureProfile struct {
+	ID                       string `json:"id"`
+	DisplayName              string `json:"displayName"`
+	ProcessName              string `json:"processName"`
+	Icon                     string `json:"icon,omitempty"`
+	Enabled                  bool   `json:"enabled"`
+	WindowSwitchDelaySeconds int    `json:"windowSwitchDelaySeconds"`
+	ActiveIntervalSeconds    int    `json:"activeIntervalSeconds"`
 }
 
 type windowContext struct {
@@ -504,39 +703,52 @@ type embeddingStateFile struct {
 }
 
 type Service struct {
-	mu                    sync.RWMutex
-	path                  string
-	status                Status
-	entries               []Entry
-	decisions             map[string]ExperienceDecision
-	capturer              ScreenCapturer
-	maxEntries            int
-	interval              time.Duration
-	stopWorker            chan struct{}
-	draftSchedule         DraftSchedulePolicy
-	draftScheduleInterval time.Duration
-	stopDraftScheduler    chan struct{}
-	scheduledDrafts       ScheduledDraftStatus
-	now                   func() time.Time
-	context               func() windowContext
-	activity              activityProvider
-	autoOCR               AutoOCRProcessor
-	draftPolisher         DraftPolisher
-	draftPolishPolicy     DraftPolishPolicy
-	experienceDiscoverer  ExperienceDiscoverer
-	experiencePolicy      ExperienceDiscoveryPolicy
-	embedder              EmbeddingClient
-	embeddingPolicy       EmbeddingPolicy
-	embeddingIndex        map[string]embeddingRecord
-	embeddingIndexed      int
-	embeddingError        string
-	lastEmbeddingAt       int64
-	fts                   *ftsIndex
-	ftsError              string
-	policy                CapturePolicy
-	lastWindowSignature   string
-	lastWindowCaptureAt   int64
-	saveError             string
+	mu                            sync.RWMutex
+	path                          string
+	status                        Status
+	entries                       []Entry
+	decisions                     map[string]ExperienceDecision
+	autonomousArtifacts           []AutonomousArtifact
+	autonomousRejections          map[string]AutonomousRejection
+	lastAutonomousRunAt           int64
+	capturer                      ScreenCapturer
+	maxEntries                    int
+	interval                      time.Duration
+	stopWorker                    chan struct{}
+	draftSchedule                 DraftSchedulePolicy
+	draftScheduleInterval         time.Duration
+	stopDraftScheduler            chan struct{}
+	scheduledDrafts               ScheduledDraftStatus
+	now                           func() time.Time
+	context                       func() windowContext
+	activity                      activityProvider
+	autoOCR                       AutoOCRProcessor
+	ocrSummarizer                 OCRSummarizer
+	ocrSummaryPolicy              OCRSummaryPolicy
+	draftPolisher                 DraftPolisher
+	draftPolishPolicy             DraftPolishPolicy
+	flowAgentRunner               FlowAgentRunner
+	flowAgentPolicy               FlowAgentPolicy
+	experienceDiscoverer          ExperienceDiscoverer
+	experiencePolicy              ExperienceDiscoveryPolicy
+	embedder                      EmbeddingClient
+	embeddingPolicy               EmbeddingPolicy
+	embeddingIndex                map[string]embeddingRecord
+	embeddingIndexed              int
+	embeddingError                string
+	lastEmbeddingAt               int64
+	fts                           *ftsIndex
+	ftsError                      string
+	policy                        CapturePolicy
+	lastWindowSignature           string
+	lastWindowCaptureAt           int64
+	pendingWindowSignature        string
+	pendingWindowDueAt            int64
+	lastAppCaptureAt              map[string]int64
+	currentWindowSessionSignature string
+	currentWindowSessionEntryID   string
+	currentWindowSessionStartedAt int64
+	saveError                     string
 }
 
 func NewService(capturers ...ScreenCapturer) *Service {
@@ -549,12 +761,14 @@ func NewService(capturers ...ScreenCapturer) *Service {
 
 func NewServiceWithPath(path string, capturer ScreenCapturer) *Service {
 	service := &Service{
-		path:           path,
-		capturer:       capturer,
-		decisions:      map[string]ExperienceDecision{},
-		embeddingIndex: map[string]embeddingRecord{},
-		maxEntries:     defaultMaxEntries,
-		interval:       defaultAutoCaptureInterval,
+		path:                 path,
+		capturer:             capturer,
+		decisions:            map[string]ExperienceDecision{},
+		autonomousRejections: map[string]AutonomousRejection{},
+		embeddingIndex:       map[string]embeddingRecord{},
+		lastAppCaptureAt:     map[string]int64{},
+		maxEntries:           defaultMaxEntries,
+		interval:             defaultAutoCaptureInterval,
 		draftSchedule: DraftSchedulePolicy{
 			IntervalMinutes:         240,
 			DailyDraftEnabled:       true,
@@ -570,8 +784,8 @@ func NewServiceWithPath(path string, capturer ScreenCapturer) *Service {
 			AutoOCR:               false,
 			CaptureScope:          "all_screens",
 			MultiMonitor:          "combined",
-			CaptureOnWindowChange: false,
-			WindowChangeCooldown:  30,
+			CaptureOnWindowChange: true,
+			WindowChangeCooldown:  3,
 			PauseOnIdle:           true,
 			IdlePauseSeconds:      600,
 			PauseOnLock:           true,
@@ -584,8 +798,8 @@ func NewServiceWithPath(path string, capturer ScreenCapturer) *Service {
 			AutoCaptureIntervalSeconds: int(defaultAutoCaptureInterval.Seconds()),
 			CaptureScope:               "all_screens",
 			MultiMonitor:               "combined",
-			WindowSwitchCaptureEnabled: false,
-			WindowSwitchCooldownSecs:   30,
+			WindowSwitchCaptureEnabled: true,
+			WindowSwitchCooldownSecs:   3,
 			PauseOnIdle:                true,
 			IdlePauseSeconds:           600,
 			PauseOnLock:                true,
@@ -613,6 +827,15 @@ func RegisterAutoOCRProcessor(service *Service, processor AutoOCRProcessor) {
 	service.autoOCR = processor
 }
 
+func RegisterOCRSummarizer(service *Service, summarizer OCRSummarizer) {
+	if service == nil {
+		return
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.ocrSummarizer = summarizer
+}
+
 func RegisterDraftPolisher(service *Service, polisher DraftPolisher) {
 	if service == nil {
 		return
@@ -620,6 +843,15 @@ func RegisterDraftPolisher(service *Service, polisher DraftPolisher) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	service.draftPolisher = polisher
+}
+
+func RegisterFlowAgentRunner(service *Service, runner FlowAgentRunner) {
+	if service == nil {
+		return
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.flowAgentRunner = runner
 }
 
 func RegisterExperienceDiscoverer(service *Service, discoverer ExperienceDiscoverer) {
@@ -644,6 +876,18 @@ func (s *Service) ApplyDraftPolishPolicy(policy DraftPolishPolicy) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.draftPolishPolicy = normalizeDraftPolishPolicy(policy)
+}
+
+func (s *Service) ApplyOCRSummaryPolicy(policy OCRSummaryPolicy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ocrSummaryPolicy = normalizeOCRSummaryPolicy(policy)
+}
+
+func (s *Service) ApplyFlowAgentPolicy(policy FlowAgentPolicy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flowAgentPolicy = normalizeFlowAgentPolicy(policy)
 }
 
 func (s *Service) ApplyExperienceDiscoveryPolicy(policy ExperienceDiscoveryPolicy) {
@@ -818,6 +1062,67 @@ func (s *Service) RunScheduledDraftsNow() ScheduledDraftStatus {
 	return s.runScheduledDrafts(true)
 }
 
+func (s *Service) AutonomousArtifacts() []AutonomousArtifact {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return activeAutonomousArtifacts(s.autonomousArtifacts)
+}
+
+func (s *Service) RunAutonomousFlowNow() AutonomousRunResult {
+	result := s.runAutonomousFlow(true)
+	result.Status = s.ScheduledDraftStatus()
+	return result
+}
+
+func (s *Service) RejectAutonomousArtifact(request AutonomousArtifactRejectRequest) AutonomousArtifactRejectResult {
+	id := strings.TrimSpace(request.ID)
+	reason := strings.TrimSpace(request.Reason)
+	if reason == "" {
+		reason = "用户删除，未填写原因"
+	}
+	if id == "" {
+		return AutonomousArtifactRejectResult{OK: false, Message: "缺少自主产物 ID", Status: s.ScheduledDraftStatus()}
+	}
+	now := s.now().Unix()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.autonomousRejections == nil {
+		s.autonomousRejections = map[string]AutonomousRejection{}
+	}
+	for index := range s.autonomousArtifacts {
+		if s.autonomousArtifacts[index].ID != id {
+			continue
+		}
+		artifact := s.autonomousArtifacts[index]
+		artifact.Status = "rejected"
+		artifact.DeleteReason = reason
+		artifact.DeletedAt = now
+		artifact.UpdatedAt = now
+		s.autonomousArtifacts[index] = artifact
+		if artifact.DedupKey != "" {
+			s.autonomousRejections[artifact.DedupKey] = AutonomousRejection{
+				Key:        artifact.DedupKey,
+				ArtifactID: artifact.ID,
+				Kind:       artifact.Kind,
+				Title:      artifact.Title,
+				Reason:     reason,
+				RejectedAt: now,
+			}
+		}
+		if err := s.saveLocked(); err != nil {
+			s.saveError = err.Error()
+			return AutonomousArtifactRejectResult{OK: false, Message: err.Error(), Artifact: artifact, Status: s.scheduledDraftStatusLocked()}
+		}
+		return AutonomousArtifactRejectResult{
+			OK:       true,
+			Message:  "已删除自主产物，并记录原因避免重复生成",
+			Artifact: artifact,
+			Status:   s.scheduledDraftStatusLocked(),
+		}
+	}
+	return AutonomousArtifactRejectResult{OK: false, Message: "未找到自主产物", Status: s.scheduledDraftStatusLocked()}
+}
+
 func (s *Service) RefreshEmbeddingIndex() EmbeddingRefreshResult {
 	s.mu.RLock()
 	policy := s.embeddingPolicy
@@ -839,7 +1144,7 @@ func (s *Service) RefreshEmbeddingIndex() EmbeddingRefreshResult {
 	inputs := make([]string, 0, len(entries))
 	skipped := 0
 	for _, entry := range entries {
-		if entry.ID == "" || entry.Sensitive {
+		if !entryUsableForExtraction(entry) {
 			skipped++
 			continue
 		}
@@ -995,7 +1300,7 @@ func (s *Service) SemanticSearchExternal(query string) SemanticSearchResult {
 	results := make([]contracts.SearchResult, 0, len(index))
 	for _, entry := range entries {
 		record, ok := index[entry.ID]
-		if !ok || entry.Sensitive {
+		if !ok || !entryUsableForExtraction(entry) {
 			continue
 		}
 		score := cosineSimilarity(queryVector, record.Vector)
@@ -1042,7 +1347,7 @@ func (s *Service) semanticSearchMilvus(ctx context.Context, policy EmbeddingPoli
 	results := make([]contracts.SearchResult, 0, len(hits))
 	for _, hit := range hits {
 		entry, ok := entryByID[hit.EntryID]
-		if !ok || entry.Sensitive {
+		if !ok || !entryUsableForExtraction(entry) {
 			continue
 		}
 		score := hit.Score
@@ -1076,6 +1381,7 @@ func (s *Service) ApplyCapturePolicy(policy CapturePolicy) Status {
 		ExcludePaths:           cleanStrings(policy.ExcludePaths),
 		ExcludeURLs:            cleanStrings(policy.ExcludeURLs),
 		ExcludeContentPatterns: cleanStrings(policy.ExcludeContentPatterns),
+		AppCaptureProfiles:     normalizeAppCaptureProfiles(policy.AppCaptureProfiles),
 		AutoOCR:                policy.AutoOCR,
 		CaptureScope:           normalizeCaptureScope(policy.CaptureScope),
 		MultiMonitor:           normalizeMultiMonitor(policy.MultiMonitor),
@@ -1090,6 +1396,7 @@ func (s *Service) ApplyCapturePolicy(policy CapturePolicy) Status {
 	s.status.MultiMonitor = s.policy.MultiMonitor
 	s.status.WindowSwitchCaptureEnabled = s.policy.CaptureOnWindowChange
 	s.status.WindowSwitchCooldownSecs = s.policy.WindowChangeCooldown
+	s.status.AppCaptureProfiles = cloneAppCaptureProfiles(s.policy.AppCaptureProfiles)
 	s.status.PauseOnIdle = s.policy.PauseOnIdle
 	s.status.IdlePauseSeconds = s.policy.IdlePauseSeconds
 	s.status.PauseOnLock = s.policy.PauseOnLock
@@ -1206,6 +1513,84 @@ func (s *Service) Search(query string) []contracts.SearchResult {
 		return results[i].Title < results[j].Title
 	})
 	return results
+}
+
+func (s *Service) AskFlow(request FlowAskRequest) FlowAskResponse {
+	question := strings.TrimSpace(request.Question)
+	limit := request.Limit
+	if limit <= 0 || limit > 12 {
+		limit = 8
+	}
+	now := s.now()
+	if question == "" {
+		return FlowAskResponse{
+			OK:        true,
+			Question:  question,
+			Title:     "可以直接问心流",
+			Answer:    "你可以直接问：我今天干了些什么、今天有哪些人找过我，或者今天哪些工作流可以优化。心流会优先使用本地非敏感记忆，并把证据收在下方。",
+			Intent:    "help",
+			Mode:      "local",
+			CreatedAt: now.Unix(),
+			SuggestedQuestions: []string{
+				"我今天干了些什么？",
+				"今天有哪些人找过我？",
+				"今天我的哪些工作流可以优化？",
+			},
+		}
+	}
+
+	s.mu.RLock()
+	entries := cloneEntries(s.entries)
+	decisions := cloneExperienceDecisions(s.decisions)
+	privacyMode := s.status.PrivacyMode
+	flowAgentRunner := s.flowAgentRunner
+	flowAgentPolicy := normalizeFlowAgentPolicy(s.flowAgentPolicy)
+	s.mu.RUnlock()
+
+	intent := detectFlowAskIntent(question)
+	base := FlowAskResponse{
+		OK:                 true,
+		Question:           question,
+		Title:              flowAnswerTitle(question, intent),
+		Intent:             intent,
+		Mode:               "local_summary",
+		CreatedAt:          now.Unix(),
+		SuggestedQuestions: flowSuggestedQuestions(intent),
+	}
+	if privacyMode {
+		base.Message = "隐私模式已开启，回答只使用已保存在本地的非敏感记忆。"
+	}
+
+	var selected []Entry
+	switch intent {
+	case "today":
+		var todayCount int
+		var skippedSensitive int
+		selected, todayCount, skippedSensitive = dailyDraftEntries(entries, now, limit)
+		base.Evidence = flowEvidenceFromEntries(selected, nil)
+		base.Answer = renderFlowTodayAnswer(selected, now, todayCount, skippedSensitive)
+	case "contacts":
+		var total int
+		selected, total = flowContactEntries(entries, now, request.Since, limit)
+		base.Evidence = flowEvidenceFromEntries(selected, nil)
+		base.Answer = renderFlowContactAnswer(selected, total)
+	case "optimization":
+		periodDays := 7
+		cutoff := now.Add(-time.Duration(periodDays) * 24 * time.Hour).Unix()
+		available := flowNonSensitiveEntries(entries, cutoff)
+		report := buildExperienceReport(available, decisions, periodDays, now)
+		base.Mode = "local_insights"
+		base.Evidence = flowEvidenceForInsights(report.Insights, available, limit)
+		selected = flowEntriesFromAskEvidence(available, base.Evidence)
+		base.Answer = renderFlowOptimizationAnswer(report, base.Evidence)
+	default:
+		var scores map[string]float64
+		selected, scores = flowSearchEntries(entries, question, request.Since, limit)
+		base.Mode = "local_search"
+		base.Evidence = flowEvidenceFromEntries(selected, scores)
+		base.Answer = renderFlowSearchAnswer(question, selected)
+	}
+	return completeFlowAnswerWithAgent(base, selected, privacyMode, flowAgentPolicy, flowAgentRunner, now)
 }
 
 func (s *Service) AddNote(request NoteRequest) Entry {
@@ -1796,7 +2181,6 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 		return Entry{}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for i := range s.entries {
 		if s.entries[i].ID != id {
 			continue
@@ -1804,45 +2188,311 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 		if strings.HasPrefix(provider, "failed:") {
 			s.entries[i].OCRStatus = provider
 			s.saveLockedWithStatus()
-			return s.entries[i]
+			updated := s.entries[i]
+			s.mu.Unlock()
+			return updated
 		}
 		if provider == "blocked_sensitive" {
 			s.entries[i].OCRStatus = "blocked_sensitive"
 			s.saveLockedWithStatus()
-			return s.entries[i]
+			updated := s.entries[i]
+			s.mu.Unlock()
+			return updated
 		}
 		if excluded, reason := urlExcluded(text, s.policy); excluded {
 			s.entries[i].OCRStatus = "blocked_excluded:url:" + reason
 			s.saveLockedWithStatus()
-			return s.entries[i]
+			updated := s.entries[i]
+			s.mu.Unlock()
+			return updated
 		}
 		if excluded, reason := contentExcluded(text, s.policy); excluded {
 			s.entries[i].OCRStatus = "blocked_excluded:" + reason
 			s.saveLockedWithStatus()
-			return s.entries[i]
+			updated := s.entries[i]
+			s.mu.Unlock()
+			return updated
 		}
 		s.entries[i].OCRText = text
 		if text == "" {
 			s.entries[i].OCRStatus = "empty"
 			s.saveLockedWithStatus()
-			return s.entries[i]
+			updated := s.entries[i]
+			s.mu.Unlock()
+			return updated
 		}
 		s.entries[i].OCRStatus = "done"
 		if provider != "" {
 			s.entries[i].OCRStatus = "done:" + provider
 		}
 		s.entries[i].ContentType = "ocr_text"
-		s.entries[i].Summary = summaryText(text)
+		applyLocalOCRSummary(&s.entries[i], text)
 		s.entries[i].Tags = cleanStrings(append(s.entries[i].Tags, append([]string{"OCR", "文字识别"}, classifyNoteTags(text)...)...))
 		if looksSensitive(text) {
 			s.entries[i].Sensitive = true
 			s.entries[i].Tags = cleanStrings(append(s.entries[i].Tags, "敏感"))
 		}
 		s.entries[i] = enrichEntry(s.entries[i])
+		updated := s.entries[i]
+		summarizer := s.ocrSummarizer
+		summaryPolicy := s.ocrSummaryPolicy
+		privacyMode := s.status.PrivacyMode
+		s.saveLockedWithStatus()
+		s.mu.Unlock()
+
+		if shouldRunOCRAISummary(updated, summaryPolicy, summarizer, privacyMode) {
+			if summarized := s.applyOCRAISummary(updated, text, summarizer, summaryPolicy); summarized.ID != "" {
+				return summarized
+			}
+		}
+		return updated
+	}
+	s.mu.Unlock()
+	return Entry{}
+}
+
+func shouldRunOCRAISummary(entry Entry, policy OCRSummaryPolicy, summarizer OCRSummarizer, privacyMode bool) bool {
+	if summarizer == nil || privacyMode || entry.Sensitive || strings.TrimSpace(entry.ID) == "" || strings.TrimSpace(entry.OCRText) == "" {
+		return false
+	}
+	policy = normalizeOCRSummaryPolicy(policy)
+	return policy.Enabled && policy.Provider != "" && policy.Provider != "disabled" && policy.Model != ""
+}
+
+func (s *Service) applyOCRAISummary(entry Entry, ocrText string, summarizer OCRSummarizer, policy OCRSummaryPolicy) Entry {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	result, err := summarizer.SummarizeOCR(ctx, OCRSummaryJob{
+		Entry:    entry,
+		OCRText:  ocrText,
+		Provider: policy.Provider,
+		BaseURL:  policy.BaseURL,
+		Model:    policy.Model,
+		Now:      s.now(),
+	})
+	if err != nil {
+		return Entry{}
+	}
+	result = normalizeOCRSummaryResult(result)
+	if result.Title == "" && result.Summary == "" && result.Text == "" {
+		return Entry{}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.entries {
+		if s.entries[i].ID != entry.ID || s.entries[i].OCRText != ocrText || s.entries[i].Sensitive {
+			continue
+		}
+		applyOCRSummaryResult(&s.entries[i], result, true)
+		s.entries[i] = enrichEntry(s.entries[i])
 		s.saveLockedWithStatus()
 		return s.entries[i]
 	}
 	return Entry{}
+}
+
+func applyLocalOCRSummary(entry *Entry, text string) {
+	if entry == nil {
+		return
+	}
+	result := localOCRSummary(*entry, text)
+	applyOCRSummaryResult(entry, result, false)
+}
+
+func applyOCRSummaryResult(entry *Entry, result OCRSummaryResult, ai bool) {
+	result = normalizeOCRSummaryResult(result)
+	if result.Title != "" && (ai || shouldReplaceOCRTitle(entry.Title)) {
+		entry.Title = result.Title
+	}
+	if result.Summary != "" {
+		entry.Summary = result.Summary
+	}
+	if result.Text != "" {
+		entry.Text = result.Text
+	}
+	if ai {
+		entry.Tags = cleanStrings(append(entry.Tags, "AI整理"))
+	} else {
+		entry.Tags = cleanStrings(append(entry.Tags, "OCR整理"))
+	}
+}
+
+func localOCRSummary(entry Entry, text string) OCRSummaryResult {
+	lines := cleanOCRTextLines(text)
+	if len(lines) == 0 {
+		return OCRSummaryResult{}
+	}
+	title := inferOCRTitle(entry, lines)
+	summary := summarizeOCRLines(lines, 120)
+	body := renderCleanOCRText(entry, lines)
+	return OCRSummaryResult{
+		Title:   title,
+		Summary: summary,
+		Text:    body,
+	}
+}
+
+func normalizeOCRSummaryResult(result OCRSummaryResult) OCRSummaryResult {
+	result.Title = trimTextRunes(strings.Join(strings.Fields(strings.TrimSpace(result.Title)), " "), 48)
+	result.Summary = trimTextRunes(strings.Join(strings.Fields(strings.TrimSpace(result.Summary)), " "), 180)
+	result.Text = strings.TrimSpace(result.Text)
+	if result.Text != "" {
+		result.Text = trimTextRunes(normalizeCleanOCRBody(result.Text), 6000)
+	}
+	return result
+}
+
+func cleanOCRTextLines(text string) []string {
+	seen := map[string]bool{}
+	lines := []string{}
+	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		line := normalizeOCRLine(raw)
+		if !meaningfulOCRLine(line) {
+			continue
+		}
+		key := strings.ToLower(line)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		lines = append(lines, line)
+		if len(lines) >= 40 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		joined := normalizeOCRLine(text)
+		if meaningfulOCRLine(joined) {
+			lines = append(lines, trimTextRunes(joined, 240))
+		}
+	}
+	return lines
+}
+
+func normalizeOCRLine(line string) string {
+	line = strings.ReplaceAll(line, "\t", " ")
+	line = strings.ReplaceAll(line, "\u00a0", " ")
+	line = strings.Join(strings.Fields(strings.TrimSpace(line)), " ")
+	line = strings.Trim(line, "·•|丨-_=,，.。:：;； ")
+	return strings.TrimSpace(line)
+}
+
+func meaningfulOCRLine(line string) bool {
+	if line == "" {
+		return false
+	}
+	lower := strings.ToLower(line)
+	if strings.HasPrefix(lower, "截图路径") || strings.HasPrefix(lower, "尺寸") || strings.HasPrefix(lower, "来源") || strings.HasPrefix(lower, "采集范围") || strings.HasPrefix(lower, "多屏策略") {
+		return false
+	}
+	letters := 0
+	digits := 0
+	for _, r := range line {
+		if unicode.IsLetter(r) {
+			letters++
+		}
+		if unicode.IsDigit(r) {
+			digits++
+		}
+	}
+	runeCount := len([]rune(line))
+	if letters == 0 && digits < 3 {
+		return false
+	}
+	if runeCount <= 1 {
+		return false
+	}
+	return true
+}
+
+func inferOCRTitle(entry Entry, lines []string) string {
+	for _, line := range lines {
+		if isWeakOCRTitle(line) {
+			continue
+		}
+		runes := []rune(line)
+		if len(runes) >= 6 && len(runes) <= 42 {
+			return string(runes)
+		}
+	}
+	for _, line := range lines {
+		if !isWeakOCRTitle(line) {
+			return trimTextRunes(line, 42)
+		}
+	}
+	if window := strings.TrimSpace(entry.WindowTitle); window != "" && !isWeakOCRTitle(window) {
+		return trimTextRunes(window, 42)
+	}
+	return "截图文字整理"
+}
+
+func summarizeOCRLines(lines []string, max int) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	selected := lines
+	if len(selected) > 3 {
+		selected = selected[:3]
+	}
+	return trimTextRunes(strings.Join(selected, "；"), max)
+}
+
+func renderCleanOCRText(entry Entry, lines []string) string {
+	var builder strings.Builder
+	builder.WriteString("## 画面文字整理\n")
+	for _, line := range lines {
+		builder.WriteString("- ")
+		builder.WriteString(line)
+		builder.WriteString("\n")
+	}
+	context := []string{}
+	if app := strings.TrimSpace(entry.AppName); app != "" {
+		context = append(context, "应用："+app)
+	}
+	if window := strings.TrimSpace(entry.WindowTitle); window != "" && !isWeakOCRTitle(window) {
+		context = append(context, "窗口："+window)
+	}
+	if len(context) > 0 {
+		builder.WriteString("\n## 上下文\n")
+		for _, item := range context {
+			builder.WriteString("- ")
+			builder.WriteString(item)
+			builder.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func normalizeCleanOCRBody(text string) string {
+	lines := []string{}
+	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		line := strings.TrimRight(strings.TrimSpace(raw), " \t")
+		if line == "" {
+			if len(lines) > 0 && lines[len(lines)-1] != "" {
+				lines = append(lines, "")
+			}
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func shouldReplaceOCRTitle(title string) bool {
+	return isWeakOCRTitle(title) || strings.Contains(title, "屏幕时间机器") || strings.Contains(title, "手动补记") || strings.Contains(title, "截图证据") || strings.Contains(title, "截图尚未识别")
+}
+
+func isWeakOCRTitle(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return true
+	}
+	switch normalized {
+	case "work", "unknown", "ariadne", "截图", "截图历史", "当前屏幕", "工作记忆", "自动记录", "自动沉淀":
+		return true
+	}
+	return strings.Contains(normalized, "截图覆盖层")
 }
 
 func (s *Service) CaptureCurrentScreen() Entry {
@@ -1989,22 +2639,24 @@ func (s *Service) GenerateRetrospectiveDraft(ids []string) Draft {
 	}
 }
 
-func (s *Service) GenerateKnowledgeDraft(entryIDs []string) Draft {
+func (s *Service) GenerateKnowledgeDraft(requestedIDs []string) Draft {
+	entries := s.entriesByID(requestedIDs)
 	return Draft{
 		ID:        "knowledge-" + s.now().Format("20060102150405"),
 		Title:     "知识条目草稿",
 		Body:      "从选中的工作记忆整理问题背景、处理步骤、注意事项和敏感内容提示。",
-		Evidence:  append([]string{}, entryIDs...),
+		Evidence:  entryIDs(entries, 0),
 		CreatedAt: s.now().Unix(),
 	}
 }
 
 func (s *Service) GenerateAgentTaskPackage(goal string, evidence []string) AgentTaskPackage {
+	entries := s.entriesByID(evidence)
 	return AgentTaskPackage{
 		ID:       "agent-task-" + s.now().Format("20060102150405"),
 		Goal:     goal,
 		Context:  "由 Ariadne 工作记忆中心生成，可交给 Codex 桌面版等外部代理前必须由用户确认。",
-		Evidence: append([]string{}, evidence...),
+		Evidence: entryIDs(entries, 0),
 		Boundaries: []string{
 			"不得绕过用户授权修改文件或运行高风险命令",
 			"不得把敏感记忆默认发送到外部 AI 或 embedding 服务",
@@ -2032,7 +2684,7 @@ func (s *Service) GenerateWorkflowDraft(title string, evidence []string) Workflo
 		Steps:          profile.steps,
 		Output:         profile.output,
 		RiskLevel:      profile.riskLevel,
-		Evidence:       evidence,
+		Evidence:       entryIDs(entries, 0),
 		RequiresReview: true,
 		CreatedAt:      now.Unix(),
 	}
@@ -2048,7 +2700,7 @@ func (s *Service) GenerateChecklistDraft(title string, evidence []string) Checkl
 		Title:          firstNonEmpty(strings.TrimSpace(title), profile.title),
 		Context:        profile.context,
 		Items:          profile.items,
-		Evidence:       evidence,
+		Evidence:       entryIDs(entries, 0),
 		RequiresReview: true,
 		CreatedAt:      now.Unix(),
 	}
@@ -2072,7 +2724,7 @@ func (s *Service) entriesByID(ids []string) []Entry {
 	defer s.mu.RUnlock()
 	entries := []Entry{}
 	for _, entry := range s.entries {
-		if allowed[entry.ID] && !entry.Sensitive {
+		if allowed[entry.ID] && entryUsableForExtraction(entry) {
 			entries = append(entries, entry)
 		}
 	}
@@ -2089,7 +2741,7 @@ func (s *Service) DiscoverExperiences(periodDays int) ExperienceReport {
 	s.mu.RLock()
 	entries := make([]Entry, 0, len(s.entries))
 	for _, entry := range s.entries {
-		if entry.ID == "" || entry.Sensitive {
+		if !entryUsableForExtraction(entry) {
 			continue
 		}
 		if entry.CreatedAt != 0 && entry.CreatedAt < cutoff {
@@ -2114,7 +2766,7 @@ func (s *Service) DiscoverExperiencesAI(request ExperienceDiscoveryRequest) Expe
 	s.mu.RLock()
 	entries := make([]Entry, 0, len(s.entries))
 	for _, entry := range s.entries {
-		if entry.ID == "" || entry.Sensitive {
+		if !entryUsableForExtraction(entry) {
 			continue
 		}
 		if entry.CreatedAt != 0 && entry.CreatedAt < cutoff {
@@ -2239,6 +2891,61 @@ func (s *Service) SetExperienceInsightDecision(insightID string, status string, 
 	return ExperienceDecisionResult{OK: true, Message: "经验线索处理状态已保存", Decision: decision}
 }
 
+func (s *Service) runAutonomousFlow(force bool) AutonomousRunResult {
+	now := s.now()
+	s.mu.RLock()
+	policy := normalizeDraftSchedulePolicy(s.draftSchedule)
+	enabled := s.status.Enabled
+	privacyMode := s.status.PrivacyMode
+	entries := cloneEntries(s.entries)
+	decisions := cloneExperienceDecisions(s.decisions)
+	artifacts := cloneAutonomousArtifacts(s.autonomousArtifacts)
+	rejections := cloneAutonomousRejections(s.autonomousRejections)
+	lastRunAt := s.lastAutonomousRunAt
+	s.mu.RUnlock()
+
+	result := AutonomousRunResult{OK: false, CreatedAt: now.Unix()}
+	if !enabled {
+		result.Message = "工作记忆已停用"
+		return result
+	}
+	if privacyMode {
+		result.Message = "隐私模式已开启，自主沉淀暂停"
+		return result
+	}
+	usable := make([]Entry, 0, len(entries))
+	for _, entry := range entries {
+		if entryUsableForExtraction(entry) {
+			usable = append(usable, entry)
+		}
+	}
+	if len(usable) == 0 {
+		result.Message = "没有可用于自主沉淀的非敏感工作记忆"
+		return result
+	}
+	result = buildAutonomousArtifacts(usable, decisions, artifacts, rejections, lastRunAt, policy, now, force)
+	if !result.OK {
+		return result
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastAutonomousRunAt = now.Unix()
+	s.scheduledDrafts.LastAutonomousRunAt = s.lastAutonomousRunAt
+	s.scheduledDrafts.AutonomousGenerated = len(result.Artifacts)
+	s.scheduledDrafts.AutonomousMessage = result.Message
+	if len(result.Artifacts) > 0 {
+		s.mergeAutonomousArtifactsLocked(result.Artifacts)
+	}
+	if err := s.saveLocked(); err != nil {
+		s.saveError = err.Error()
+		result.OK = false
+		result.Message = err.Error()
+	}
+	result.Status = s.scheduledDraftStatusLocked()
+	return result
+}
+
 func (s *Service) runScheduledDrafts(force bool) ScheduledDraftStatus {
 	now := s.now()
 	s.mu.RLock()
@@ -2248,12 +2955,15 @@ func (s *Service) runScheduledDrafts(force bool) ScheduledDraftStatus {
 	previousLatest := s.scheduledDrafts.LastEntryCreatedAt
 	entries := cloneEntries(s.entries)
 	decisions := cloneExperienceDecisions(s.decisions)
+	autonomousArtifacts := cloneAutonomousArtifacts(s.autonomousArtifacts)
+	autonomousRejections := cloneAutonomousRejections(s.autonomousRejections)
+	lastAutonomousRunAt := s.lastAutonomousRunAt
 	s.mu.RUnlock()
 
 	nonSensitive := make([]Entry, 0, len(entries))
 	latestCreatedAt := int64(0)
 	for _, entry := range entries {
-		if entry.ID == "" || entry.Sensitive {
+		if !entryUsableForExtraction(entry) {
 			continue
 		}
 		nonSensitive = append(nonSensitive, entry)
@@ -2329,6 +3039,7 @@ func (s *Service) runScheduledDrafts(force bool) ScheduledDraftStatus {
 	if policy.ExperienceReportEnabled {
 		experience = buildExperienceReport(nonSensitive, decisions, policy.ExperiencePeriodDays, now)
 	}
+	autonomous := buildAutonomousArtifacts(nonSensitive, decisions, autonomousArtifacts, autonomousRejections, lastAutonomousRunAt, policy, now, force)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2336,6 +3047,8 @@ func (s *Service) runScheduledDrafts(force bool) ScheduledDraftStatus {
 	s.scheduledDrafts.LastEntryCount = len(nonSensitive)
 	s.scheduledDrafts.LastEntryCreatedAt = latestCreatedAt
 	s.scheduledDrafts.LastError = ""
+	s.scheduledDrafts.AutonomousGenerated = len(autonomous.Artifacts)
+	s.scheduledDrafts.AutonomousMessage = autonomous.Message
 	if daily.ID != "" {
 		s.scheduledDrafts.DailyDraft = daily
 	}
@@ -2344,6 +3057,17 @@ func (s *Service) runScheduledDrafts(force bool) ScheduledDraftStatus {
 	}
 	if experience.ID != "" {
 		s.scheduledDrafts.ExperienceReport = experience
+	}
+	if autonomous.OK {
+		s.lastAutonomousRunAt = now.Unix()
+		s.scheduledDrafts.LastAutonomousRunAt = s.lastAutonomousRunAt
+		if len(autonomous.Artifacts) > 0 {
+			s.mergeAutonomousArtifactsLocked(autonomous.Artifacts)
+		}
+		if err := s.saveLocked(); err != nil {
+			s.saveError = err.Error()
+			s.scheduledDrafts.LastError = err.Error()
+		}
 	}
 	return s.scheduledDraftStatusLocked()
 }
@@ -2494,6 +3218,59 @@ func (s *Service) ExportDataWithOptions(request ExportRequest) ExportResult {
 	}
 }
 
+func (s *Service) ReviewPendingCaptures() QualityReviewResult {
+	now := s.now().Unix()
+	result := QualityReviewResult{
+		OK:         true,
+		ReviewedAt: now,
+	}
+	entriesForOCR := []Entry{}
+	s.mu.Lock()
+	activeSessionID := s.currentWindowSessionEntryID
+	policy := s.policy
+	for i := range s.entries {
+		entry := &s.entries[i]
+		if !entryQualityPending(*entry) {
+			continue
+		}
+		if entry.ID != "" && entry.ID == activeSessionID {
+			result.SkippedActive++
+			continue
+		}
+		result.Checked++
+		if removed := collapseRedundantFrames(entry); removed > 0 {
+			result.CollapsedEntries++
+			result.RemovedFrames += removed
+		}
+		entry.QualityStatus = qualityStatusChecked
+		entry.QualityCheckedAt = now
+		if entry.QualityReason == "" || strings.HasPrefix(entry.QualityReason, "待质检") {
+			entry.QualityReason = "自动质检通过"
+		}
+		entry.Tags = removeStringFold(entry.Tags, "待质检")
+		entry.Tags = cleanStrings(append(entry.Tags, "已质检"))
+		if policy.AutoOCR && entry.ImagePath != "" && entry.OCRText == "" && entry.OCRStatus == "" {
+			entriesForOCR = append(entriesForOCR, *entry)
+		}
+	}
+	for _, entry := range s.entries {
+		if entryQualityPending(entry) {
+			result.PendingRemaining++
+		}
+	}
+	if result.Checked > 0 || result.CollapsedEntries > 0 {
+		s.refreshEntryCountLocked()
+		s.saveLockedWithStatus()
+	}
+	result.Message = fmt.Sprintf("自动质检完成 · 检查 %d 条，折叠 %d 条，移除 %d 帧", result.Checked, result.CollapsedEntries, result.RemovedFrames)
+	s.mu.Unlock()
+
+	for _, entry := range entriesForOCR {
+		s.processAutoOCR(entry, policy)
+	}
+	return result
+}
+
 func (s *Service) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2543,7 +3320,11 @@ func (s *Service) captureScreen(source string, title string, summary string) Ent
 	}
 
 	if capturer == nil {
-		return s.processAutoOCR(s.addEntry(s.syntheticEntry(source, title, summary, policy)), policy)
+		entry := s.addEntry(s.syntheticEntry(source, title, summary, policy))
+		if entryQualityPending(entry) {
+			return entry
+		}
+		return s.processAutoOCR(entry, policy)
 	}
 
 	captureSource := "work_memory_" + source
@@ -2571,7 +3352,11 @@ func (s *Service) captureScreen(source string, title string, summary string) Ent
 		s.mu.Unlock()
 		return Entry{}
 	}
-	return s.processAutoOCR(s.addEntry(s.entryFromCapture(source, title, summary, captureEntry, policy)), policy)
+	entry := s.addEntry(s.entryFromCapture(source, title, summary, captureEntry, policy))
+	if entryQualityPending(entry) {
+		return entry
+	}
+	return s.processAutoOCR(entry, policy)
 }
 
 func (s *Service) addEntry(entry Entry) Entry {
@@ -2581,6 +3366,10 @@ func (s *Service) addEntry(entry Entry) Entry {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if appended, ok := s.appendTimeMachineSessionFrameLocked(entry); ok {
+		return appended
+	}
 
 	if merged := s.mergeDuplicateTimeMachineEntryLocked(entry); merged.ID != "" {
 		return merged
@@ -2604,9 +3393,55 @@ func (s *Service) addEntry(entry Entry) Entry {
 		s.status.PauseReason = ""
 	}
 	s.status.CaptureCount++
+	if entry.Source == "time_machine" {
+		signature := windowSignature(windowContext{title: entry.WindowTitle, app: entry.AppName})
+		if signature != "" && signature == s.currentWindowSessionSignature {
+			s.currentWindowSessionEntryID = entry.ID
+		}
+	}
 	s.refreshEntryCountLocked()
 	s.saveLockedWithStatus()
 	return entry
+}
+
+func (s *Service) appendTimeMachineSessionFrameLocked(entry Entry) (Entry, bool) {
+	if entry.Source != "time_machine" || s.currentWindowSessionEntryID == "" {
+		return Entry{}, false
+	}
+	signature := windowSignature(windowContext{title: entry.WindowTitle, app: entry.AppName})
+	if signature == "" || signature != s.currentWindowSessionSignature {
+		return Entry{}, false
+	}
+	for i := range s.entries {
+		if s.entries[i].ID != s.currentWindowSessionEntryID {
+			continue
+		}
+		existing := &s.entries[i]
+		if existing.Source != "time_machine" {
+			return Entry{}, false
+		}
+		if len(existing.Frames) == 0 {
+			existing.Frames = []CaptureFrame{captureFrameFromEntry(*existing)}
+		}
+		frame := captureFrameFromEntry(entry)
+		existing.Frames = append(existing.Frames, frame)
+		applyFrameToEntry(existing, frame)
+		existing.FrameCount = len(existing.Frames)
+		existing.LastMergedAt = entry.CreatedAt
+		existing.QualityStatus = qualityStatusPending
+		existing.QualityCheckedAt = 0
+		existing.QualityReason = "待质检：窗口保持期间多帧采集"
+		existing.Tags = cleanStrings(append(existing.Tags, "多帧采集", "待质检"))
+		existing.Summary = fmt.Sprintf("窗口保持期间已采集 %d 帧，等待自动质检。", existing.FrameCount)
+		s.status.LastCaptureAt = entry.CreatedAt
+		s.status.LastCaptureID = existing.ID
+		s.status.LastCaptureError = ""
+		s.status.CaptureCount++
+		s.refreshEntryCountLocked()
+		s.saveLockedWithStatus()
+		return *existing, true
+	}
+	return Entry{}, false
 }
 
 func (s *Service) mergeDuplicateTimeMachineEntryLocked(entry Entry) Entry {
@@ -2650,7 +3485,7 @@ func (s *Service) entryFromCapture(source string, title string, summary string, 
 	dimension := fmt.Sprintf("%dx%d", capture.Width, capture.Height)
 	scope := captureScopeLabel(policy.CaptureScope)
 	multiMonitor := multiMonitorLabel(policy.MultiMonitor)
-	return Entry{
+	entry := Entry{
 		ID:               "memory-" + source + "-" + capture.ID,
 		Source:           source,
 		ContentType:      "screenshot",
@@ -2671,12 +3506,20 @@ func (s *Service) entryFromCapture(source string, title string, summary string, 
 		Sensitive:        false,
 		CreatedAt:        capture.CreatedAt,
 	}
+	if source == "time_machine" {
+		entry.QualityStatus = qualityStatusPending
+		entry.QualityReason = "待质检：时间机器自动采集"
+		entry.Tags = cleanStrings(append(entry.Tags, "待质检"))
+		entry.Frames = []CaptureFrame{captureFrameFromEntry(entry)}
+		entry.FrameCount = 1
+	}
+	return entry
 }
 
 func (s *Service) syntheticEntry(source string, title string, summary string, policy CapturePolicy) Entry {
 	now := s.now()
 	context := s.currentContext()
-	return Entry{
+	entry := Entry{
 		ID:          "memory-" + source + "-" + now.Format("20060102150405"),
 		Source:      source,
 		ContentType: "screenshot",
@@ -2689,6 +3532,44 @@ func (s *Service) syntheticEntry(source string, title string, summary string, po
 		Favorite:    false,
 		Sensitive:   false,
 		CreatedAt:   now.Unix(),
+	}
+	if source == "time_machine" {
+		entry.QualityStatus = qualityStatusPending
+		entry.QualityReason = "待质检：时间机器自动采集"
+		entry.Tags = cleanStrings(append(entry.Tags, "待质检"))
+		entry.Frames = []CaptureFrame{captureFrameFromEntry(entry)}
+		entry.FrameCount = 1
+	}
+	return entry
+}
+
+func captureFrameFromEntry(entry Entry) CaptureFrame {
+	return CaptureFrame{
+		CaptureID:        strings.TrimSpace(entry.CaptureID),
+		ImagePath:        strings.TrimSpace(entry.ImagePath),
+		ImageSignature:   strings.TrimSpace(entry.ImageSignature),
+		ImageFingerprint: strings.TrimSpace(entry.ImageFingerprint),
+		Width:            entry.Width,
+		Height:           entry.Height,
+		Bytes:            entry.Bytes,
+		WindowTitle:      strings.TrimSpace(entry.WindowTitle),
+		AppName:          strings.TrimSpace(entry.AppName),
+		CreatedAt:        entry.CreatedAt,
+	}
+}
+
+func applyFrameToEntry(entry *Entry, frame CaptureFrame) {
+	entry.CaptureID = strings.TrimSpace(frame.CaptureID)
+	entry.ImagePath = strings.TrimSpace(frame.ImagePath)
+	entry.ImageSignature = strings.TrimSpace(frame.ImageSignature)
+	entry.ImageFingerprint = strings.TrimSpace(frame.ImageFingerprint)
+	entry.Width = frame.Width
+	entry.Height = frame.Height
+	entry.Bytes = frame.Bytes
+	entry.WindowTitle = strings.TrimSpace(firstNonEmpty(frame.WindowTitle, entry.WindowTitle))
+	entry.AppName = strings.TrimSpace(firstNonEmpty(frame.AppName, entry.AppName))
+	if frame.CreatedAt > 0 {
+		entry.LastMergedAt = frame.CreatedAt
 	}
 }
 
@@ -2727,22 +3608,44 @@ func (s *Service) runWorker(stop <-chan struct{}, interval time.Duration) {
 	defer ticker.Stop()
 	windowTicker := time.NewTicker(windowSwitchPollInterval)
 	defer windowTicker.Stop()
+	qualityTicker := time.NewTicker(qualityReviewInterval)
+	defer qualityTicker.Stop()
 	for {
 		select {
 		case <-stop:
 			return
 		case <-ticker.C:
-			s.CaptureTimeMachineNow()
+			s.captureScheduledTimeMachine()
 		case <-windowTicker.C:
 			s.captureIfWindowChanged()
+		case <-qualityTicker.C:
+			s.ReviewPendingCaptures()
 		}
 	}
+}
+
+func (s *Service) captureScheduledTimeMachine() {
+	s.mu.RLock()
+	policy := s.policy
+	enabled := s.status.Enabled && s.status.TimeMachineEnabled && !s.status.PrivacyMode
+	s.mu.RUnlock()
+	if !enabled {
+		return
+	}
+	if policy.CaptureOnWindowChange {
+		return
+	}
+	if _, ok := appCaptureProfileForContext(s.currentContext(), policy); ok {
+		return
+	}
+	s.CaptureTimeMachineNow()
 }
 
 func (s *Service) captureIfWindowChanged() {
 	s.mu.RLock()
 	policy := s.policy
-	enabled := s.status.Enabled && s.status.TimeMachineEnabled && !s.status.PrivacyMode && policy.CaptureOnWindowChange
+	intervalSeconds := int(s.interval.Seconds())
+	enabled := s.status.Enabled && s.status.TimeMachineEnabled && !s.status.PrivacyMode && (policy.CaptureOnWindowChange || hasEnabledAppCaptureProfiles(policy))
 	lastSignature := s.lastWindowSignature
 	lastCaptureAt := s.lastWindowCaptureAt
 	s.mu.RUnlock()
@@ -2758,15 +3661,63 @@ func (s *Service) captureIfWindowChanged() {
 
 	now := s.now().Unix()
 	if lastSignature == "" {
+		profile, hasProfile := windowCaptureProfileForContext(context, policy, intervalSeconds)
 		s.mu.Lock()
 		if s.lastWindowSignature == "" {
 			s.lastWindowSignature = signature
 			s.status.LastWindowSwitchAt = now
+			s.startWindowSessionLocked(signature, now)
+			if hasProfile {
+				if s.lastAppCaptureAt == nil {
+					s.lastAppCaptureAt = map[string]int64{}
+				}
+				s.lastAppCaptureAt[signature] = now
+				s.pendingWindowSignature = signature
+				s.pendingWindowDueAt = now + int64(profile.WindowSwitchDelaySeconds)
+			}
 		}
 		s.mu.Unlock()
+		if hasProfile && profile.WindowSwitchDelaySeconds <= 0 {
+			s.captureAppProfileIfDue(signature, profile, now)
+		}
 		return
 	}
 	if signature == lastSignature {
+		if profile, ok := windowCaptureProfileForContext(context, policy, intervalSeconds); ok {
+			s.captureAppProfileIfDue(signature, profile, now)
+		}
+		return
+	}
+
+	if profile, ok := windowCaptureProfileForContext(context, policy, intervalSeconds); ok {
+		s.mu.Lock()
+		if signature != s.lastWindowSignature {
+			s.lastWindowSignature = signature
+			s.status.LastWindowSwitchAt = now
+			s.startWindowSessionLocked(signature, now)
+			if s.lastAppCaptureAt == nil {
+				s.lastAppCaptureAt = map[string]int64{}
+			}
+			s.lastAppCaptureAt[signature] = now
+			s.pendingWindowSignature = signature
+			s.pendingWindowDueAt = now + int64(profile.WindowSwitchDelaySeconds)
+		}
+		s.mu.Unlock()
+		if profile.WindowSwitchDelaySeconds <= 0 {
+			s.captureAppProfileIfDue(signature, profile, now)
+		}
+		return
+	}
+
+	if !policy.CaptureOnWindowChange {
+		s.mu.Lock()
+		if signature != s.lastWindowSignature {
+			s.lastWindowSignature = signature
+			s.status.LastWindowSwitchAt = now
+			s.pendingWindowSignature = ""
+			s.pendingWindowDueAt = 0
+		}
+		s.mu.Unlock()
 		return
 	}
 
@@ -2799,6 +3750,81 @@ func (s *Service) captureIfWindowChanged() {
 	s.lastWindowCaptureAt = entry.CreatedAt
 	s.status.LastWindowSwitchCaptureAt = entry.CreatedAt
 	s.mu.Unlock()
+}
+
+func (s *Service) captureAppProfileIfDue(signature string, profile AppCaptureProfile, now int64) {
+	s.mu.RLock()
+	pendingSignature := s.pendingWindowSignature
+	pendingDueAt := s.pendingWindowDueAt
+	lastCaptureAt := s.lastAppCaptureAt[signature]
+	s.mu.RUnlock()
+
+	if pendingSignature == signature && pendingDueAt > 0 {
+		if now < pendingDueAt {
+			return
+		}
+		entry := s.captureTimeMachineAppProfile(profile, "在窗口切换稳定后记录当前屏幕")
+		statusAt := now
+		if entry.ID != "" {
+			statusAt = entry.CreatedAt
+		}
+		s.recordAppProfileCaptureAttempt(signature, now, entry.ID != "", true, statusAt)
+		return
+	}
+
+	interval := profile.ActiveIntervalSeconds
+	if interval <= 0 {
+		return
+	}
+	if lastCaptureAt <= 0 {
+		s.recordAppProfileCaptureAttempt(signature, now, false, false, now)
+		return
+	}
+	if now-lastCaptureAt < int64(interval) {
+		return
+	}
+	entry := s.captureTimeMachineAppProfile(profile, "按应用驻留间隔记录当前屏幕")
+	statusAt := now
+	if entry.ID != "" {
+		statusAt = entry.CreatedAt
+	}
+	s.recordAppProfileCaptureAttempt(signature, now, entry.ID != "", false, statusAt)
+}
+
+func (s *Service) captureTimeMachineAppProfile(profile AppCaptureProfile, trigger string) Entry {
+	label := firstNonEmpty(profile.DisplayName, profile.ProcessName, profile.ID, "当前应用")
+	return s.captureScreen("time_machine", "屏幕时间机器应用策略记录", fmt.Sprintf("应用 %s %s。", label, trigger))
+}
+
+func (s *Service) recordAppProfileCaptureAttempt(signature string, at int64, captured bool, windowSwitch bool, statusAt int64) {
+	if at <= 0 {
+		at = s.now().Unix()
+	}
+	if statusAt <= 0 {
+		statusAt = at
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lastAppCaptureAt == nil {
+		s.lastAppCaptureAt = map[string]int64{}
+	}
+	s.lastAppCaptureAt[signature] = at
+	if s.pendingWindowSignature == signature {
+		s.pendingWindowSignature = ""
+		s.pendingWindowDueAt = 0
+	}
+	if captured {
+		s.lastWindowCaptureAt = statusAt
+		if windowSwitch {
+			s.status.LastWindowSwitchCaptureAt = statusAt
+		}
+	}
+}
+
+func (s *Service) startWindowSessionLocked(signature string, startedAt int64) {
+	s.currentWindowSessionSignature = signature
+	s.currentWindowSessionEntryID = ""
+	s.currentWindowSessionStartedAt = startedAt
 }
 
 func (s *Service) startDraftSchedulerLocked() {
@@ -2861,6 +3887,7 @@ func (s *Service) statusSnapshotLocked() Status {
 	status := s.status
 	status.WorkerRunning = s.stopWorker != nil
 	status.AutoOCREnabled = s.policy.AutoOCR
+	status.AppCaptureProfiles = cloneAppCaptureProfiles(s.policy.AppCaptureProfiles)
 	status.EntryCount = len(s.entries)
 	status.StoragePath = s.path
 	return status
@@ -2875,7 +3902,33 @@ func (s *Service) scheduledDraftStatusLocked() ScheduledDraftStatus {
 	status.DailyDraftEnabled = policy.DailyDraftEnabled
 	status.RetrospectiveEnabled = policy.RetrospectiveEnabled
 	status.ExperienceReportEnabled = policy.ExperienceReportEnabled
+	status.LastAutonomousRunAt = s.lastAutonomousRunAt
 	return status
+}
+
+func (s *Service) mergeAutonomousArtifactsLocked(items []AutonomousArtifact) {
+	if len(items) == 0 {
+		return
+	}
+	byID := map[string]int{}
+	for index, artifact := range s.autonomousArtifacts {
+		byID[artifact.ID] = index
+	}
+	for _, item := range items {
+		item = normalizeAutonomousArtifact(item, s.now())
+		if item.ID == "" || item.Kind == "" {
+			continue
+		}
+		if index, ok := byID[item.ID]; ok {
+			s.autonomousArtifacts[index] = item
+			continue
+		}
+		byID[item.ID] = len(s.autonomousArtifacts)
+		s.autonomousArtifacts = append(s.autonomousArtifacts, item)
+	}
+	sort.SliceStable(s.autonomousArtifacts, func(i, j int) bool {
+		return s.autonomousArtifacts[i].CreatedAt > s.autonomousArtifacts[j].CreatedAt
+	})
 }
 
 func (s *Service) processAutoOCR(entry Entry, policy CapturePolicy) Entry {
@@ -3007,9 +4060,12 @@ func (s *Service) load() bool {
 		return false
 	}
 	var state struct {
-		Version             int                           `json:"version"`
-		Entries             []Entry                       `json:"entries"`
-		ExperienceDecisions map[string]ExperienceDecision `json:"experienceDecisions,omitempty"`
+		Version              int                            `json:"version"`
+		Entries              []Entry                        `json:"entries"`
+		ExperienceDecisions  map[string]ExperienceDecision  `json:"experienceDecisions,omitempty"`
+		AutonomousArtifacts  []AutonomousArtifact           `json:"autonomousArtifacts,omitempty"`
+		AutonomousRejections map[string]AutonomousRejection `json:"autonomousRejections,omitempty"`
+		LastAutonomousRunAt  int64                          `json:"lastAutonomousRunAt,omitempty"`
 	}
 	if json.Unmarshal(raw, &state) != nil {
 		return false
@@ -3017,12 +4073,30 @@ func (s *Service) load() bool {
 	if s.decisions == nil {
 		s.decisions = map[string]ExperienceDecision{}
 	}
+	if s.autonomousRejections == nil {
+		s.autonomousRejections = map[string]AutonomousRejection{}
+	}
 	for key, decision := range state.ExperienceDecisions {
 		decision = normalizeExperienceDecision(key, decision)
 		if decision.InsightID != "" && decision.Status != "" {
 			s.decisions[decision.InsightID] = decision
 		}
 	}
+	for _, artifact := range state.AutonomousArtifacts {
+		artifact = normalizeAutonomousArtifact(artifact, s.now())
+		if artifact.ID != "" && artifact.Kind != "" {
+			s.autonomousArtifacts = append(s.autonomousArtifacts, artifact)
+		}
+	}
+	for key, rejection := range state.AutonomousRejections {
+		key = strings.TrimSpace(strings.ToLower(firstNonEmpty(key, rejection.Key)))
+		if key == "" {
+			continue
+		}
+		rejection.Key = key
+		s.autonomousRejections[key] = rejection
+	}
+	s.lastAutonomousRunAt = state.LastAutonomousRunAt
 	for _, entry := range state.Entries {
 		entry = normalizeEntry(entry)
 		if entry.ID != "" {
@@ -3060,13 +4134,19 @@ func (s *Service) saveLocked() error {
 		return err
 	}
 	state := struct {
-		Version             int                           `json:"version"`
-		Entries             []Entry                       `json:"entries"`
-		ExperienceDecisions map[string]ExperienceDecision `json:"experienceDecisions,omitempty"`
+		Version              int                            `json:"version"`
+		Entries              []Entry                        `json:"entries"`
+		ExperienceDecisions  map[string]ExperienceDecision  `json:"experienceDecisions,omitempty"`
+		AutonomousArtifacts  []AutonomousArtifact           `json:"autonomousArtifacts,omitempty"`
+		AutonomousRejections map[string]AutonomousRejection `json:"autonomousRejections,omitempty"`
+		LastAutonomousRunAt  int64                          `json:"lastAutonomousRunAt,omitempty"`
 	}{
-		Version:             2,
-		Entries:             s.entries,
-		ExperienceDecisions: cloneExperienceDecisions(s.decisions),
+		Version:              3,
+		Entries:              s.entries,
+		ExperienceDecisions:  cloneExperienceDecisions(s.decisions),
+		AutonomousArtifacts:  cloneAutonomousArtifacts(s.autonomousArtifacts),
+		AutonomousRejections: cloneAutonomousRejections(s.autonomousRejections),
+		LastAutonomousRunAt:  s.lastAutonomousRunAt,
 	}
 	raw, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -3200,6 +4280,61 @@ func similarImageFingerprint(existing Entry, incoming Entry) bool {
 	return bits.OnesCount64(existingHash^incomingHash) <= similarImageHashMaxBits
 }
 
+func collapseRedundantFrames(entry *Entry) int {
+	if entry == nil || len(entry.Frames) <= 1 {
+		if entry != nil && entry.FrameCount <= 0 && len(entry.Frames) == 1 {
+			entry.FrameCount = 1
+		}
+		return 0
+	}
+	if !framesAllRedundant(entry.Frames) {
+		entry.FrameCount = len(entry.Frames)
+		return 0
+	}
+	originalCount := len(entry.Frames)
+	last := entry.Frames[len(entry.Frames)-1]
+	removed := len(entry.Frames) - 1
+	applyFrameToEntry(entry, last)
+	entry.Frames = []CaptureFrame{last}
+	entry.FrameCount = 1
+	entry.MergedCount += removed
+	entry.LastMergedAt = last.CreatedAt
+	entry.QualityReason = fmt.Sprintf("自动质检：%d 帧重复或近似重复，保留最后一帧", originalCount)
+	entry.Summary = firstNonEmpty(entry.Summary, "重复画面已自动折叠")
+	if !strings.Contains(entry.Summary, "重复画面") {
+		entry.Summary = entry.Summary + "（重复画面已自动折叠）"
+	}
+	entry.Tags = cleanStrings(append(entry.Tags, "重复画面合并", "自动质检"))
+	return removed
+}
+
+func framesAllRedundant(frames []CaptureFrame) bool {
+	if len(frames) <= 1 {
+		return false
+	}
+	base := entryFromFrameForCompare(frames[0])
+	for _, frame := range frames[1:] {
+		next := entryFromFrameForCompare(frame)
+		if base.ImageSignature != "" && next.ImageSignature != "" && base.ImageSignature == next.ImageSignature {
+			continue
+		}
+		if similarImageFingerprint(base, next) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func entryFromFrameForCompare(frame CaptureFrame) Entry {
+	return Entry{
+		ImageSignature:   strings.TrimSpace(frame.ImageSignature),
+		ImageFingerprint: strings.TrimSpace(frame.ImageFingerprint),
+		Width:            frame.Width,
+		Height:           frame.Height,
+	}
+}
+
 func parseImageFingerprint(value string) (int, uint64, bool) {
 	parts := strings.Split(strings.TrimSpace(value), ":")
 	if len(parts) != 2 {
@@ -3258,6 +4393,18 @@ func normalizeEntry(entry Entry) Entry {
 	entry.ImagePath = strings.TrimSpace(entry.ImagePath)
 	entry.ImageSignature = strings.TrimSpace(entry.ImageSignature)
 	entry.ImageFingerprint = strings.TrimSpace(entry.ImageFingerprint)
+	entry.QualityStatus = normalizeQualityStatus(entry.QualityStatus)
+	entry.QualityReason = strings.TrimSpace(entry.QualityReason)
+	entry.Frames = normalizeCaptureFrames(entry.Frames)
+	if len(entry.Frames) > 0 {
+		entry.FrameCount = len(entry.Frames)
+	}
+	if entry.FrameCount < 0 {
+		entry.FrameCount = 0
+	}
+	if entry.QualityCheckedAt < 0 {
+		entry.QualityCheckedAt = 0
+	}
 	if entry.Source == "" {
 		entry.Source = "manual_note"
 	}
@@ -3280,6 +4427,48 @@ func normalizeEntry(entry Entry) Entry {
 		entry.LastMergedAt = 0
 	}
 	return enrichEntry(entry)
+}
+
+func normalizeCaptureFrames(frames []CaptureFrame) []CaptureFrame {
+	if len(frames) == 0 {
+		return nil
+	}
+	normalized := make([]CaptureFrame, 0, len(frames))
+	for _, frame := range frames {
+		frame.CaptureID = strings.TrimSpace(frame.CaptureID)
+		frame.ImagePath = strings.TrimSpace(frame.ImagePath)
+		frame.ImageSignature = strings.TrimSpace(frame.ImageSignature)
+		frame.ImageFingerprint = strings.TrimSpace(frame.ImageFingerprint)
+		frame.WindowTitle = strings.TrimSpace(frame.WindowTitle)
+		frame.AppName = strings.TrimSpace(frame.AppName)
+		if frame.CaptureID == "" && frame.ImagePath == "" && frame.ImageSignature == "" && frame.ImageFingerprint == "" {
+			continue
+		}
+		normalized = append(normalized, frame)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeQualityStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case qualityStatusPending:
+		return qualityStatusPending
+	case qualityStatusChecked:
+		return qualityStatusChecked
+	default:
+		return ""
+	}
+}
+
+func entryQualityPending(entry Entry) bool {
+	return normalizeQualityStatus(entry.QualityStatus) == qualityStatusPending
+}
+
+func entryUsableForExtraction(entry Entry) bool {
+	return entry.ID != "" && !entry.Sensitive && !entryQualityPending(entry)
 }
 
 func normalizeClipboardMemorySource(entry clipboardhistory.Entry) clipboardhistory.Entry {
@@ -3691,10 +4880,324 @@ func buildExperienceReport(entries []Entry, decisions map[string]ExperienceDecis
 	}
 }
 
+func buildAutonomousArtifacts(entries []Entry, decisions map[string]ExperienceDecision, existing []AutonomousArtifact, rejections map[string]AutonomousRejection, lastRunAt int64, policy DraftSchedulePolicy, now time.Time, force bool) AutonomousRunResult {
+	result := AutonomousRunResult{OK: true, CreatedAt: now.Unix()}
+	if !force && sameLocalDay(lastRunAt, now) {
+		result.OK = false
+		result.Message = "今天已经执行过自主沉淀"
+		return result
+	}
+	if len(entries) == 0 {
+		result.Message = "没有足够证据生成自主产物"
+		return result
+	}
+	policy = normalizeDraftSchedulePolicy(policy)
+	existingKeys := activeAutonomousKeys(existing)
+	add := func(artifact AutonomousArtifact) {
+		artifact = normalizeAutonomousArtifact(artifact, now)
+		if artifact.ID == "" || artifact.DedupKey == "" {
+			result.Skipped++
+			return
+		}
+		if existingKeys[artifact.DedupKey] {
+			result.Skipped++
+			return
+		}
+		if _, rejected := rejections[artifact.DedupKey]; rejected {
+			result.Skipped++
+			return
+		}
+		existingKeys[artifact.DedupKey] = true
+		result.Artifacts = append(result.Artifacts, artifact)
+	}
+
+	if policy.DailyDraftEnabled {
+		selected, todayCount, skippedSensitive := dailyDraftEntries(entries, now, 12)
+		if todayCount >= 3 && len(selected) > 0 {
+			body := renderDailyDraftBody(selected, now, todayCount, skippedSensitive)
+			add(AutonomousArtifact{
+				ID:       "auto-daily-" + now.Format("20060102"),
+				Kind:     "daily",
+				Title:    "今日自动摘要",
+				Summary:  fmt.Sprintf("心流自动整理了今天 %d 条上下文。", todayCount),
+				Body:     body,
+				Evidence: entryIDs(selected, 0),
+				DedupKey: "daily:" + now.Format("20060102"),
+			})
+		}
+	}
+
+	if policy.RetrospectiveEnabled {
+		retrospectiveEntries := scheduledRetrospectiveEntries(entries, 12)
+		if len(retrospectiveEntries) >= 3 {
+			title := "自动复盘：" + shortDraftTitle(firstNonEmpty(retrospectiveEntries[0].Title, retrospectiveEntries[0].Summary, retrospectiveEntries[0].ID), 28)
+			add(AutonomousArtifact{
+				ID:       "auto-retro-" + shortHash(strings.Join(entryIDs(retrospectiveEntries, 0), ":")) + "-" + now.Format("20060102"),
+				Kind:     "retrospective",
+				Title:    title,
+				Summary:  "发现一组适合复盘的连续问题或处理线索。",
+				Body:     renderRetrospectiveDraftBody(retrospectiveEntries, now, len(retrospectiveEntries), 0),
+				Evidence: entryIDs(retrospectiveEntries, 0),
+				DedupKey: "retrospective:" + shortHash(strings.Join(entryIDs(retrospectiveEntries, 0), ":")),
+			})
+		}
+	}
+
+	if policy.ExperienceReportEnabled {
+		report := buildExperienceReport(entries, decisions, policy.ExperiencePeriodDays, now)
+		for _, insight := range report.Insights {
+			if strings.TrimSpace(insight.DecisionStatus) != "" && insight.DecisionStatus != "pending" {
+				continue
+			}
+			insightEntries := entriesByIDsSnapshot(entries, insight.Evidence)
+			if len(insightEntries) == 0 {
+				continue
+			}
+			switch insight.Kind {
+			case "knowledge_gap", "repeated_issue", "ai_insight":
+				if insight.Confidence >= 0.74 && len(insight.Evidence) >= 3 {
+					add(autonomousKnowledgeArtifact(insight, insightEntries, now))
+				}
+			case "automation_opportunity":
+				if insight.Confidence >= 0.8 && len(insight.Evidence) >= 3 {
+					if artifact, ok := autonomousSkillArtifact(insight, insightEntries, now); ok {
+						add(artifact)
+					}
+				}
+			}
+		}
+	}
+
+	result.Generated = len(result.Artifacts)
+	if result.Generated == 0 {
+		result.Message = "已完成自主沉淀检查，暂时没有足够清晰的新产物"
+	} else {
+		result.Message = fmt.Sprintf("心流自动生成 %d 个候选产物，未删除即默认采纳", result.Generated)
+	}
+	return result
+}
+
+func autonomousKnowledgeArtifact(insight ExperienceInsight, entries []Entry, now time.Time) AutonomousArtifact {
+	title := firstNonEmpty(insight.Title, "自动知识沉淀")
+	body := renderAutonomousKnowledgeBody(insight, entries)
+	key := "knowledge:" + insight.ID
+	if insight.ID == "" {
+		key = "knowledge:" + shortHash(title+strings.Join(entryIDs(entries, 0), ":"))
+	}
+	return AutonomousArtifact{
+		ID:              "auto-knowledge-" + shortHash(key) + "-" + now.Format("20060102"),
+		Kind:            "knowledge",
+		Title:           title,
+		Summary:         firstNonEmpty(insight.Summary, insight.Reason),
+		Body:            body,
+		Evidence:        entryIDs(entries, 0),
+		SourceInsightID: insight.ID,
+		DedupKey:        key,
+		Confidence:      insight.Confidence,
+	}
+}
+
+func autonomousSkillArtifact(insight ExperienceInsight, entries []Entry, now time.Time) (AutonomousArtifact, bool) {
+	profile := workflowDraftProfile(entries, insight.Title)
+	if profile.riskLevel != "low" {
+		return AutonomousArtifact{}, false
+	}
+	for _, step := range profile.steps {
+		if step.RequiresConfirm {
+			return AutonomousArtifact{}, false
+		}
+	}
+	title := strings.TrimSpace(profile.title)
+	if title == "" {
+		title = firstNonEmpty(insight.Title, "自动 Skill")
+	}
+	key := "skill:" + shortHash(title+strings.Join(entryIDs(entries, 0), ":"))
+	return AutonomousArtifact{
+		ID:              "auto-skill-" + shortHash(key) + "-" + now.Format("20060102"),
+		Kind:            "skill",
+		Title:           title,
+		Summary:         "证据足够且流程清晰，心流已自动整理为可由 agent 直接执行的 Skill 草稿。",
+		Body:            renderAutonomousSkillBody(insight, entries, profile),
+		Evidence:        entryIDs(entries, 0),
+		SourceInsightID: insight.ID,
+		DedupKey:        key,
+		Confidence:      insight.Confidence,
+		AgentExecutable: true,
+	}, true
+}
+
+func renderAutonomousKnowledgeBody(insight ExperienceInsight, entries []Entry) string {
+	var builder strings.Builder
+	builder.WriteString("## 摘要\n")
+	builder.WriteString(firstNonEmpty(insight.Summary, insight.Reason, "心流自动整理出的知识线索。"))
+	builder.WriteString("\n\n## 判断依据\n")
+	builder.WriteString(firstNonEmpty(insight.Reason, "多条工作记忆证据指向同一主题。"))
+	builder.WriteString("\n\n## 可复用要点\n")
+	for _, entry := range entries {
+		builder.WriteString("- ")
+		builder.WriteString(firstNonEmpty(entry.Title, entry.Summary, entry.ID))
+		if summary := firstNonEmpty(entry.Summary, summaryText(entry.Text), summaryText(entry.OCRText)); summary != "" {
+			builder.WriteString("：")
+			builder.WriteString(summary)
+		}
+		builder.WriteString("\n")
+	}
+	builder.WriteString("\n## 证据\n")
+	for _, id := range entryIDs(entries, 0) {
+		builder.WriteString("- ")
+		builder.WriteString(id)
+		builder.WriteString("\n")
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func renderAutonomousSkillBody(insight ExperienceInsight, entries []Entry, profile workflowDraftProfileResult) string {
+	var builder strings.Builder
+	builder.WriteString("# ")
+	builder.WriteString(firstNonEmpty(profile.title, insight.Title, "Ariadne 自动 Skill"))
+	builder.WriteString("\n\n## When To Use\n")
+	builder.WriteString(firstNonEmpty(profile.trigger, insight.Summary, "当同类上下文再次出现时使用。"))
+	builder.WriteString("\n\n## Inputs\n")
+	builder.WriteString(firstNonEmpty(profile.input, "当前上下文、剪贴板或用户输入。"))
+	builder.WriteString("\n\n## Steps\n")
+	for i, step := range profile.steps {
+		builder.WriteString(fmt.Sprintf("%d. %s\n   - Command: `%s`\n", i+1, step.Label, step.Command))
+	}
+	builder.WriteString("\n## Output\n")
+	builder.WriteString(firstNonEmpty(profile.output, "生成可复用处理结果。"))
+	builder.WriteString("\n\n## Evidence\n")
+	for _, entry := range entries {
+		builder.WriteString("- ")
+		builder.WriteString(entry.ID)
+		builder.WriteString(" · ")
+		builder.WriteString(firstNonEmpty(entry.Title, entry.Summary))
+		builder.WriteString("\n")
+	}
+	builder.WriteString("\n## Autonomous Boundary\n")
+	builder.WriteString("- 该 Skill 由心流自动生成，当前判断为低风险且不需要人工输入确认。\n")
+	builder.WriteString("- 如你删除该产物并填写原因，心流会避免再次生成同类 Skill。\n")
+	return strings.TrimSpace(builder.String())
+}
+
+func entriesByIDsSnapshot(entries []Entry, ids []string) []Entry {
+	if len(ids) == 0 {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			allowed[id] = true
+		}
+	}
+	result := []Entry{}
+	for _, entry := range entries {
+		if allowed[entry.ID] && entryUsableForExtraction(entry) {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+func normalizeAutonomousArtifact(artifact AutonomousArtifact, now time.Time) AutonomousArtifact {
+	artifact.ID = strings.TrimSpace(artifact.ID)
+	artifact.Kind = normalizeAutonomousKind(artifact.Kind)
+	artifact.Title = trimTextRunes(strings.Join(strings.Fields(strings.TrimSpace(artifact.Title)), " "), 80)
+	artifact.Summary = trimTextRunes(strings.Join(strings.Fields(strings.TrimSpace(artifact.Summary)), " "), 220)
+	artifact.Body = strings.TrimSpace(artifact.Body)
+	artifact.Evidence = cleanStrings(artifact.Evidence)
+	artifact.SourceInsightID = strings.TrimSpace(artifact.SourceInsightID)
+	artifact.DedupKey = strings.TrimSpace(strings.ToLower(artifact.DedupKey))
+	if artifact.DedupKey == "" && artifact.Kind != "" && artifact.Title != "" {
+		artifact.DedupKey = artifact.Kind + ":" + shortHash(artifact.Title+strings.Join(artifact.Evidence, ":"))
+	}
+	artifact.Status = strings.TrimSpace(strings.ToLower(artifact.Status))
+	if artifact.Status == "" {
+		artifact.Status = "active"
+	}
+	if artifact.CreatedAt == 0 {
+		artifact.CreatedAt = now.Unix()
+	}
+	if artifact.UpdatedAt == 0 {
+		artifact.UpdatedAt = artifact.CreatedAt
+	}
+	if artifact.ID == "" && artifact.Kind != "" {
+		artifact.ID = "auto-" + artifact.Kind + "-" + shortHash(artifact.DedupKey)
+	}
+	return artifact
+}
+
+func normalizeAutonomousKind(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "daily", "retrospective", "knowledge", "skill":
+		return strings.ToLower(strings.TrimSpace(kind))
+	default:
+		return ""
+	}
+}
+
+func activeAutonomousArtifacts(items []AutonomousArtifact) []AutonomousArtifact {
+	result := []AutonomousArtifact{}
+	for _, item := range items {
+		if strings.EqualFold(item.Status, "rejected") || strings.EqualFold(item.Status, "deleted") {
+			continue
+		}
+		if item.ID == "" {
+			continue
+		}
+		result = append(result, item)
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].CreatedAt > result[j].CreatedAt
+	})
+	return result
+}
+
+func activeAutonomousKeys(items []AutonomousArtifact) map[string]bool {
+	keys := map[string]bool{}
+	for _, item := range activeAutonomousArtifacts(items) {
+		if key := strings.TrimSpace(strings.ToLower(item.DedupKey)); key != "" {
+			keys[key] = true
+		}
+	}
+	return keys
+}
+
+func cloneAutonomousArtifacts(source []AutonomousArtifact) []AutonomousArtifact {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make([]AutonomousArtifact, len(source))
+	copy(cloned, source)
+	for index := range cloned {
+		cloned[index].Evidence = append([]string(nil), cloned[index].Evidence...)
+	}
+	return cloned
+}
+
+func cloneAutonomousRejections(source map[string]AutonomousRejection) map[string]AutonomousRejection {
+	if len(source) == 0 {
+		return map[string]AutonomousRejection{}
+	}
+	cloned := make(map[string]AutonomousRejection, len(source))
+	for key, value := range source {
+		cloned[strings.ToLower(strings.TrimSpace(key))] = value
+	}
+	return cloned
+}
+
+func sameLocalDay(timestamp int64, now time.Time) bool {
+	if timestamp == 0 {
+		return false
+	}
+	previous := time.Unix(timestamp, 0).In(now.Location())
+	current := now.In(now.Location())
+	return previous.Year() == current.Year() && previous.YearDay() == current.YearDay()
+}
+
 func experienceDiscoveryEvidence(entries []Entry) []ExperienceDiscoveryEvidence {
 	evidence := make([]ExperienceDiscoveryEvidence, 0, len(entries))
 	for _, entry := range entries {
-		if entry.ID == "" || entry.Sensitive {
+		if !entryUsableForExtraction(entry) {
 			continue
 		}
 		rawText := strings.Join([]string{entry.Title, entry.Summary, entry.Text, entry.OCRText, strings.Join(entry.Tags, " ")}, "\n")
@@ -3733,7 +5236,7 @@ func experienceDiscoveryRiskReasons(policy ExperienceDiscoveryPolicy, evidenceCo
 func normalizeExternalExperienceReport(report ExperienceReport, entries []Entry, decisions map[string]ExperienceDecision, periodDays int, now time.Time) ExperienceReport {
 	allowedEvidence := map[string]bool{}
 	for _, entry := range entries {
-		if entry.ID != "" && !entry.Sensitive {
+		if entryUsableForExtraction(entry) {
 			allowedEvidence[entry.ID] = true
 		}
 	}
@@ -3921,6 +5424,10 @@ func normalizeExperienceDecisionStatus(status string) string {
 		return "later"
 	case "task_package", "task-package", "task", "package":
 		return "task_package"
+	case "workflow_draft", "workflow-draft", "workflow":
+		return "workflow_draft"
+	case "checklist_draft", "checklist-draft", "checklist":
+		return "checklist_draft"
 	case "pending", "clear", "reset":
 		return "pending"
 	default:
@@ -4087,7 +5594,7 @@ func dailyDraftEntries(entries []Entry, now time.Time, limit int) ([]Entry, int,
 			skippedSensitive++
 			continue
 		}
-		if entry.ID == "" {
+		if !entryUsableForExtraction(entry) {
 			continue
 		}
 		nonSensitive = append(nonSensitive, entry)
@@ -4195,6 +5702,9 @@ func retrospectiveDraftEntries(entries []Entry, ids []string, limit int) ([]Entr
 			skippedSensitive++
 			continue
 		}
+		if entryQualityPending(entry) {
+			continue
+		}
 		if len(allowed) == 0 {
 			continue
 		}
@@ -4212,7 +5722,7 @@ func retrospectiveDraftEntries(entries []Entry, ids []string, limit int) ([]Entr
 func scheduledRetrospectiveEntries(entries []Entry, limit int) []Entry {
 	selected := []Entry{}
 	for _, entry := range entries {
-		if entry.ID == "" || entry.Sensitive || !isRetrospectiveContextEntry(entry) {
+		if !entryUsableForExtraction(entry) || !isRetrospectiveContextEntry(entry) {
 			continue
 		}
 		selected = append(selected, entry)
@@ -4366,6 +5876,415 @@ func dailySourceSummary(entries []Entry) []string {
 		result = append(result, fmt.Sprintf("%s %d", label, counts[label]))
 	}
 	return result
+}
+
+func detectFlowAskIntent(question string) string {
+	lower := strings.ToLower(strings.TrimSpace(question))
+	switch {
+	case containsAny(lower, "优化", "工作流", "自动化", "重复", "流程", "效率", "沉淀", "复用", "skill", "workflow"):
+		return "optimization"
+	case containsAny(lower, "谁", "人", "找过", "联系", "消息", "沟通", "微信", "weixin", "wechat", "钉钉", "dingtalk", "会议", "meeting", "teams", "outlook", "邮件", "mail"):
+		return "contacts"
+	case containsAny(lower, "今天", "今日", "干了", "做了", "总结", "发生", "忙了", "上下文", "心流"):
+		return "today"
+	default:
+		return "search"
+	}
+}
+
+func flowAnswerTitle(question string, intent string) string {
+	question = strings.TrimSpace(question)
+	if question != "" {
+		return question
+	}
+	switch intent {
+	case "contacts":
+		return "今天有哪些人找过我？"
+	case "optimization":
+		return "今天有哪些工作流可以优化？"
+	case "today":
+		return "我今天干了些什么？"
+	default:
+		return "心流回答"
+	}
+}
+
+func flowSuggestedQuestions(intent string) []string {
+	switch intent {
+	case "contacts":
+		return []string{"今天有哪些人找过我？", "哪些消息还需要我处理？", "最近谁经常出现在我的上下文里？"}
+	case "optimization":
+		return []string{"今天我的哪些工作流可以优化？", "最近我重复做了哪些事？", "哪些内容适合沉淀成 Skill？"}
+	case "search":
+		return []string{"刚才那个报错我后来怎么处理的？", "相关证据有哪些？", "能整理成复盘吗？"}
+	default:
+		return []string{"我今天干了些什么？", "今天有哪些人找过我？", "今天我的哪些工作流可以优化？"}
+	}
+}
+
+func flowNonSensitiveEntries(entries []Entry, since int64) []Entry {
+	selected := make([]Entry, 0, len(entries))
+	for _, entry := range entries {
+		if !entryUsableForExtraction(entry) {
+			continue
+		}
+		if since > 0 && entry.CreatedAt < since {
+			continue
+		}
+		selected = append(selected, entry)
+	}
+	sort.SliceStable(selected, func(i, j int) bool {
+		return selected[i].CreatedAt > selected[j].CreatedAt
+	})
+	return selected
+}
+
+func flowContactEntries(entries []Entry, now time.Time, since int64, limit int) ([]Entry, int) {
+	if since <= 0 {
+		since = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	}
+	selected := []Entry{}
+	for _, entry := range flowNonSensitiveEntries(entries, since) {
+		if isFlowContactEntry(entry) {
+			selected = append(selected, entry)
+		}
+	}
+	total := len(selected)
+	if limit > 0 && len(selected) > limit {
+		selected = selected[:limit]
+	}
+	return selected, total
+}
+
+func isFlowContactEntry(entry Entry) bool {
+	text := strings.ToLower(entrySemanticText(entry))
+	return containsAny(text,
+		"微信", "weixin", "wechat", "企业微信", "钉钉", "dingtalk", "qq",
+		"teams", "outlook", "邮件", "mail", "meeting", "会议", "腾讯会议", "飞书", "lark",
+		"消息", "聊天", "群", "联系人",
+	)
+}
+
+func flowSearchEntries(entries []Entry, question string, since int64, limit int) ([]Entry, map[string]float64) {
+	normalized := strings.ToLower(strings.TrimSpace(question))
+	type scoredEntry struct {
+		entry Entry
+		score float64
+	}
+	scored := []scoredEntry{}
+	for _, entry := range flowNonSensitiveEntries(entries, since) {
+		score, _ := scoreSearchMatch(entry, normalized)
+		if normalized != "" && score <= 0 {
+			continue
+		}
+		scored = append(scored, scoredEntry{entry: entry, score: score})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		return scored[i].entry.CreatedAt > scored[j].entry.CreatedAt
+	})
+	if limit > 0 && len(scored) > limit {
+		scored = scored[:limit]
+	}
+	selected := make([]Entry, 0, len(scored))
+	scores := map[string]float64{}
+	for _, item := range scored {
+		selected = append(selected, item.entry)
+		scores[item.entry.ID] = item.score
+	}
+	return selected, scores
+}
+
+func flowEvidenceForInsights(insights []ExperienceInsight, entries []Entry, limit int) []FlowAskEvidence {
+	byID := map[string]Entry{}
+	for _, entry := range entries {
+		byID[entry.ID] = entry
+	}
+	selected := []Entry{}
+	scores := map[string]float64{}
+	seen := map[string]bool{}
+	for _, insight := range insights {
+		for _, id := range insight.Evidence {
+			if seen[id] {
+				continue
+			}
+			entry, ok := byID[id]
+			if !ok || !entryUsableForExtraction(entry) {
+				continue
+			}
+			seen[id] = true
+			selected = append(selected, entry)
+			scores[id] = insight.Confidence
+			if limit > 0 && len(selected) >= limit {
+				return flowEvidenceFromEntries(selected, scores)
+			}
+		}
+	}
+	return flowEvidenceFromEntries(selected, scores)
+}
+
+func flowEvidenceFromEntries(entries []Entry, scores map[string]float64) []FlowAskEvidence {
+	evidence := make([]FlowAskEvidence, 0, len(entries))
+	for _, entry := range entries {
+		if !entryUsableForExtraction(entry) {
+			continue
+		}
+		item := FlowAskEvidence{
+			ID:          entry.ID,
+			Title:       firstNonEmpty(entry.Title, entry.Summary, entry.ID),
+			Summary:     firstNonEmpty(entry.Summary, summaryText(entry.Text), summaryText(entry.OCRText)),
+			Source:      entry.Source,
+			AppName:     entry.AppName,
+			WindowTitle: entry.WindowTitle,
+			CreatedAt:   entry.CreatedAt,
+			HasImage:    entry.CaptureID != "" || entry.ImagePath != "",
+			Sensitive:   entry.Sensitive,
+			Tags:        append([]string{}, entry.Tags...),
+		}
+		if scores != nil {
+			item.Score = scores[entry.ID]
+		}
+		evidence = append(evidence, item)
+	}
+	return evidence
+}
+
+func flowEntriesFromAskEvidence(entries []Entry, evidence []FlowAskEvidence) []Entry {
+	byID := map[string]Entry{}
+	for _, entry := range entries {
+		if entry.ID != "" {
+			byID[entry.ID] = entry
+		}
+	}
+	selected := make([]Entry, 0, len(evidence))
+	for _, item := range evidence {
+		entry, ok := byID[item.ID]
+		if !ok || !entryUsableForExtraction(entry) {
+			continue
+		}
+		selected = append(selected, entry)
+	}
+	return selected
+}
+
+func flowAgentEvidenceFromEntries(entries []Entry, limit int) []FlowAgentEvidence {
+	if limit <= 0 || limit > len(entries) {
+		limit = len(entries)
+	}
+	evidence := make([]FlowAgentEvidence, 0, limit)
+	for _, entry := range entries {
+		if len(evidence) >= limit {
+			break
+		}
+		if !entryUsableForExtraction(entry) {
+			continue
+		}
+		rawText := strings.Join([]string{entry.Title, entry.Summary, entry.Text, entry.OCRText, strings.Join(entry.Tags, " ")}, "\n")
+		if looksSensitive(rawText) {
+			continue
+		}
+		evidence = append(evidence, FlowAgentEvidence{
+			ID:          entry.ID,
+			Title:       truncateExperienceText(firstNonEmpty(entry.Title, entry.Summary, entry.ID), 120),
+			Summary:     truncateExperienceText(firstNonEmpty(entry.Summary, summaryText(entry.Text), summaryText(entry.OCRText), entry.Title), 260),
+			Text:        truncateExperienceText(entry.Text, 900),
+			OCRText:     truncateExperienceText(entry.OCRText, 900),
+			Source:      strings.TrimSpace(entry.Source),
+			AppName:     truncateExperienceText(entry.AppName, 80),
+			WindowTitle: truncateExperienceText(entry.WindowTitle, 120),
+			CreatedAt:   entry.CreatedAt,
+			HasImage:    entry.CaptureID != "" || entry.ImagePath != "",
+			Tags:        append([]string(nil), entry.Tags...),
+		})
+	}
+	return evidence
+}
+
+func completeFlowAnswerWithAgent(base FlowAskResponse, selected []Entry, privacyMode bool, policy FlowAgentPolicy, runner FlowAgentRunner, now time.Time) FlowAskResponse {
+	if privacyMode {
+		return base
+	}
+	policy = normalizeFlowAgentPolicy(policy)
+	if !policy.Enabled || runner == nil {
+		return base
+	}
+	evidence := flowAgentEvidenceFromEntries(selected, 8)
+	if len(evidence) == 0 {
+		return base
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	result, err := runner.AnswerFlow(ctx, FlowAgentJob{
+		Question:    base.Question,
+		Intent:      base.Intent,
+		LocalAnswer: base.Answer,
+		Evidence:    evidence,
+		Runner:      policy.Runner,
+		Model:       policy.Model,
+		WorkDir:     policy.WorkDir,
+		Now:         now,
+	})
+	if err != nil {
+		base.Message = appendFlowMessage(base.Message, "Agent runner 调用失败，已返回本地摘要："+truncateExperienceText(err.Error(), 180))
+		return base
+	}
+	answer := strings.TrimSpace(result.Answer)
+	if answer == "" {
+		base.Message = appendFlowMessage(base.Message, "Agent runner 未返回内容，已返回本地摘要。")
+		return base
+	}
+	base.Answer = answer
+	base.UsedAI = true
+	base.Mode = firstNonEmpty(strings.TrimSpace(result.Mode), "agent:"+policy.Runner)
+	base.Message = appendFlowMessage(base.Message, firstNonEmpty(strings.TrimSpace(result.Message), "心流 agent 已基于本地证据生成回答。"))
+	return base
+}
+
+func appendFlowMessage(current string, next string) string {
+	current = strings.TrimSpace(current)
+	next = strings.TrimSpace(next)
+	if current == "" {
+		return next
+	}
+	if next == "" {
+		return current
+	}
+	return current + "；" + next
+}
+
+func renderFlowTodayAnswer(entries []Entry, now time.Time, todayCount int, skippedSensitive int) string {
+	if len(entries) == 0 {
+		if skippedSensitive > 0 {
+			return fmt.Sprintf("今天还没有可用于回答的非敏感记忆；我已经跳过 %d 条敏感记录，不会把它们写进答案或证据。开启主动沉淀后，我会继续在后台归并截图、剪贴板和 OCR。", skippedSensitive)
+		}
+		return "今天还没有可用于回答的心流记忆。开启主动沉淀或时间机器后，我会在后台整理截图、剪贴板、OCR 和窗口上下文。"
+	}
+	scope := "今天"
+	total := todayCount
+	if todayCount == 0 {
+		scope = "最近"
+		total = len(entries)
+	}
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("%s已经沉淀 %d 条非敏感上下文，本次纳入 %d 条关键证据。", scope, total, len(entries)))
+	if sourceText := strings.Join(dailySourceSummary(entries), "、"); sourceText != "" {
+		builder.WriteString(fmt.Sprintf("来源主要是 %s。", sourceText))
+	}
+	if appText := flowTopApps(entries, 4); appText != "" {
+		builder.WriteString(fmt.Sprintf("高频应用集中在 %s。", appText))
+	}
+	if skippedSensitive > 0 {
+		builder.WriteString(fmt.Sprintf("另外有 %d 条敏感记忆已自动跳过。", skippedSensitive))
+	}
+	builder.WriteString("\n")
+	builder.WriteString(flowEntryHighlights("主要脉络", entries, 4))
+	builder.WriteString("\n")
+	builder.WriteString("这些明细默认收在证据抽屉里；你可以继续问某个报错、某个窗口，或让我把它整理成复盘/清单。")
+	return builder.String()
+}
+
+func renderFlowContactAnswer(entries []Entry, total int) string {
+	if total == 0 {
+		return "今天没有稳定识别到沟通类记忆。心流目前先按应用、窗口标题和 OCR 线索归并，还不会凭空推断联系人；后续看到微信、会议、邮件等上下文时会自动收束到这里。"
+	}
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("今天识别到 %d 条可能与沟通有关的非敏感记录。", total))
+	if appText := flowTopApps(entries, 5); appText != "" {
+		builder.WriteString(fmt.Sprintf("来源主要集中在 %s。", appText))
+	}
+	builder.WriteString("我不会要求你逐条确认这些记录，只把可追溯证据收在下方。\n")
+	builder.WriteString(flowEntryHighlights("沟通线索", entries, 5))
+	builder.WriteString("\n")
+	builder.WriteString("当前还没有独立的联系人实体抽取，所以结论按应用和窗口线索呈现；等样本稳定后，可以再沉淀成联系人/项目维度的自动摘要。")
+	return builder.String()
+}
+
+func renderFlowOptimizationAnswer(report ExperienceReport, evidence []FlowAskEvidence) string {
+	if len(report.Insights) == 0 {
+		return "最近还没有形成足够稳定的重复动作或可复用流程。我会继续在后台观察高频截图、OCR、剪贴板和窗口切换；只有真正要转成 Skill、工作流、清单或外部任务包时，才需要你确认。"
+	}
+	limit := len(report.Insights)
+	if limit > 3 {
+		limit = 3
+	}
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("我在最近 %d 天的非敏感记忆里发现 %d 条可优化线索，先自动归纳，不需要你逐条做决策。", report.PeriodDays, len(report.Insights)))
+	if len(evidence) > 0 {
+		builder.WriteString(fmt.Sprintf("下方保留 %d 条代表性证据。", len(evidence)))
+	}
+	builder.WriteString("\n")
+	for _, insight := range report.Insights[:limit] {
+		builder.WriteString(fmt.Sprintf("%s：%s 建议先做 %s。\n", insight.Title, insight.Summary, insight.Recommendation))
+	}
+	builder.WriteString("如果某条线索要落地为自动化、清单或 Skill，再进入确认流程；否则心流会继续安静沉淀。")
+	return strings.TrimSpace(builder.String())
+}
+
+func renderFlowSearchAnswer(question string, entries []Entry) string {
+	if len(entries) == 0 {
+		return fmt.Sprintf("我没有在非敏感心流记忆里找到“%s”的稳定证据。可以换一个关键词，或先让时间机器/主动沉淀继续积累 OCR、剪贴板和窗口上下文。", question)
+	}
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("我找到了 %d 条与“%s”相关的非敏感记忆，已按相关度和时间排序。", len(entries), question))
+	builder.WriteString("\n")
+	builder.WriteString(flowEntryHighlights("相关证据", entries, 5))
+	builder.WriteString("\n")
+	builder.WriteString("你可以打开证据查看原始上下文，也可以继续追问“后来怎么处理”“有哪些待办”或“整理成复盘”。")
+	return builder.String()
+}
+
+func flowEntryHighlights(prefix string, entries []Entry, limit int) string {
+	if len(entries) == 0 {
+		return prefix + "：暂无。"
+	}
+	if limit <= 0 || limit > len(entries) {
+		limit = len(entries)
+	}
+	items := []string{}
+	for _, entry := range entries[:limit] {
+		title := firstNonEmpty(entry.Title, entry.Summary, entry.ID)
+		summary := firstNonEmpty(entry.Summary, summaryText(entry.Text), summaryText(entry.OCRText))
+		if summary != "" && summary != title {
+			items = append(items, fmt.Sprintf("%s %s：%s", formatDailyTime(entry.CreatedAt), title, summary))
+		} else {
+			items = append(items, fmt.Sprintf("%s %s", formatDailyTime(entry.CreatedAt), title))
+		}
+	}
+	return prefix + "：" + strings.Join(items, "；") + "。"
+}
+
+func flowTopApps(entries []Entry, limit int) string {
+	counts := map[string]int{}
+	order := []string{}
+	for _, entry := range entries {
+		app := strings.TrimSpace(entry.AppName)
+		if app == "" {
+			app = sourceLabel(entry.Source)
+		}
+		if app == "" {
+			app = "未知"
+		}
+		if _, ok := counts[app]; !ok {
+			order = append(order, app)
+		}
+		counts[app]++
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		if counts[order[i]] != counts[order[j]] {
+			return counts[order[i]] > counts[order[j]]
+		}
+		return order[i] < order[j]
+	})
+	if limit <= 0 || limit > len(order) {
+		limit = len(order)
+	}
+	parts := []string{}
+	for _, app := range order[:limit] {
+		parts = append(parts, fmt.Sprintf("%s %d 条", app, counts[app]))
+	}
+	return strings.Join(parts, "、")
 }
 
 func dailyFollowUps(entries []Entry) []string {
@@ -4586,6 +6505,154 @@ func cleanStrings(items []string) []string {
 		result = append(result, item)
 	}
 	return result
+}
+
+func removeStringFold(items []string, remove string) []string {
+	remove = strings.TrimSpace(remove)
+	if remove == "" {
+		return cleanStrings(items)
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item), remove) {
+			continue
+		}
+		result = append(result, item)
+	}
+	return cleanStrings(result)
+}
+
+func normalizeAppCaptureProfiles(profiles []AppCaptureProfile) []AppCaptureProfile {
+	if len(profiles) == 0 {
+		return []AppCaptureProfile{}
+	}
+	seen := map[string]bool{}
+	result := make([]AppCaptureProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		processName := strings.TrimSpace(profile.ProcessName)
+		displayName := strings.TrimSpace(profile.DisplayName)
+		icon := strings.TrimSpace(profile.Icon)
+		key := appProfileKey(firstNonEmpty(processName, displayName, profile.ID))
+		if key == "" || seen[key] {
+			continue
+		}
+		if processName == "" {
+			processName = firstNonEmpty(displayName, key)
+		}
+		if displayName == "" {
+			displayName = processName
+		}
+		seen[key] = true
+		result = append(result, AppCaptureProfile{
+			ID:                       key,
+			DisplayName:              displayName,
+			ProcessName:              processName,
+			Icon:                     icon,
+			Enabled:                  profile.Enabled,
+			WindowSwitchDelaySeconds: clampIntAllowZero(profile.WindowSwitchDelaySeconds, 3600),
+			ActiveIntervalSeconds:    clampInt(profile.ActiveIntervalSeconds, 10, 86400, 120),
+		})
+	}
+	return result
+}
+
+func cloneAppCaptureProfiles(profiles []AppCaptureProfile) []AppCaptureProfile {
+	if len(profiles) == 0 {
+		return nil
+	}
+	cloned := make([]AppCaptureProfile, len(profiles))
+	copy(cloned, profiles)
+	return cloned
+}
+
+func hasEnabledAppCaptureProfiles(policy CapturePolicy) bool {
+	for _, profile := range policy.AppCaptureProfiles {
+		if profile.Enabled && appProfileKey(firstNonEmpty(profile.ProcessName, profile.DisplayName, profile.ID)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func windowCaptureProfileForContext(context windowContext, policy CapturePolicy, intervalSeconds int) (AppCaptureProfile, bool) {
+	if profile, ok := appCaptureProfileForContext(context, policy); ok {
+		return profile, true
+	}
+	if !policy.CaptureOnWindowChange {
+		return AppCaptureProfile{}, false
+	}
+	if intervalSeconds <= 0 {
+		intervalSeconds = int(defaultAutoCaptureInterval.Seconds())
+	}
+	if intervalSeconds > int(defaultAutoCaptureInterval.Seconds()) {
+		intervalSeconds = int(defaultAutoCaptureInterval.Seconds())
+	}
+	return AppCaptureProfile{
+		ID:                       "__default_window__",
+		DisplayName:              firstNonEmpty(context.app, context.title, "当前窗口"),
+		ProcessName:              context.app,
+		Enabled:                  true,
+		WindowSwitchDelaySeconds: normalizeWindowChangeCooldown(policy.WindowChangeCooldown),
+		ActiveIntervalSeconds:    intervalSeconds,
+	}, true
+}
+
+func appCaptureProfileForContext(context windowContext, policy CapturePolicy) (AppCaptureProfile, bool) {
+	app := appProfileKey(context.app)
+	appRaw := strings.ToLower(strings.TrimSpace(context.app))
+	title := strings.ToLower(strings.TrimSpace(context.title))
+	if app == "" && appRaw == "" && title == "" {
+		return AppCaptureProfile{}, false
+	}
+	for _, profile := range policy.AppCaptureProfiles {
+		if !profile.Enabled {
+			continue
+		}
+		key := appProfileKey(firstNonEmpty(profile.ProcessName, profile.DisplayName, profile.ID))
+		display := strings.ToLower(strings.TrimSpace(profile.DisplayName))
+		process := strings.ToLower(strings.TrimSpace(profile.ProcessName))
+		processBase := appProfileKey(process)
+		switch {
+		case key != "" && app == key:
+			return profile, true
+		case processBase != "" && app == processBase:
+			return profile, true
+		case process != "" && (appRaw == process || strings.Contains(appRaw, process)):
+			return profile, true
+		case display != "" && strings.Contains(title, display):
+			return profile, true
+		}
+	}
+	return AppCaptureProfile{}, false
+}
+
+func appProfileKey(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\\", "/")
+	return strings.ToLower(filepath.Base(value))
+}
+
+func clampInt(value int, min int, max int, fallback int) int {
+	if value < min {
+		return fallback
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func clampIntAllowZero(value int, max int) int {
+	if value < 0 {
+		return 0
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func stringListContainsFold(items []string, value string) bool {
@@ -4844,7 +6911,7 @@ func normalizeIdlePauseSeconds(value int) int {
 
 func normalizeWindowChangeCooldown(value int) int {
 	if value < 3 {
-		return 30
+		return 3
 	}
 	if value > 3600 {
 		return 3600
@@ -4888,6 +6955,42 @@ func normalizeDraftPolishPolicy(policy DraftPolishPolicy) DraftPolishPolicy {
 	policy.BaseURL = strings.TrimSpace(policy.BaseURL)
 	policy.Model = strings.TrimSpace(policy.Model)
 	if policy.Enabled && policy.Provider == "disabled" {
+		policy.Enabled = false
+	}
+	return policy
+}
+
+func normalizeOCRSummaryPolicy(policy OCRSummaryPolicy) OCRSummaryPolicy {
+	policy.Provider = strings.TrimSpace(strings.ToLower(policy.Provider))
+	if policy.Provider == "" {
+		policy.Provider = "disabled"
+	}
+	policy.BaseURL = strings.TrimSpace(policy.BaseURL)
+	policy.Model = strings.TrimSpace(policy.Model)
+	if policy.Enabled && (policy.Provider == "disabled" || policy.Model == "") {
+		policy.Enabled = false
+	}
+	return policy
+}
+
+func normalizeFlowAgentPolicy(policy FlowAgentPolicy) FlowAgentPolicy {
+	policy.Runner = strings.TrimSpace(strings.ToLower(policy.Runner))
+	if policy.Runner == "" {
+		policy.Runner = "disabled"
+	}
+	switch policy.Runner {
+	case "codex", "codex-cli":
+		policy.Runner = "codex"
+	case "agent-sdk", "agents-sdk", "openai-agents", "openai-agents-sdk":
+		policy.Runner = "agents-sdk"
+	case "disabled", "none", "off":
+		policy.Runner = "disabled"
+	default:
+		policy.Runner = "disabled"
+	}
+	policy.Model = strings.TrimSpace(policy.Model)
+	policy.WorkDir = strings.TrimSpace(policy.WorkDir)
+	if policy.Enabled && policy.Runner == "disabled" {
 		policy.Enabled = false
 	}
 	return policy

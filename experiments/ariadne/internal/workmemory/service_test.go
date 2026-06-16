@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -21,6 +22,22 @@ import (
 	"ariadne/internal/clipboardhistory"
 	"ariadne/internal/contracts"
 )
+
+type fakeOCRSummarizer struct {
+	calls   int
+	lastJob OCRSummaryJob
+	result  OCRSummaryResult
+	err     error
+}
+
+func (f *fakeOCRSummarizer) SummarizeOCR(ctx context.Context, job OCRSummaryJob) (OCRSummaryResult, error) {
+	f.calls++
+	f.lastJob = job
+	if f.err != nil {
+		return OCRSummaryResult{}, f.err
+	}
+	return f.result, nil
+}
 
 func TestSearchReturnsEvidenceBackedMemoryResults(t *testing.T) {
 	service := NewServiceWithPath("", nil)
@@ -306,7 +323,15 @@ func TestTimeMachineWorkerCapturesOnWindowChange(t *testing.T) {
 	current = windowContext{title: "Terminal - go test", app: "WindowsTerminal.exe"}
 	mu.Unlock()
 
-	deadline = time.Now().Add(700 * time.Millisecond)
+	deadline = time.Now().Add(900 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if capturer.calls > 0 {
+			t.Fatalf("window switch should wait for stable delay before capture, got %d calls", capturer.calls)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	deadline = time.Now().Add(3200 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		status = service.Status()
 		if capturer.calls > 0 && status.LastWindowSwitchCaptureAt > 0 {
@@ -318,6 +343,199 @@ func TestTimeMachineWorkerCapturesOnWindowChange(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("expected window switch capture, calls=%d status=%#v", capturer.calls, service.Status())
+}
+
+func TestTimeMachineAppProfileDelaysWindowSwitchCapture(t *testing.T) {
+	originalPoll := windowSwitchPollInterval
+	windowSwitchPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { windowSwitchPollInterval = originalPoll })
+
+	capturer := &fakeCapturer{}
+	service := NewServiceWithPath("", capturer)
+	service.interval = time.Hour
+	service.ApplyCapturePolicy(CapturePolicy{
+		AppCaptureProfiles: []AppCaptureProfile{
+			{DisplayName: "微信", ProcessName: "Weixin.exe", Enabled: true, WindowSwitchDelaySeconds: 2, ActiveIntervalSeconds: 120},
+		},
+		PauseOnIdle: false,
+		PauseOnLock: false,
+	})
+	defer service.Stop()
+
+	var mu sync.Mutex
+	current := windowContext{title: "Ariadne settings", app: "ariadne.exe"}
+	service.context = func() windowContext {
+		mu.Lock()
+		defer mu.Unlock()
+		return current
+	}
+
+	status := service.SetTimeMachineEnabled(true)
+	if !status.TimeMachineEnabled || !status.WorkerRunning {
+		t.Fatalf("time machine should be running: %#v", status)
+	}
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if service.Status().LastWindowSwitchAt > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	mu.Lock()
+	current = windowContext{title: "微信 - 文件传输助手", app: "Weixin.exe"}
+	mu.Unlock()
+
+	time.Sleep(350 * time.Millisecond)
+	if capturer.calls != 0 {
+		t.Fatalf("profile should wait for switch delay before capture, got %d calls", capturer.calls)
+	}
+
+	deadline = time.Now().Add(2600 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		status = service.Status()
+		if capturer.calls > 0 && status.LastWindowSwitchCaptureAt > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("expected delayed app profile capture, calls=%d status=%#v", capturer.calls, service.Status())
+}
+
+func TestTimeMachineAppProfileSkipsGlobalIntervalCapture(t *testing.T) {
+	originalPoll := windowSwitchPollInterval
+	windowSwitchPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { windowSwitchPollInterval = originalPoll })
+
+	capturer := &fakeCapturer{}
+	service := NewServiceWithPath("", capturer)
+	service.interval = 40 * time.Millisecond
+	service.ApplyCapturePolicy(CapturePolicy{
+		AppCaptureProfiles: []AppCaptureProfile{
+			{DisplayName: "微信", ProcessName: "Weixin.exe", Enabled: true, WindowSwitchDelaySeconds: 3, ActiveIntervalSeconds: 120},
+		},
+		PauseOnIdle: false,
+		PauseOnLock: false,
+	})
+	defer service.Stop()
+
+	service.context = func() windowContext {
+		return windowContext{title: "微信 - 私人空对话", app: "Weixin.exe"}
+	}
+	status := service.SetTimeMachineEnabled(true)
+	if !status.TimeMachineEnabled || !status.WorkerRunning {
+		t.Fatalf("time machine should be running: %#v", status)
+	}
+
+	time.Sleep(240 * time.Millisecond)
+	if capturer.calls != 0 {
+		t.Fatalf("profiled app should be governed by profile interval, got global calls=%d", capturer.calls)
+	}
+}
+
+func TestTimeMachineWindowSessionAppendsActiveFramesToOneEntry(t *testing.T) {
+	capturer := &fakeCapturer{}
+	service := NewServiceWithPath("", capturer)
+	clearEntriesForTest(service)
+	service.interval = time.Second
+	service.ApplyCapturePolicy(CapturePolicy{
+		CaptureOnWindowChange: true,
+		WindowChangeCooldown:  3,
+		PauseOnIdle:           false,
+		PauseOnLock:           false,
+	})
+	now := time.Unix(1800000000, 0)
+	service.now = func() time.Time { return now }
+	service.context = func() windowContext {
+		return windowContext{title: "Ariadne - 心流", app: "ariadne.exe"}
+	}
+	service.mu.Lock()
+	service.status.TimeMachineEnabled = true
+	service.mu.Unlock()
+
+	service.captureIfWindowChanged()
+	if capturer.calls != 0 {
+		t.Fatalf("initial window observation should only start pending session, got %d calls", capturer.calls)
+	}
+
+	now = now.Add(2 * time.Second)
+	service.captureIfWindowChanged()
+	if capturer.calls != 0 {
+		t.Fatalf("window should not capture before the 3s stable delay, got %d calls", capturer.calls)
+	}
+
+	now = now.Add(time.Second)
+	service.captureIfWindowChanged()
+	if capturer.calls != 1 {
+		t.Fatalf("window should capture after stable delay, got %d calls", capturer.calls)
+	}
+
+	now = now.Add(time.Second)
+	service.captureIfWindowChanged()
+	if capturer.calls != 2 {
+		t.Fatalf("active window should capture again on stay interval, got %d calls", capturer.calls)
+	}
+
+	timeline := service.Timeline()
+	if len(timeline) != 1 {
+		t.Fatalf("same window session should keep one memory entry, got %#v", timeline)
+	}
+	entry := timeline[0]
+	if entry.FrameCount != 2 || len(entry.Frames) != 2 || entry.QualityStatus != qualityStatusPending {
+		t.Fatalf("same window captures should append pending frames, got %#v", entry)
+	}
+	if !strings.Contains(entry.Summary, "已采集 2 帧") {
+		t.Fatalf("entry should explain multi-frame pending collection, got %q", entry.Summary)
+	}
+}
+
+func TestReviewPendingCapturesCollapsesDuplicateFramesAndChecksEntry(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	service.now = func() time.Time { return time.Unix(1800000300, 0) }
+	service.addEntry(Entry{
+		ID:             "memory-time-machine-duplicate",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "重复窗口采集",
+		Summary:        "窗口保持期间采集到重复画面。",
+		CaptureID:      "capture-a",
+		ImagePath:      "a.png",
+		ImageSignature: "same-screen",
+		WindowTitle:    "Ariadne",
+		AppName:        "ariadne.exe",
+		Width:          100,
+		Height:         100,
+		Tags:           []string{"待质检"},
+		QualityStatus:  qualityStatusPending,
+		QualityReason:  "待质检：窗口保持期间多帧采集",
+		Frames: []CaptureFrame{
+			{CaptureID: "capture-a", ImagePath: "a.png", ImageSignature: "same-screen", Width: 100, Height: 100, CreatedAt: 1800000000},
+			{CaptureID: "capture-b", ImagePath: "b.png", ImageSignature: "same-screen", Width: 100, Height: 100, CreatedAt: 1800000030},
+		},
+		FrameCount: 2,
+		CreatedAt:  1800000000,
+	})
+
+	result := service.ReviewPendingCaptures()
+	if !result.OK || result.Checked != 1 || result.CollapsedEntries != 1 || result.RemovedFrames != 1 || result.PendingRemaining != 0 {
+		t.Fatalf("unexpected review result: %#v", result)
+	}
+
+	timeline := service.Timeline()
+	if len(timeline) != 1 {
+		t.Fatalf("expected one reviewed entry, got %#v", timeline)
+	}
+	entry := timeline[0]
+	if entry.QualityStatus != qualityStatusChecked || entry.QualityCheckedAt != 1800000300 {
+		t.Fatalf("entry should be marked checked, got %#v", entry)
+	}
+	if entry.FrameCount != 1 || len(entry.Frames) != 1 || entry.CaptureID != "capture-b" || entry.ImagePath != "b.png" {
+		t.Fatalf("review should keep the latest duplicate frame, got %#v", entry)
+	}
+	if containsString(entry.Tags, "待质检") || !containsString(entry.Tags, "已质检") {
+		t.Fatalf("review should update quality tags, got %#v", entry.Tags)
+	}
 }
 
 func TestGenerateWorkflowDraftFromEvidence(t *testing.T) {
@@ -333,8 +551,16 @@ func TestGenerateWorkflowDraftFromEvidence(t *testing.T) {
 		Text:  "clip url 后继续 hash {prev}，这个宏应该沉淀为候选 workflow。",
 		Tags:  []string{"workflow", "hash"},
 	})
+	pending := service.addEntry(Entry{
+		ID:            "workflow-pending-frame",
+		Source:        "time_machine",
+		Title:         "未质检窗口截图",
+		Summary:       "pending evidence should not be used.",
+		QualityStatus: qualityStatusPending,
+		CreatedAt:     time.Now().Unix(),
+	})
 
-	draft := service.GenerateWorkflowDraft("剪贴板格式化自动化机会", []string{first.ID, second.ID})
+	draft := service.GenerateWorkflowDraft("剪贴板格式化自动化机会", []string{first.ID, pending.ID, second.ID})
 
 	if draft.ID == "" || !draft.RequiresReview || draft.RiskLevel != "low" {
 		t.Fatalf("unexpected workflow draft metadata: %#v", draft)
@@ -342,8 +568,8 @@ func TestGenerateWorkflowDraftFromEvidence(t *testing.T) {
 	if draft.Trigger == "" || !strings.Contains(draft.Input, "剪贴板") || len(draft.Steps) < 3 {
 		t.Fatalf("expected clipboard workflow draft, got %#v", draft)
 	}
-	if draft.Evidence[0] != first.ID || draft.Evidence[1] != second.ID {
-		t.Fatalf("expected evidence preserved: %#v", draft.Evidence)
+	if len(draft.Evidence) != 2 || !containsString(draft.Evidence, first.ID) || !containsString(draft.Evidence, second.ID) || containsString(draft.Evidence, pending.ID) {
+		t.Fatalf("expected checked evidence only: %#v", draft.Evidence)
 	}
 	for _, step := range draft.Steps {
 		if strings.TrimSpace(step.Label) == "" || strings.TrimSpace(step.Command) == "" {
@@ -555,7 +781,7 @@ func TestCaptureStrategyIsRecordedOnCaptureEntries(t *testing.T) {
 
 func TestAutoOCRProcessorRunsAfterCaptureWhenEnabled(t *testing.T) {
 	service := NewServiceWithPath("", &fakeCapturer{})
-	service.ApplyCapturePolicy(CapturePolicy{AutoOCR: true})
+	service.ApplyCapturePolicy(CapturePolicy{AutoOCR: true, PauseOnIdle: false, PauseOnLock: false})
 	processorCalls := 0
 	RegisterAutoOCRProcessor(service, func(entry Entry) Entry {
 		processorCalls++
@@ -563,13 +789,18 @@ func TestAutoOCRProcessorRunsAfterCaptureWhenEnabled(t *testing.T) {
 	})
 
 	entry := service.CaptureTimeMachineNow()
-	status := service.Status()
-
-	if processorCalls != 1 {
-		t.Fatalf("expected one auto OCR call, got %d", processorCalls)
+	if processorCalls != 0 || entry.QualityStatus != qualityStatusPending {
+		t.Fatalf("time-machine capture should wait for quality review before OCR, calls=%d entry=%#v", processorCalls, entry)
 	}
-	if entry.OCRText != "gateway timeout from automatic OCR" || entry.OCRStatus != "done:test-auto-ocr" || entry.ContentType != "ocr_text" {
-		t.Fatalf("expected auto OCR writeback, got %#v", entry)
+	review := service.ReviewPendingCaptures()
+	status := service.Status()
+	updated := entryByIDForTest(service.Timeline(), entry.ID)
+
+	if review.Checked != 1 || processorCalls != 1 {
+		t.Fatalf("expected review to trigger one auto OCR call, review=%#v calls=%d", review, processorCalls)
+	}
+	if updated.OCRText != "gateway timeout from automatic OCR" || updated.OCRStatus != "done:test-auto-ocr" || updated.ContentType != "ocr_text" || updated.QualityStatus != qualityStatusChecked {
+		t.Fatalf("expected auto OCR writeback after review, got %#v", updated)
 	}
 	if status.LastAutoOCRID != entry.ID || status.LastAutoOCRAt == 0 || status.LastAutoOCRError != "" || !status.AutoOCREnabled {
 		t.Fatalf("expected successful auto OCR status, got %#v", status)
@@ -601,16 +832,21 @@ func TestAutoOCRProcessorDoesNotRunWhenDisabled(t *testing.T) {
 
 func TestAutoOCRProcessorFailureIsRecorded(t *testing.T) {
 	service := NewServiceWithPath("", &fakeCapturer{})
-	service.ApplyCapturePolicy(CapturePolicy{AutoOCR: true})
+	service.ApplyCapturePolicy(CapturePolicy{AutoOCR: true, PauseOnIdle: false, PauseOnLock: false})
 	RegisterAutoOCRProcessor(service, func(entry Entry) Entry {
 		return service.ApplyOCRText(entry.ID, "", "failed: OCR 不可用")
 	})
 
 	entry := service.CaptureTimeMachineNow()
+	if entry.OCRStatus != "" || entry.QualityStatus != qualityStatusPending {
+		t.Fatalf("time-machine capture should stay pending before review, got %#v", entry)
+	}
+	service.ReviewPendingCaptures()
 	status := service.Status()
+	updated := entryByIDForTest(service.Timeline(), entry.ID)
 
-	if entry.OCRStatus != "failed: OCR 不可用" {
-		t.Fatalf("expected failed OCR status, got %#v", entry)
+	if updated.OCRStatus != "failed: OCR 不可用" {
+		t.Fatalf("expected failed OCR status, got %#v", updated)
 	}
 	if status.LastAutoOCRID != entry.ID || status.LastAutoOCRError != "OCR 不可用" {
 		t.Fatalf("expected auto OCR error status, got %#v", status)
@@ -642,7 +878,7 @@ func TestDraftsAndAgentTaskPackageKeepEvidence(t *testing.T) {
 func TestGenerateDailyDraftBuildsLocalReportAndSkipsSensitive(t *testing.T) {
 	service := NewServiceWithPath("", nil)
 	service.entries = nil
-	now := time.Unix(1781458200, 0)
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.Local)
 	service.now = func() time.Time { return now }
 	service.addEntry(Entry{
 		ID:        "memory-network-a",
@@ -671,19 +907,182 @@ func TestGenerateDailyDraftBuildsLocalReportAndSkipsSensitive(t *testing.T) {
 		Sensitive: true,
 		CreatedAt: now.Add(-30 * time.Minute).Unix(),
 	})
+	service.addEntry(Entry{
+		ID:            "memory-pending-empty-chat",
+		Source:        "time_machine",
+		Title:         "未质检空聊天截图",
+		Summary:       "empty chat pending capture should not enter daily draft",
+		Text:          "pending capture should stay out of summaries",
+		QualityStatus: qualityStatusPending,
+		CreatedAt:     now.Add(-10 * time.Minute).Unix(),
+	})
 
 	daily := service.GenerateDailyDraft()
 
 	if daily.ID != "daily-"+now.Format("20060102") || len(daily.Evidence) != 2 {
 		t.Fatalf("unexpected daily metadata: %#v", daily)
 	}
-	if containsString(daily.Evidence, "memory-sensitive") || strings.Contains(daily.Body, "token=secret") || strings.Contains(daily.Body, "password=secret") {
+	if containsString(daily.Evidence, "memory-sensitive") || containsString(daily.Evidence, "memory-pending-empty-chat") || strings.Contains(daily.Body, "token=secret") || strings.Contains(daily.Body, "password=secret") || strings.Contains(daily.Body, "pending capture") {
 		t.Fatalf("daily draft should not include sensitive evidence or body: %#v", daily)
 	}
 	for _, expected := range []string{"## 今日概览", "## 主要工作", "## 待跟进", "## 复盘线索", "## 证据 ID", "memory-network-a", "memory-network-b", "已跳过敏感记忆 1 条"} {
 		if !strings.Contains(daily.Body, expected) {
 			t.Fatalf("daily body missing %q:\n%s", expected, daily.Body)
 		}
+	}
+}
+
+func TestAskFlowSummarizesTodayAndSkipsSensitiveEvidence(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.Local)
+	service.now = func() time.Time { return now }
+	service.addEntry(Entry{
+		ID:        "flow-ui",
+		Source:    "manual_note",
+		Title:     "心流界面整理",
+		Summary:   "重构心流首页问答和证据抽屉。",
+		Text:      "把心流主界面改成对话入口。",
+		AppName:   "Code.exe",
+		Tags:      []string{"flow"},
+		CreatedAt: now.Add(-2 * time.Hour).Unix(),
+	})
+	service.addEntry(Entry{
+		ID:        "flow-sensitive",
+		Source:    "manual_note",
+		Title:     "secret token",
+		Summary:   "password=secret",
+		Text:      "token=secret",
+		AppName:   "Terminal",
+		Sensitive: true,
+		CreatedAt: now.Add(-1 * time.Hour).Unix(),
+	})
+	service.addEntry(Entry{
+		ID:            "flow-pending-empty-chat",
+		Source:        "time_machine",
+		Title:         "未质检空聊天截图",
+		Summary:       "pending flow evidence should not appear",
+		Text:          "pending flow evidence should not appear",
+		AppName:       "Weixin.exe",
+		QualityStatus: qualityStatusPending,
+		CreatedAt:     now.Add(-30 * time.Minute).Unix(),
+	})
+
+	answer := service.AskFlow(FlowAskRequest{Question: "我今天干了些什么？"})
+
+	if !answer.OK || answer.Intent != "today" || len(answer.Evidence) != 1 {
+		t.Fatalf("unexpected flow answer: %#v", answer)
+	}
+	if answer.Evidence[0].ID != "flow-ui" || strings.Contains(answer.Answer, "token=secret") || strings.Contains(answer.Answer, "password=secret") || strings.Contains(answer.Answer, "pending flow evidence") {
+		t.Fatalf("flow answer should keep non-sensitive evidence only: %#v", answer)
+	}
+	if !strings.Contains(answer.Answer, "今天已经沉淀") || !strings.Contains(answer.Answer, "敏感记忆已自动跳过") {
+		t.Fatalf("flow answer should summarize today and mention skipped sensitive memory: %s", answer.Answer)
+	}
+}
+
+func TestAskFlowSummarizesCommunicationContext(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	now := time.Unix(1781458200, 0)
+	service.now = func() time.Time { return now }
+	service.addEntry(Entry{
+		ID:          "flow-wechat",
+		Source:      "time_machine",
+		Title:       "微信群消息讨论截图",
+		Summary:     "项目群里有人询问截图贴图问题。",
+		Text:        "微信 群 消息",
+		WindowTitle: "Ariadne 项目群 - 微信",
+		AppName:     "Weixin.exe",
+		CreatedAt:   now.Add(-30 * time.Minute).Unix(),
+	})
+	service.addEntry(Entry{
+		ID:        "flow-build",
+		Source:    "manual_note",
+		Title:     "构建记录",
+		Summary:   "wails3 package 完成。",
+		AppName:   "Code.exe",
+		CreatedAt: now.Add(-20 * time.Minute).Unix(),
+	})
+
+	answer := service.AskFlow(FlowAskRequest{Question: "今天有哪些人找过我？"})
+
+	if answer.Intent != "contacts" || len(answer.Evidence) != 1 || answer.Evidence[0].ID != "flow-wechat" {
+		t.Fatalf("expected contact evidence only, got %#v", answer)
+	}
+	if !strings.Contains(answer.Answer, "沟通有关") || !strings.Contains(answer.Answer, "Weixin.exe") {
+		t.Fatalf("contact answer should mention communication source, got %s", answer.Answer)
+	}
+}
+
+func TestAskFlowUsesFlowAgentRunnerWhenConfigured(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	now := time.Date(2026, 6, 15, 22, 0, 0, 0, time.Local)
+	service.now = func() time.Time { return now }
+	runner := &fakeFlowAgentRunner{result: FlowAgentResult{Answer: "这是 Codex agent 生成的动态回答。\n\n依据：flow-agent-a", Mode: "agent:codex"}}
+	RegisterFlowAgentRunner(service, runner)
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "codex"})
+	service.addEntry(Entry{
+		ID:        "flow-agent-a",
+		Source:    "manual_note",
+		Title:     "心流动态回答",
+		Summary:   "把静态汇总改成 agent 生成。",
+		Text:      "AskFlow 应该通过 Codex agent 基于 evidence 生成回答。",
+		AppName:   "Code.exe",
+		CreatedAt: now.Add(-30 * time.Minute).Unix(),
+	})
+	service.addEntry(Entry{
+		ID:        "flow-agent-secret",
+		Source:    "manual_note",
+		Title:     "password token",
+		Summary:   "password=secret",
+		Text:      "token=secret",
+		Sensitive: true,
+		CreatedAt: now.Add(-10 * time.Minute).Unix(),
+	})
+	service.addEntry(Entry{
+		ID:            "flow-agent-pending",
+		Source:        "time_machine",
+		Title:         "未质检 agent evidence",
+		Summary:       "pending agent evidence should not be sent",
+		QualityStatus: qualityStatusPending,
+		CreatedAt:     now.Add(-5 * time.Minute).Unix(),
+	})
+
+	answer := service.AskFlow(FlowAskRequest{Question: "我今天干了些什么？"})
+
+	if !answer.UsedAI || answer.Mode != "agent:codex" || !strings.Contains(answer.Answer, "动态回答") {
+		t.Fatalf("expected agent answer, got %#v", answer)
+	}
+	if runner.calls != 1 || runner.lastJob.Question == "" || runner.lastJob.LocalAnswer == "" {
+		t.Fatalf("agent runner should receive question and fallback answer: calls=%d job=%#v", runner.calls, runner.lastJob)
+	}
+	if len(runner.lastJob.Evidence) != 1 || runner.lastJob.Evidence[0].ID != "flow-agent-a" {
+		t.Fatalf("agent runner should receive non-sensitive evidence only: %#v", runner.lastJob.Evidence)
+	}
+}
+
+func TestAskFlowFallsBackToLocalAnswerWhenFlowAgentFails(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	now := time.Date(2026, 6, 15, 22, 0, 0, 0, time.Local)
+	service.now = func() time.Time { return now }
+	runner := &fakeFlowAgentRunner{err: context.DeadlineExceeded}
+	RegisterFlowAgentRunner(service, runner)
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "codex"})
+	service.addEntry(Entry{
+		ID:        "flow-local-fallback",
+		Source:    "manual_note",
+		Title:     "心流本地兜底",
+		Summary:   "agent 失败时保留本地摘要。",
+		CreatedAt: now.Add(-10 * time.Minute).Unix(),
+	})
+
+	answer := service.AskFlow(FlowAskRequest{Question: "我今天干了些什么？"})
+
+	if answer.UsedAI || !strings.Contains(answer.Answer, "今天已经沉淀") || !strings.Contains(answer.Message, "Agent runner 调用失败") {
+		t.Fatalf("expected local fallback with agent failure message, got %#v", answer)
 	}
 }
 
@@ -1338,6 +1737,190 @@ func TestApplyOCRTextMakesImageMemorySearchable(t *testing.T) {
 	}
 	if len(service.Search("OpenWrt")) == 0 {
 		t.Fatal("OCR text should be searchable")
+	}
+}
+
+func TestApplyOCRTextBuildsCleanTimelineText(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	entry := service.addEntry(Entry{
+		ID:          "memory-ocr-clean",
+		Source:      "work_memory_time_machine",
+		ContentType: "screenshot",
+		Title:       "work",
+		Summary:     "截图尚未识别",
+		Text:        "截图路径: P:\\captures\\screen.png\n尺寸: 3840x2160",
+		ImagePath:   "P:\\captures\\screen.png",
+		AppName:     "msedge.exe",
+		WindowTitle: "work",
+		Tags:        []string{"截图"},
+		CreatedAt:   time.Unix(1770003000, 0).Unix(),
+	})
+
+	updated := service.ApplyOCRText(entry.ID, "work\nWails3重构项目\n时间线标题没有意义\nOCR内容需要自动整理\n截图路径: P:\\captures\\screen.png", "test-ocr")
+
+	if updated.Title == "work" || updated.Title == "截图证据" || updated.Title == "" {
+		t.Fatalf("expected cleaned OCR title, got %#v", updated.Title)
+	}
+	if !strings.Contains(updated.Title, "Wails3重构项目") {
+		t.Fatalf("expected title to use OCR content, got %q", updated.Title)
+	}
+	if !strings.Contains(updated.Text, "## 画面文字整理") || !strings.Contains(updated.Text, "- 时间线标题没有意义") {
+		t.Fatalf("expected cleaned OCR body, got %q", updated.Text)
+	}
+	if strings.Contains(updated.Text, "截图路径") {
+		t.Fatalf("cleaned OCR body should remove capture metadata, got %q", updated.Text)
+	}
+	if !containsString(updated.Tags, "OCR整理") {
+		t.Fatalf("expected OCR cleanup tag, got %#v", updated.Tags)
+	}
+}
+
+func TestApplyOCRTextUsesAISummarizerWhenConfigured(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	fake := &fakeOCRSummarizer{result: OCRSummaryResult{
+		Title:   "时间线标题优化",
+		Summary: "正在修正心流时间线截图后的标题与正文整理。",
+		Text:    "## 可见内容\n- 时间线需要展示 AI 整理后的标题\n- 原始 OCR 只作为证据保留",
+	}}
+	RegisterOCRSummarizer(service, fake)
+	service.ApplyOCRSummaryPolicy(OCRSummaryPolicy{
+		Enabled:  true,
+		Provider: "openai-compatible",
+		BaseURL:  "http://127.0.0.1/v1",
+		Model:    "glm-5.1",
+	})
+	entry := service.addEntry(Entry{
+		ID:          "memory-ocr-ai",
+		Source:      "work_memory_time_machine",
+		ContentType: "screenshot",
+		Title:       "work",
+		Summary:     "截图尚未识别",
+		Text:        "image evidence",
+		ImagePath:   "P:\\captures\\screen.png",
+		Tags:        []string{"截图"},
+		CreatedAt:   time.Unix(1770003000, 0).Unix(),
+	})
+
+	updated := service.ApplyOCRText(entry.ID, "时间线里的标题还是没什么意义\n截图之后应该自动 OCR", "test-ocr")
+
+	if fake.calls != 1 {
+		t.Fatalf("expected AI OCR summarizer call, got %d", fake.calls)
+	}
+	if fake.lastJob.Provider != "openai-compatible" || fake.lastJob.Model != "glm-5.1" {
+		t.Fatalf("unexpected summarizer job: %#v", fake.lastJob)
+	}
+	if updated.Title != "时间线标题优化" || updated.Summary != "正在修正心流时间线截图后的标题与正文整理。" {
+		t.Fatalf("expected AI summary result, got %#v", updated)
+	}
+	if !strings.Contains(updated.Text, "AI 整理后的标题") || !containsString(updated.Tags, "AI整理") {
+		t.Fatalf("expected AI body/tag, got text=%q tags=%#v", updated.Text, updated.Tags)
+	}
+}
+
+func TestAutonomousFlowGeneratesArtifactsAndSuppressesRejectedSkill(t *testing.T) {
+	now := time.Unix(1781589600, 0)
+	service := NewServiceWithPath(filepath.Join(t.TempDir(), "work_memory.json"), nil)
+	defer service.Stop()
+	service.now = func() time.Time { return now }
+	service.ApplyDraftSchedule(DraftSchedulePolicy{
+		Enabled:                 true,
+		IntervalMinutes:         240,
+		DailyDraftEnabled:       true,
+		RetrospectiveEnabled:    true,
+		ExperienceReportEnabled: true,
+		ExperiencePeriodDays:    7,
+	})
+	for index, title := range []string{
+		"JSON 文本格式化",
+		"剪贴板 JSON 格式化",
+		"URL Base64 文本处理",
+		"剪贴板格式化复用",
+		"剪贴板工作流宏沉淀",
+		"剪贴板文本转换复用",
+	} {
+		service.addEntry(Entry{
+			ID:          fmt.Sprintf("memory-auto-%d", index),
+			Source:      "clipboard",
+			ContentType: "clipboard_text",
+			Title:       title,
+			Summary:     "重复处理剪贴板中的 JSON、URL、Base64 文本，适合沉淀为低风险自动化 Skill。",
+			Text:        "json base64 url clipboard workflow macro 格式化 剪贴板",
+			AppName:     "Codex.exe",
+			Tags:        []string{"clipboard", "json", "workflow"},
+			CreatedAt:   now.Add(-time.Duration(index) * time.Hour).Unix(),
+		})
+	}
+
+	result := service.RunAutonomousFlowNow()
+
+	if !result.OK || result.Generated == 0 {
+		t.Fatalf("expected autonomous artifacts, got %#v", result)
+	}
+	artifacts := service.AutonomousArtifacts()
+	if len(artifacts) == 0 {
+		t.Fatal("expected active autonomous artifacts")
+	}
+	var skill AutonomousArtifact
+	for _, artifact := range artifacts {
+		if artifact.Kind == "skill" {
+			skill = artifact
+			break
+		}
+	}
+	if skill.ID == "" || !skill.AgentExecutable || !strings.Contains(skill.Body, "## Steps") {
+		t.Fatalf("expected agent-executable skill artifact, got %#v", skill)
+	}
+
+	rejected := service.RejectAutonomousArtifact(AutonomousArtifactRejectRequest{ID: skill.ID, Reason: "这个流程不稳定，先不要自动生成"})
+	if !rejected.OK || rejected.Artifact.DeleteReason == "" {
+		t.Fatalf("expected rejection with reason, got %#v", rejected)
+	}
+	now = now.Add(24 * time.Hour)
+	second := service.RunAutonomousFlowNow()
+	for _, artifact := range second.Artifacts {
+		if artifact.Kind == "skill" && artifact.DedupKey == skill.DedupKey {
+			t.Fatalf("rejected skill should be suppressed, got %#v", second.Artifacts)
+		}
+	}
+}
+
+func TestAutonomousFlowRunsOncePerDayWithoutForcing(t *testing.T) {
+	now := time.Unix(1781589600, 0)
+	service := NewServiceWithPath("", nil)
+	service.now = func() time.Time { return now }
+	service.ApplyDraftSchedule(DraftSchedulePolicy{
+		Enabled:                 true,
+		IntervalMinutes:         240,
+		DailyDraftEnabled:       true,
+		RetrospectiveEnabled:    false,
+		ExperienceReportEnabled: false,
+		ExperiencePeriodDays:    7,
+	})
+	for index := 0; index < 3; index++ {
+		service.addEntry(Entry{
+			ID:        fmt.Sprintf("memory-daily-%d", index),
+			Source:    "manual_note",
+			Title:     fmt.Sprintf("今日上下文 %d", index),
+			Summary:   "用于自动日报生成的非敏感证据。",
+			Text:      "Ariadne 心流 自动日报 上下文",
+			Tags:      []string{"daily"},
+			CreatedAt: now.Add(-time.Duration(index) * time.Minute).Unix(),
+		})
+	}
+
+	first := service.runAutonomousFlow(false)
+	second := service.runAutonomousFlow(false)
+	now = now.Add(24 * time.Hour)
+	third := service.runAutonomousFlow(false)
+
+	if !first.OK || first.Generated == 0 {
+		t.Fatalf("expected first run to generate daily artifact, got %#v", first)
+	}
+	if second.OK || !strings.Contains(second.Message, "今天已经执行过") {
+		t.Fatalf("expected second run to be skipped, got %#v", second)
+	}
+	if !third.OK {
+		t.Fatalf("expected next-day run to execute, got %#v", third)
 	}
 }
 
@@ -2393,6 +2976,22 @@ func (f *fakeDraftPolisher) PolishDraft(_ context.Context, job DraftPolishJob) (
 	}, nil
 }
 
+type fakeFlowAgentRunner struct {
+	calls   int
+	lastJob FlowAgentJob
+	result  FlowAgentResult
+	err     error
+}
+
+func (f *fakeFlowAgentRunner) AnswerFlow(_ context.Context, job FlowAgentJob) (FlowAgentResult, error) {
+	f.calls++
+	f.lastJob = job
+	if f.err != nil {
+		return FlowAgentResult{}, f.err
+	}
+	return f.result, nil
+}
+
 type fakeExperienceDiscoverer struct {
 	calls   int
 	lastJob ExperienceDiscoveryJob
@@ -2457,6 +3056,15 @@ func containsString(items []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func entryByIDForTest(entries []Entry, id string) Entry {
+	for _, entry := range entries {
+		if entry.ID == id {
+			return entry
+		}
+	}
+	return Entry{}
 }
 
 func clearEntriesForTest(service *Service) {

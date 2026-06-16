@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
 func TestNormalizeViewAcceptsKnownToolViews(t *testing.T) {
@@ -51,10 +52,16 @@ func TestToolWindowSizingKeepsPaletteSeparateFromToolWindows(t *testing.T) {
 	}
 }
 
-func TestOnlyNetworkMiniKeepsUtilityWindowChrome(t *testing.T) {
+func TestOnlyNetworkMiniUsesFramelessFixedUtilityWindow(t *testing.T) {
 	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "network-monitor", "settings"} {
 		if frameless(view) {
-			t.Fatalf("%s should use ordinary OS window controls", view)
+			t.Fatalf("%s should use native window chrome", view)
+		}
+		if disableIcon(view) {
+			t.Fatalf("%s should show the Ariadne titlebar icon", view)
+		}
+		if hiddenOnTaskbar(view) {
+			t.Fatalf("%s should have its own taskbar button", view)
 		}
 		if disableResize(view) {
 			t.Fatalf("%s should remain resizable", view)
@@ -62,6 +69,71 @@ func TestOnlyNetworkMiniKeepsUtilityWindowChrome(t *testing.T) {
 	}
 	if !frameless("network-mini") {
 		t.Fatal("network mini should stay frameless")
+	}
+	if !disableIcon("network-mini") || !hiddenOnTaskbar("network-mini") {
+		t.Fatal("network mini should hide titlebar icon and taskbar button")
+	}
+}
+
+func TestToolTitleUsesFlowBrandForWorkMemoryWindow(t *testing.T) {
+	if got := toolTitle("work-memory"); got != "Ariadne - 心流" {
+		t.Fatalf("unexpected work memory title: %q", got)
+	}
+}
+
+func TestOrdinaryTaskbarStyleRestoresOverlappedWindowSemantics(t *testing.T) {
+	style := uintptr(w32.WS_VISIBLE | w32.WS_POPUP)
+	next := ordinaryWindowTaskbarStyle(style)
+	if next&uintptr(w32.WS_POPUP) != 0 {
+		t.Fatalf("ordinary taskbar style should clear WS_POPUP: %#x", next)
+	}
+	for _, flag := range []struct {
+		name string
+		bit  uint
+	}{
+		{name: "WS_VISIBLE", bit: w32.WS_VISIBLE},
+		{name: "WS_CAPTION", bit: w32.WS_CAPTION},
+		{name: "WS_SYSMENU", bit: w32.WS_SYSMENU},
+		{name: "WS_THICKFRAME", bit: w32.WS_THICKFRAME},
+		{name: "WS_MINIMIZEBOX", bit: w32.WS_MINIMIZEBOX},
+		{name: "WS_MAXIMIZEBOX", bit: w32.WS_MAXIMIZEBOX},
+	} {
+		if next&uintptr(flag.bit) == 0 {
+			t.Fatalf("ordinary taskbar style should include %s: %#x", flag.name, next)
+		}
+	}
+}
+
+func TestOrdinaryTaskbarExStyleUsesAppWindow(t *testing.T) {
+	exStyle := uintptr(w32.WS_EX_TOOLWINDOW | w32.WS_EX_NOACTIVATE | w32.WS_EX_TOPMOST)
+	next := ordinaryWindowTaskbarExStyle(exStyle)
+	if next&uintptr(w32.WS_EX_APPWINDOW) == 0 {
+		t.Fatalf("ordinary taskbar exstyle should include WS_EX_APPWINDOW: %#x", next)
+	}
+	for _, flag := range []struct {
+		name string
+		bit  uint
+	}{
+		{name: "WS_EX_TOOLWINDOW", bit: w32.WS_EX_TOOLWINDOW},
+		{name: "WS_EX_NOACTIVATE", bit: w32.WS_EX_NOACTIVATE},
+		{name: "WS_EX_TOPMOST", bit: w32.WS_EX_TOPMOST},
+	} {
+		if next&uintptr(flag.bit) != 0 {
+			t.Fatalf("ordinary taskbar exstyle should clear %s: %#x", flag.name, next)
+		}
+	}
+}
+
+func TestTaskbarToggleOnlyAppliesToOrdinaryToolWindows(t *testing.T) {
+	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "network-monitor", "settings"} {
+		if !ordinaryTaskbarToggleAllowed(view) {
+			t.Fatalf("%s should keep ordinary taskbar minimise behaviour", view)
+		}
+	}
+	for _, view := range []string{"launcher", "network-mini", "capture-overlay", "pinned-image", ""} {
+		if ordinaryTaskbarToggleAllowed(view) {
+			t.Fatalf("%s should not receive ordinary taskbar minimise styles", view)
+		}
 	}
 }
 
@@ -78,6 +150,47 @@ func TestNetworkMiniPlacementDefaultsToTaskbarLeft(t *testing.T) {
 	}
 	if x != networkMiniMargin || y != 1043 {
 		t.Fatalf("unexpected taskbar-left placement: %d,%d", x, y)
+	}
+}
+
+func TestNetworkMiniTaskbarPlacementUsesWorkAreaRelativeCoordinates(t *testing.T) {
+	tests := []struct {
+		name     string
+		screen   *application.Screen
+		expected networkMiniWindowFrame
+		absolute [2]int
+	}{
+		{
+			name: "top taskbar",
+			screen: &application.Screen{
+				Bounds:   application.Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
+				WorkArea: application.Rect{X: 0, Y: 40, Width: 1920, Height: 1040},
+			},
+			expected: networkMiniWindowFrame{X: networkMiniMargin, Y: -37, Width: networkMiniWidth, Height: 33},
+			absolute: [2]int{networkMiniMargin, 3},
+		},
+		{
+			name: "left taskbar",
+			screen: &application.Screen{
+				Bounds:   application.Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
+				WorkArea: application.Rect{X: 40, Y: 0, Width: 1880, Height: 1080},
+			},
+			expected: networkMiniWindowFrame{X: -40, Y: networkMiniMargin, Width: networkMiniWidth, Height: 33},
+			absolute: [2]int{0, networkMiniMargin},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := networkMiniTaskbarFrame(tt.screen, networkMiniWidth, networkMiniHeight)
+			if frame != tt.expected {
+				t.Fatalf("unexpected work-area-relative frame: %#v", frame)
+			}
+			x, y := networkMiniAbsolutePosition(tt.screen, frame)
+			if x != tt.absolute[0] || y != tt.absolute[1] {
+				t.Fatalf("unexpected absolute position: %d,%d", x, y)
+			}
+		})
 	}
 }
 
@@ -159,6 +272,38 @@ func TestNetworkMiniAutoHideSettingPersists(t *testing.T) {
 	reloaded := NewServiceWithOptions(path, nil)
 	if reloaded.NetworkMiniStatus().AutoHideFullscreen {
 		t.Fatal("expected disabled auto-hide setting to persist")
+	}
+}
+
+func TestNetworkMiniVisibleStatePersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "network-mini.json")
+	service := NewServiceWithOptions(path, nil)
+
+	service.markNetworkMiniVisible()
+
+	reloaded := NewServiceWithOptions(path, nil)
+	if !reloaded.NetworkMiniStatus().Visible {
+		t.Fatal("expected network mini visible state to persist after opening")
+	}
+}
+
+func TestNetworkMiniResetPlacementPreservesVisibleState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "network-mini.json")
+	service := NewServiceWithOptions(path, nil)
+	service.markNetworkMiniVisible()
+	status := service.SetNetworkMiniAnchor("top-left")
+	if status.Anchor != "top-left" || !status.Visible {
+		t.Fatalf("expected visible custom placement before reset, got %#v", status)
+	}
+
+	status = service.ResetNetworkMiniPlacement()
+	if status.Anchor != networkMiniDefaultAnchor || !status.Visible {
+		t.Fatalf("reset should preserve visible state while restoring placement, got %#v", status)
+	}
+
+	reloaded := NewServiceWithOptions(path, nil)
+	if !reloaded.NetworkMiniStatus().Visible {
+		t.Fatal("expected reset visible state to persist")
 	}
 }
 

@@ -16,5 +16,6 @@ export {
     PluginSettings,
     ScreenshotSettings,
     StorageStatus,
+    WorkMemoryAppCaptureProfile,
     WorkMemorySettings
 } from "./models.js";

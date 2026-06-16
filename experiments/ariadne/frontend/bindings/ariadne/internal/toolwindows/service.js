@@ -15,6 +15,15 @@ import * as application$0 from "../../../github.com/wailsapp/wails/v3/pkg/applic
 import * as $models from "./models.js";
 
 /**
+ * @returns {$CancellablePromise<$models.OpenResult>}
+ */
+export function ApplyMainWindowPolicy() {
+    return $Call.ByID(3412883627).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {application$0.App | null} app
  * @returns {$CancellablePromise<void>}
  */
@@ -23,11 +32,21 @@ export function Attach(app) {
 }
 
 /**
+ * @param {string} view
+ * @returns {$CancellablePromise<$models.OpenResult>}
+ */
+export function EnableTaskbarToggle(view) {
+    return $Call.ByID(2656317571, view).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @returns {$CancellablePromise<$models.NetworkMiniStatus>}
  */
 export function NetworkMiniStatus() {
     return $Call.ByID(3859949475).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -37,7 +56,7 @@ export function NetworkMiniStatus() {
  */
 export function Open(view) {
     return $Call.ByID(3430000296, view).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType0($result);
     }));
 }
 
@@ -54,7 +73,7 @@ export function OpenFromShell(view) {
  */
 export function ResetNetworkMiniPlacement() {
     return $Call.ByID(4173711359).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -64,7 +83,7 @@ export function ResetNetworkMiniPlacement() {
  */
 export function SetNetworkMiniAnchor(anchor) {
     return $Call.ByID(1412998208, anchor).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -74,7 +93,7 @@ export function SetNetworkMiniAnchor(anchor) {
  */
 export function SetNetworkMiniAutoHideFullscreen(enabled) {
     return $Call.ByID(3497473983, enabled).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
 }
 
@@ -85,8 +104,16 @@ export function SetNetworkMiniAutoHideFullscreen(enabled) {
  */
 export function SetNetworkMiniScreenMode(mode, screenID) {
     return $Call.ByID(628556946, mode, screenID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
+        return $$createType1($result);
     }));
+}
+
+/**
+ * @param {string} icon
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetWindowIcon(icon) {
+    return $Call.ByID(2847705597, icon);
 }
 
 /**
@@ -94,7 +121,7 @@ export function SetNetworkMiniScreenMode(mode, screenID) {
  */
 export function ShowLauncher() {
     return $Call.ByID(1185398565).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType1($result);
+        return $$createType0($result);
     }));
 }
 
@@ -106,5 +133,5 @@ export function Stop() {
 }
 
 // Private type creation functions
-const $$createType0 = $models.NetworkMiniStatus.createFrom;
-const $$createType1 = $models.OpenResult.createFrom;
+const $$createType0 = $models.OpenResult.createFrom;
+const $$createType1 = $models.NetworkMiniStatus.createFrom;

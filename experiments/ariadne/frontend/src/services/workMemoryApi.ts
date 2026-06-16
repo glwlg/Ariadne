@@ -8,6 +8,10 @@ import type {
   SearchResult,
   ScheduledDraftStatus,
   WorkflowDraft,
+  WorkMemoryAutonomousArtifact,
+  WorkMemoryAutonomousRejectRequest,
+  WorkMemoryAutonomousRejectResult,
+  WorkMemoryAutonomousRunResult,
   WorkMemoryDraftPolishRequest,
   WorkMemoryDraftPolishResult,
   WorkMemoryEmbeddingRefreshResult,
@@ -17,6 +21,8 @@ import type {
   WorkMemoryEntry,
   WorkMemoryImportMaterialRequest,
   WorkMemoryImportMaterialResult,
+  WorkMemoryFlowAskRequest,
+  WorkMemoryFlowAskResponse,
   WorkMemoryNoteRequest,
   WorkMemorySemanticSearchResult,
   WorkMemorySemanticStatus,
@@ -50,23 +56,42 @@ let fallbackStatus: WorkMemoryStatus = {
   pauseOnLock: true,
   sessionLocked: false,
   entryCount: 1,
-  autoCaptureIntervalSeconds: 300,
-  windowSwitchCaptureEnabled: false,
-  windowSwitchCooldownSeconds: 30,
+  autoCaptureIntervalSeconds: 30,
+  windowSwitchCaptureEnabled: true,
+  windowSwitchCooldownSeconds: 3,
+  appCaptureProfiles: [],
   captureCount: 0,
 }
 
 let fallbackTimeline: WorkMemoryEntry[] = [fallbackEntry]
 
 let fallbackScheduledDraftStatus: ScheduledDraftStatus = {
-  enabled: false,
+  enabled: true,
   running: false,
   intervalMinutes: 240,
   dailyDraftEnabled: true,
   retrospectiveEnabled: true,
   experienceReportEnabled: true,
   lastEntryCount: 0,
+  autonomousGenerated: 0,
 }
+
+let fallbackAutonomousArtifacts: WorkMemoryAutonomousArtifact[] = [
+  {
+    id: 'auto-fallback-skill',
+    kind: 'skill',
+    title: '剪贴板上下文整理 Skill',
+    summary: '开发态 fallback 模拟：当证据足够、流程清晰且低风险时，心流会自动生成可执行 Skill 草稿。',
+    body: '# 剪贴板上下文整理 Skill\n\n## When To Use\n当剪贴板文本反复需要格式化、提取或归档时使用。\n\n## Steps\n1. 读取当前剪贴板文本\n2. 判断文本类型并生成结构化摘要\n3. 输出可复制结果\n\n## Autonomous Boundary\n删除该产物并填写原因后，心流会避免再次生成同类 Skill。',
+    evidence: [fallbackEntry.id],
+    dedupKey: 'skill:fallback-clipboard-context',
+    status: 'active',
+    confidence: 0.86,
+    agentExecutable: true,
+    createdAt: fallbackEntry.createdAt,
+    updatedAt: fallbackEntry.createdAt,
+  },
+]
 
 let fallbackSemanticStatus: WorkMemorySemanticStatus = {
   enabled: true,
@@ -127,6 +152,46 @@ export async function getScheduledDraftStatus(): Promise<ScheduledDraftStatus> {
   return fallbackScheduledDraftStatus
 }
 
+export async function getAutonomousArtifacts(): Promise<WorkMemoryAutonomousArtifact[]> {
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeAutonomousArtifacts(await binding.AutonomousArtifacts())
+    } catch {
+      return fallbackAutonomousArtifacts
+    }
+  }
+  return fallbackAutonomousArtifacts
+}
+
+export async function runAutonomousFlowNow(): Promise<WorkMemoryAutonomousRunResult> {
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeAutonomousRunResult(await binding.RunAutonomousFlowNow())
+    } catch {
+      return fallbackRunAutonomousFlow()
+    }
+  }
+  return fallbackRunAutonomousFlow()
+}
+
+export async function rejectAutonomousArtifact(request: WorkMemoryAutonomousRejectRequest): Promise<WorkMemoryAutonomousRejectResult> {
+  const normalized = {
+    id: request.id.trim(),
+    reason: request.reason.trim() || '不需要这个自主产物',
+  }
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeAutonomousRejectResult(await binding.RejectAutonomousArtifact(normalized))
+    } catch {
+      return fallbackRejectAutonomousArtifact(normalized)
+    }
+  }
+  return fallbackRejectAutonomousArtifact(normalized)
+}
+
 export async function getSemanticStatus(): Promise<WorkMemorySemanticStatus> {
   const binding = await tryWorkMemoryBinding()
   if (binding) {
@@ -185,6 +250,118 @@ export async function searchWorkMemory(query: string): Promise<SearchResult[]> {
     }
   }
   return fallbackSearch(query)
+}
+
+export async function askWorkMemoryFlow(request: WorkMemoryFlowAskRequest): Promise<WorkMemoryFlowAskResponse> {
+  const normalized = {
+    question: request.question.trim(),
+    limit: request.limit ?? 8,
+    since: request.since ?? 0,
+  }
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowAskResponse(await binding.AskFlow(normalized), normalized.question)
+    } catch {
+      return fallbackAskFlow(normalized)
+    }
+  }
+  return fallbackAskFlow(normalized)
+}
+
+function normalizeFlowAskResponse(result: WorkMemoryFlowAskResponse, question: string): WorkMemoryFlowAskResponse {
+  return {
+    ok: Boolean(result?.ok),
+    question: result?.question || question,
+    title: result?.title || question || '心流回答',
+    answer: result?.answer || result?.message || '',
+    intent: result?.intent || 'search',
+    mode: result?.mode || 'local',
+    evidence: Array.isArray(result?.evidence)
+      ? result.evidence
+          .filter((item) => item?.id && !item.sensitive)
+          .map((item) => ({
+            id: item.id,
+            title: item.title || item.id,
+            summary: item.summary || '',
+            source: item.source || '',
+            appName: item.appName || '',
+            windowTitle: item.windowTitle || '',
+            createdAt: Number(item.createdAt ?? 0),
+            score: Number(item.score ?? 0),
+            hasImage: Boolean(item.hasImage),
+            sensitive: Boolean(item.sensitive),
+            tags: Array.isArray(item.tags) ? item.tags.map(String).filter(Boolean) : [],
+          }))
+      : [],
+    suggestedQuestions: Array.isArray(result?.suggestedQuestions) ? result.suggestedQuestions.map(String).filter(Boolean) : [],
+    usedAi: Boolean(result?.usedAi),
+    message: result?.message || '',
+    createdAt: Number(result?.createdAt ?? Math.floor(Date.now() / 1000)),
+  }
+}
+
+function fallbackAskFlow(request: WorkMemoryFlowAskRequest): WorkMemoryFlowAskResponse {
+  const question = request.question.trim()
+  const now = Math.floor(Date.now() / 1000)
+  const limit = request.limit && request.limit > 0 ? request.limit : 8
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const since = request.since || Math.floor(todayStart.getTime() / 1000)
+  const haystack = question.toLowerCase()
+  const intent = /优化|工作流|自动化|重复|流程|效率/.test(question)
+    ? 'optimization'
+    : /谁|人|找过|联系|消息|沟通|微信|weixin|wechat|会议|meeting|mail|邮件/i.test(question)
+      ? 'contacts'
+      : /今天|今日|干了|做了|总结|发生|上下文|心流/.test(question)
+        ? 'today'
+        : 'search'
+  const visible = fallbackTimeline.filter((entry) => !entry.sensitive && (!request.since || entry.createdAt >= request.since))
+  const selected =
+    intent === 'contacts'
+      ? visible.filter((entry) =>
+          /微信|weixin|wechat|钉钉|dingtalk|qq|teams|outlook|邮件|mail|meeting|会议|消息|聊天/i.test(
+            [entry.title, entry.summary, entry.text, entry.windowTitle, entry.appName, entry.source].filter(Boolean).join(' '),
+          ),
+        )
+      : intent === 'search' && haystack
+        ? visible.filter((entry) =>
+            [entry.title, entry.summary, entry.text, entry.ocrText, entry.windowTitle, entry.appName, entry.source, ...entry.tags]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+              .includes(haystack),
+          )
+        : visible.filter((entry) => entry.createdAt >= since)
+  const evidence = selected.slice(0, limit).map((entry) => ({
+    id: entry.id,
+    title: entry.title,
+    summary: entry.summary,
+    source: entry.source,
+    appName: entry.appName,
+    windowTitle: entry.windowTitle,
+    createdAt: entry.createdAt,
+    score: 0,
+    hasImage: Boolean(entry.captureId || entry.imagePath),
+    sensitive: false,
+    tags: entry.tags,
+  }))
+  const answer = evidence.length
+    ? `我在本地心流记忆里找到 ${evidence.length} 条相关证据，已按当前问题收在下方。正式桌面运行时由 Go 后端统一归纳回答。`
+    : '当前没有足够的本地 fallback 证据。正式桌面运行时会使用 Go 后端的心流问答入口继续检索。'
+  return {
+    ok: true,
+    question,
+    title: question || '心流回答',
+    answer,
+    intent,
+    mode: 'fallback',
+    evidence,
+    suggestedQuestions: ['我今天干了些什么？', '今天有哪些人找过我？', '今天我的哪些工作流可以优化？'],
+    usedAi: false,
+    message: '开发态 fallback',
+    createdAt: now,
+  }
 }
 
 function fallbackSearch(query: string): SearchResult[] {
@@ -748,8 +925,112 @@ function fallbackRunScheduledDrafts(): ScheduledDraftStatus {
     dailyDraft,
     retrospectiveDraft,
     experienceReport,
+    lastAutonomousRunAt: Math.floor(Date.now() / 1000),
+    autonomousGenerated: fallbackAutonomousArtifacts.length,
+    autonomousMessage: fallbackAutonomousArtifacts.length ? `开发态 fallback 自主产物 ${fallbackAutonomousArtifacts.length} 个` : '暂无自主产物',
   }
   return fallbackScheduledDraftStatus
+}
+
+function fallbackRunAutonomousFlow(): WorkMemoryAutonomousRunResult {
+  const createdAt = Math.floor(Date.now() / 1000)
+  fallbackScheduledDraftStatus = {
+    ...fallbackScheduledDraftStatus,
+    lastAutonomousRunAt: createdAt,
+    autonomousGenerated: fallbackAutonomousArtifacts.length,
+    autonomousMessage: fallbackAutonomousArtifacts.length ? `开发态 fallback 自主产物 ${fallbackAutonomousArtifacts.length} 个` : '暂无自主产物',
+  }
+  return {
+    ok: true,
+    message: fallbackScheduledDraftStatus.autonomousMessage || '',
+    generated: fallbackAutonomousArtifacts.length,
+    skipped: 0,
+    artifacts: fallbackAutonomousArtifacts,
+    status: fallbackScheduledDraftStatus,
+    createdAt,
+  }
+}
+
+function fallbackRejectAutonomousArtifact(request: WorkMemoryAutonomousRejectRequest): WorkMemoryAutonomousRejectResult {
+  const artifact = fallbackAutonomousArtifacts.find((item) => item.id === request.id)
+  if (!artifact) {
+    return {
+      ok: false,
+      message: '未找到自主产物',
+      status: fallbackScheduledDraftStatus,
+    }
+  }
+  const rejected = {
+    ...artifact,
+    status: 'rejected',
+    deleteReason: request.reason,
+    deletedAt: Math.floor(Date.now() / 1000),
+    updatedAt: Math.floor(Date.now() / 1000),
+  }
+  fallbackAutonomousArtifacts = fallbackAutonomousArtifacts.filter((item) => item.id !== request.id)
+  fallbackScheduledDraftStatus = {
+    ...fallbackScheduledDraftStatus,
+    autonomousGenerated: fallbackAutonomousArtifacts.length,
+    autonomousMessage: '已删除该自主产物，并记录拒绝原因',
+  }
+  return {
+    ok: true,
+    message: '已删除该自主产物，并记录拒绝原因',
+    artifact: rejected,
+    status: fallbackScheduledDraftStatus,
+  }
+}
+
+function normalizeAutonomousArtifacts(items: WorkMemoryAutonomousArtifact[] | undefined): WorkMemoryAutonomousArtifact[] {
+  if (!Array.isArray(items)) {
+    return []
+  }
+  return items
+    .map((item) => ({
+      id: item?.id || '',
+      kind: item?.kind || 'knowledge',
+      title: item?.title || '自主产物',
+      summary: item?.summary || '',
+      body: item?.body || '',
+      evidence: Array.isArray(item?.evidence) ? item.evidence.map(String).filter(Boolean) : [],
+      sourceInsightId: item?.sourceInsightId || '',
+      dedupKey: item?.dedupKey || '',
+      status: item?.status || 'active',
+      deleteReason: item?.deleteReason || '',
+      confidence: Number(item?.confidence ?? 0),
+      agentExecutable: Boolean(item?.agentExecutable),
+      createdAt: Number(item?.createdAt ?? 0),
+      updatedAt: Number(item?.updatedAt ?? 0),
+      deletedAt: Number(item?.deletedAt ?? 0),
+    }))
+    .filter((item) => item.id)
+}
+
+function normalizeAutonomousRunResult(result: WorkMemoryAutonomousRunResult): WorkMemoryAutonomousRunResult {
+  return {
+    ok: Boolean(result?.ok),
+    message: result?.message || '',
+    generated: Number(result?.generated ?? 0),
+    skipped: Number(result?.skipped ?? 0),
+    artifacts: normalizeAutonomousArtifacts(result?.artifacts),
+    status: {
+      ...(result?.status ?? fallbackScheduledDraftStatus),
+      autonomousGenerated: Number(result?.status?.autonomousGenerated ?? result?.generated ?? 0),
+    },
+    createdAt: Number(result?.createdAt ?? Math.floor(Date.now() / 1000)),
+  }
+}
+
+function normalizeAutonomousRejectResult(result: WorkMemoryAutonomousRejectResult): WorkMemoryAutonomousRejectResult {
+  return {
+    ok: Boolean(result?.ok),
+    message: result?.message || '',
+    artifact: result?.artifact ? normalizeAutonomousArtifacts([result.artifact])[0] : undefined,
+    status: {
+      ...(result?.status ?? fallbackScheduledDraftStatus),
+      autonomousGenerated: Number(result?.status?.autonomousGenerated ?? 0),
+    },
+  }
 }
 
 export async function generateRetrospectiveDraft(entryIDs: string[]): Promise<WorkMemoryDraft> {

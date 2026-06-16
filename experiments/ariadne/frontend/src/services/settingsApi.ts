@@ -1,7 +1,7 @@
 import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/ariadne'
 
 const fallbackSettings: AppSettings = {
-  version: 9,
+  version: 10,
   general: {
     theme: 'light',
     runOnStartup: false,
@@ -23,9 +23,10 @@ const fallbackSettings: AppSettings = {
   workMemory: {
     enabled: true,
     timeMachineEnabled: false,
-    autoCaptureIntervalSeconds: 300,
-    windowSwitchCaptureEnabled: false,
-    windowSwitchCooldownSeconds: 30,
+    autoCaptureIntervalSeconds: 30,
+    windowSwitchCaptureEnabled: true,
+    windowSwitchCooldownSeconds: 3,
+    appCaptureProfiles: [],
     captureScope: 'all_screens',
     screenshotQuality: 90,
     multiMonitor: 'combined',
@@ -38,8 +39,8 @@ const fallbackSettings: AppSettings = {
     sourceManualNote: true,
     sourceSearchFavorite: true,
     sourceActions: true,
-    autoOcr: false,
-    draftScheduleEnabled: false,
+    autoOcr: true,
+    draftScheduleEnabled: true,
     draftScheduleIntervalMinutes: 240,
     dailyDraftScheduleEnabled: true,
     retrospectiveDraftScheduleEnabled: true,
@@ -206,6 +207,8 @@ function normalizeFallback(settings: AppSettings): AppSettings {
   next.general.theme = next.general.theme === 'dark' ? 'dark' : 'light'
   next.screenshot.quality = clamp(next.screenshot.quality, 1, 100)
   next.workMemory.autoCaptureIntervalSeconds = clamp(next.workMemory.autoCaptureIntervalSeconds, 10, 86400)
+  next.workMemory.windowSwitchCooldownSeconds = clamp(next.workMemory.windowSwitchCooldownSeconds, 3, 3600)
+  next.workMemory.appCaptureProfiles = cleanAppCaptureProfiles(next.workMemory.appCaptureProfiles)
   next.workMemory.screenshotQuality = clamp(next.workMemory.screenshotQuality, 1, 100)
   next.workMemory.idlePauseSeconds = clamp(next.workMemory.idlePauseSeconds, 30, 86400)
   next.workMemory.draftScheduleIntervalMinutes = clamp(next.workMemory.draftScheduleIntervalMinutes, 15, 1440)
@@ -233,6 +236,36 @@ function cleanList(items: string[] = []) {
       seen.add(key)
       return true
     })
+}
+
+function cleanAppCaptureProfiles(profiles: AppSettings['workMemory']['appCaptureProfiles'] = []) {
+  const seen = new Set<string>()
+  return profiles
+    .map((profile) => {
+      const processName = String(profile.processName || profile.displayName || profile.id || '').trim()
+      const displayName = String(profile.displayName || processName).trim()
+      const key = appProfileKey(processName || displayName || profile.id)
+      return {
+        id: key,
+        displayName,
+        processName,
+        icon: String(profile.icon || '').trim(),
+        enabled: Boolean(profile.enabled),
+        windowSwitchDelaySeconds: clamp(Number(profile.windowSwitchDelaySeconds), 0, 3600),
+        activeIntervalSeconds: clamp(Number(profile.activeIntervalSeconds), 10, 86400),
+      }
+    })
+    .filter((profile) => {
+      if (!profile.id || seen.has(profile.id)) return false
+      seen.add(profile.id)
+      return true
+    })
+}
+
+function appProfileKey(value: string) {
+  const normalized = String(value || '').trim().replace(/\\/g, '/')
+  const parts = normalized.split('/')
+  return (parts[parts.length - 1] || normalized).toLowerCase()
 }
 
 function clamp(value: number, min: number, max: number) {

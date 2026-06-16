@@ -771,6 +771,7 @@ export interface WorkMemoryStatus {
   autoCaptureIntervalSeconds?: number
   windowSwitchCaptureEnabled?: boolean
   windowSwitchCooldownSeconds?: number
+  appCaptureProfiles?: WorkMemoryAppCaptureProfile[]
   lastCaptureAt?: number
   lastCaptureId?: string
   lastCaptureError?: string
@@ -828,6 +829,53 @@ export interface WorkMemorySemanticSearchResult {
   model?: string
 }
 
+export interface WorkMemoryFlowAskRequest {
+  question: string
+  limit?: number
+  since?: number
+}
+
+export interface WorkMemoryFlowAskEvidence {
+  id: string
+  title: string
+  summary: string
+  source: string
+  appName?: string
+  windowTitle?: string
+  createdAt: number
+  score?: number
+  hasImage: boolean
+  sensitive: boolean
+  tags: string[]
+}
+
+export interface WorkMemoryFlowAskResponse {
+  ok: boolean
+  question: string
+  title: string
+  answer: string
+  intent: string
+  mode: string
+  evidence: WorkMemoryFlowAskEvidence[]
+  suggestedQuestions?: string[]
+  usedAi: boolean
+  message?: string
+  createdAt: number
+}
+
+export interface WorkMemoryCaptureFrame {
+  captureId?: string
+  imagePath?: string
+  imageSignature?: string
+  imageFingerprint?: string
+  width?: number
+  height?: number
+  bytes?: number
+  windowTitle?: string
+  appName?: string
+  createdAt: number
+}
+
 export interface ScheduledDraftStatus {
   enabled: boolean
   running: boolean
@@ -840,9 +888,52 @@ export interface ScheduledDraftStatus {
   lastEntryCount: number
   lastEntryCreatedAt?: number
   lastError?: string
+  lastAutonomousRunAt?: number
+  autonomousGenerated: number
+  autonomousMessage?: string
   dailyDraft?: WorkMemoryDraft
   retrospectiveDraft?: WorkMemoryDraft
   experienceReport?: ExperienceReport
+}
+
+export interface WorkMemoryAutonomousArtifact {
+  id: string
+  kind: 'daily' | 'retrospective' | 'knowledge' | 'skill' | string
+  title: string
+  summary: string
+  body: string
+  evidence: string[]
+  sourceInsightId?: string
+  dedupKey?: string
+  status: string
+  deleteReason?: string
+  confidence?: number
+  agentExecutable?: boolean
+  createdAt: number
+  updatedAt?: number
+  deletedAt?: number
+}
+
+export interface WorkMemoryAutonomousRejectRequest {
+  id: string
+  reason: string
+}
+
+export interface WorkMemoryAutonomousRejectResult {
+  ok: boolean
+  message: string
+  artifact?: WorkMemoryAutonomousArtifact
+  status: ScheduledDraftStatus
+}
+
+export interface WorkMemoryAutonomousRunResult {
+  ok: boolean
+  message: string
+  generated: number
+  skipped: number
+  artifacts: WorkMemoryAutonomousArtifact[]
+  status: ScheduledDraftStatus
+  createdAt: number
 }
 
 export interface WorkMemoryEntry {
@@ -858,6 +949,13 @@ export interface WorkMemoryEntry {
   appName?: string
   captureId?: string
   imagePath?: string
+  imageSignature?: string
+  imageFingerprint?: string
+  frames?: WorkMemoryCaptureFrame[]
+  frameCount?: number
+  qualityStatus?: string
+  qualityCheckedAt?: number
+  qualityReason?: string
   width?: number
   height?: number
   bytes?: number
@@ -1262,6 +1360,7 @@ export interface WorkMemorySettings {
   autoCaptureIntervalSeconds: number
   windowSwitchCaptureEnabled: boolean
   windowSwitchCooldownSeconds: number
+  appCaptureProfiles: WorkMemoryAppCaptureProfile[]
   captureScope: string
   screenshotQuality: number
   multiMonitor: string
@@ -1295,6 +1394,16 @@ export interface WorkMemorySettings {
   excludeContentPatterns: string[]
   sensitiveRulesEnabled: boolean
   allowSensitiveExport: boolean
+}
+
+export interface WorkMemoryAppCaptureProfile {
+  id: string
+  displayName: string
+  processName: string
+  icon?: string
+  enabled: boolean
+  windowSwitchDelaySeconds: number
+  activeIntervalSeconds: number
 }
 
 export interface PluginSettings {
