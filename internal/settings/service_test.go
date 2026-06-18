@@ -7,7 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/securestore"
+
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 func TestDefaultSettingsEnableAutonomousFlowWithoutStartingCapture(t *testing.T) {
@@ -49,6 +53,9 @@ func TestDefaultSettingsEnableAutonomousFlowWithoutStartingCapture(t *testing.T)
 	}
 	if !settings.AI.ExternalAgentEnabled {
 		t.Fatal("external agent task package generation should remain available")
+	}
+	if !settings.AI.AgentResponsesEnabled {
+		t.Fatal("OpenAI Agents SDK should try Responses/native skills by default")
 	}
 }
 
@@ -124,7 +131,8 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	}
 
 	storage := service.StorageStatus()
-	if !storage.Exists || !storage.ReadBackOK || storage.Path != configPath || storage.LastSaveError != "" {
+	expectedStoragePath := appdb.DatabasePathForPath(configPath)
+	if !storage.Exists || !storage.ReadBackOK || storage.Path != expectedStoragePath || storage.LastSaveError != "" {
 		t.Fatalf("unexpected storage status: %#v", storage)
 	}
 	if storage.ReadBackBytes <= 0 || storage.ReadBackVersion != currentSettingsVersion {
@@ -204,6 +212,29 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 	updated := NewServiceWithPaths("", "").UpdateSettings(current)
 	if updated.General.Theme != "dark" {
 		t.Fatalf("current dark mode should remain available, got %q", updated.General.Theme)
+	}
+}
+
+func TestV13SettingsMigrateAgentResponsesEnabled(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	legacy := defaultSettings()
+	legacy.Version = 13
+	legacy.AI.AgentResponsesEnabled = false
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated := NewServiceWithPaths(configPath, "").GetSettings()
+	if migrated.Version != currentSettingsVersion {
+		t.Fatalf("expected current version after migration, got %d", migrated.Version)
+	}
+	if !migrated.AI.AgentResponsesEnabled {
+		t.Fatal("v13 configs should migrate to Responses/native skill support enabled")
 	}
 }
 
@@ -404,14 +435,10 @@ func TestImportLegacyConfigMigratesSecretsToCredentialStore(t *testing.T) {
 		}
 	}
 
-	persisted, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	persistedText := string(persisted)
+	persistedText := readPersistedSettingsText(t, configPath)
 	for _, secret := range []string{"legacy-ai-key", "legacy-embedding-key", "legacy-milvus-token"} {
 		if strings.Contains(persistedText, secret) {
-			t.Fatalf("legacy secret %q leaked into Ariadne JSON: %s", secret, persistedText)
+			t.Fatalf("legacy secret %q leaked into Ariadne settings storage: %s", secret, persistedText)
 		}
 	}
 }
@@ -439,12 +466,9 @@ func TestImportLegacyConfigSkipsSecretsWhenCredentialStoreUnavailable(t *testing
 	if len(store.values) != 0 {
 		t.Fatalf("unavailable secure store should not receive secrets: %#v", store.values)
 	}
-	persisted, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(persisted), "legacy-ai-key") {
-		t.Fatalf("legacy secret leaked into Ariadne JSON: %s", string(persisted))
+	persistedText := readPersistedSettingsText(t, configPath)
+	if strings.Contains(persistedText, "legacy-ai-key") {
+		t.Fatalf("legacy secret leaked into Ariadne settings storage: %s", persistedText)
 	}
 	status := service.LegacyConfigStatus()
 	if !noteContains(status.Notes, "安全凭据存储不可用") {
@@ -488,4 +512,40 @@ func noteContains(items []string, text string) bool {
 		}
 	}
 	return false
+}
+
+func readPersistedSettingsText(t *testing.T, path string) string {
+	t.Helper()
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := ensureSettingsSchema(conn); err != nil {
+		t.Fatal(err)
+	}
+	scope := settingsScope(path)
+	var text strings.Builder
+	queries := []string{
+		`SELECT text_value FROM settings2_values WHERE scope = ?1`,
+		`SELECT value FROM settings2_string_lists WHERE scope = ?1`,
+		`SELECT display_name || ' ' || process_name || ' ' || icon FROM settings2_app_capture_profiles WHERE scope = ?1`,
+		`SELECT plugin_id FROM settings2_plugins WHERE scope = ?1`,
+	}
+	for _, query := range queries {
+		if err := sqlitex.Execute(conn, query, &sqlitex.ExecOptions{
+			Args: []any{scope},
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				text.WriteString(stmt.ColumnText(0))
+				text.WriteByte('\n')
+				return nil
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if text.Len() == 0 {
+		t.Fatalf("expected persisted settings rows in sqlite for %s", path)
+	}
+	return text.String()
 }

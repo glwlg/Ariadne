@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/workmemory"
 )
 
@@ -485,7 +486,7 @@ func (s *Service) InstallDiagnostics(request InstallDiagnosticsRequest) InstallD
 
 func (s *Service) statusLocked() Status {
 	return Status{
-		Path:          s.path,
+		Path:          firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path),
 		Count:         len(s.skills),
 		LastSaveError: s.lastSaveError,
 		Skills:        cloneSkills(s.skills),
@@ -504,34 +505,15 @@ func (s *Service) find(id string) (Skill, bool) {
 }
 
 func (s *Service) load() {
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
+	skills, ok, err := loadSkillsFromSQLite(s.path)
+	if err != nil || !ok {
 		return
 	}
-	var payload stateFile
-	if err := json.Unmarshal(raw, &payload); err == nil {
-		s.skills = normalizeSkills(payload.Skills)
-		return
-	}
-	var legacy []Skill
-	if err := json.Unmarshal(raw, &legacy); err == nil {
-		s.skills = normalizeSkills(legacy)
-	}
+	s.skills = normalizeSkills(skills)
 }
 
 func (s *Service) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	payload := stateFile{
-		Version: 1,
-		Skills:  cloneSkills(s.skills),
-	}
-	raw, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return saveSkillsToSQLite(s.path, cloneSkills(s.skills))
 }
 
 func skillFromDraft(draft workmemory.Draft) (Skill, bool) {
@@ -1018,4 +1000,13 @@ func defaultPath() string {
 		base = "."
 	}
 	return filepath.Join(base, "Ariadne", "skills.json")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

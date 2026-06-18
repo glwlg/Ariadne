@@ -158,8 +158,10 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const deleteArmedId = ref('')
   const clearUnpinnedArmed = ref(false)
   const selectedImageUrl = ref('')
+  const selectedImageMissing = ref(false)
   const playbackIndex = ref(-1)
   const playbackImageUrl = ref('')
+  const playbackImageMissing = ref(false)
   const feedback = ref('')
   const isLoading = ref(false)
   const isLoadingPlaybackImage = ref(false)
@@ -394,6 +396,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       void loadPlaybackImage(playbackEntries.value[nextPlaybackIndex])
     } else {
       playbackImageUrl.value = ''
+      playbackImageMissing.value = false
     }
   }
 
@@ -1364,6 +1367,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     if (!playbackEntries.value.length) {
       playbackIndex.value = -1
       playbackImageUrl.value = ''
+      playbackImageMissing.value = false
       showFeedback('还没有可回放的截图记忆')
       return
     }
@@ -1387,6 +1391,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     if (!entry) {
       playbackIndex.value = -1
       playbackImageUrl.value = ''
+      playbackImageMissing.value = false
       return
     }
     playbackIndex.value = index
@@ -1450,19 +1455,32 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     const captureId = selectedEntry.value?.captureId
     if (!captureId) {
       selectedImageUrl.value = ''
+      selectedImageMissing.value = false
       return
     }
-    selectedImageUrl.value = await getCaptureImageDataURL(captureId)
+    const selectedAtRequest = selectedEntry.value?.id ?? ''
+    const url = await getCaptureImageDataURL(captureId)
+    if (selectedEntry.value?.id !== selectedAtRequest) {
+      return
+    }
+    selectedImageUrl.value = url
+    selectedImageMissing.value = !url
   }
 
   async function loadPlaybackImage(entry = playbackEntry.value) {
     if (!entry?.captureId) {
       playbackImageUrl.value = ''
+      playbackImageMissing.value = false
       return
     }
     isLoadingPlaybackImage.value = true
     try {
-      playbackImageUrl.value = await getCaptureImageDataURL(entry.captureId)
+      const url = await getCaptureImageDataURL(entry.captureId)
+      if (playbackEntry.value?.id !== entry.id) {
+        return
+      }
+      playbackImageUrl.value = url
+      playbackImageMissing.value = !url
     } finally {
       isLoadingPlaybackImage.value = false
     }
@@ -1647,8 +1665,10 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     deleteArmedId,
     clearUnpinnedArmed,
     selectedImageUrl,
+    selectedImageMissing,
     playbackIndex,
     playbackImageUrl,
+    playbackImageMissing,
     feedback,
     isLoading,
     isLoadingPlaybackImage,

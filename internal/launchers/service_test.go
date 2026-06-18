@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/contracts"
 )
 
@@ -89,7 +90,7 @@ func TestLaunchersPersistCustomItems(t *testing.T) {
 	}
 }
 
-func TestSaveErrorIsReportedInStatus(t *testing.T) {
+func TestDirectoryPathPersistsToSQLite(t *testing.T) {
 	path := t.TempDir()
 	service := NewServiceWithPath(path)
 
@@ -101,8 +102,11 @@ func TestSaveErrorIsReportedInStatus(t *testing.T) {
 		Enabled: true,
 	})
 
-	if status.LastSaveError == "" {
-		t.Fatalf("expected save error for directory path")
+	if status.LastSaveError != "" || status.Count == 0 {
+		t.Fatalf("expected sqlite save through directory path, got %#v", status)
+	}
+	if _, err := os.Stat(appdb.DatabasePathForPath(path)); err != nil {
+		t.Fatalf("expected sqlite database: %v", err)
 	}
 }
 

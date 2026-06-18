@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/contracts"
 
@@ -304,13 +305,17 @@ func TestClipboardHistoryRetentionRemovesOldUnpinnedEntriesAndImages(t *testing.
 	}
 }
 
-func TestClipboardHistoryReportsSaveErrors(t *testing.T) {
-	service := NewServiceWithPath(t.TempDir())
+func TestClipboardHistoryDirectoryPathPersistsToSQLite(t *testing.T) {
+	path := t.TempDir()
+	service := NewServiceWithPath(path)
 
-	status := service.AddText("cannot save to directory path", "test")
+	status := service.AddText("save to sqlite directory path", "test")
 
-	if status.LastSaveError == "" {
-		t.Fatal("expected save error for directory path")
+	if status.LastSaveError != "" || status.Count != 1 {
+		t.Fatalf("expected sqlite save through directory path, got %#v", status)
+	}
+	if _, err := os.Stat(appdb.DatabasePathForPath(path)); err != nil {
+		t.Fatalf("expected sqlite database: %v", err)
 	}
 }
 

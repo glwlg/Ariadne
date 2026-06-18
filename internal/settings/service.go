@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/securestore"
 )
 
@@ -51,6 +52,7 @@ type AISettings struct {
 	VectorStoreURI             string `json:"vectorStoreUri"`
 	VectorCollection           string `json:"vectorCollection"`
 	AgentsSDKEnabled           bool   `json:"agentsSdkEnabled"`
+	AgentResponsesEnabled      bool   `json:"agentResponsesEnabled"`
 	TraceMode                  string `json:"traceMode"`
 	OpsCoreSyncEnabled         bool   `json:"opscoreSyncEnabled"`
 	ExternalAgentEnabled       bool   `json:"externalAgentEnabled"`
@@ -114,7 +116,7 @@ type PluginSettings struct {
 	Enabled map[string]bool `json:"enabled"`
 }
 
-const currentSettingsVersion = 13
+const currentSettingsVersion = 14
 
 type AppSettings struct {
 	Version    int                `json:"version"`
@@ -268,8 +270,10 @@ func (s *Service) StorageStatus() StorageStatus {
 }
 
 func (s *Service) storageStatusLocked() StorageStatus {
-	info, err := os.Stat(s.configPath)
-	dir := filepath.Dir(s.configPath)
+	storagePath := firstNonEmpty(appdb.DatabasePathForPath(s.configPath), s.configPath)
+	info, err := os.Stat(storagePath)
+	legacyInfo, legacyErr := os.Stat(s.configPath)
+	dir := filepath.Dir(storagePath)
 	dirInfo, dirErr := os.Stat(dir)
 	entries := []string{}
 	if dirErr == nil && dirInfo.IsDir() {
@@ -282,33 +286,42 @@ func (s *Service) storageStatusLocked() StorageStatus {
 	var size int64
 	if err == nil {
 		size = info.Size()
+	} else if legacyErr == nil {
+		size = legacyInfo.Size()
 	}
 	readBackOK := false
 	readBackBytes := int64(0)
 	readBackVersion := 0
 	readBackError := ""
-	if raw, readErr := os.ReadFile(s.configPath); readErr == nil {
-		readBackBytes = int64(len(raw))
+	if persisted, ok, readErr := loadSettingsFromSQLite(s.configPath); readErr == nil && ok {
+		readBackBytes = infoSize(info, err)
+		if readBackBytes == 0 {
+			readBackBytes = size
+		}
+		readBackOK = true
+		readBackVersion = persisted.Version
+	} else if readErr != nil {
+		readBackError = readErr.Error()
+	} else if raw, legacyReadErr := os.ReadFile(s.configPath); legacyReadErr == nil {
 		var persisted AppSettings
+		readBackBytes = int64(len(raw))
 		if unmarshalErr := json.Unmarshal(raw, &persisted); unmarshalErr == nil {
 			readBackOK = true
 			readBackVersion = persisted.Version
 		} else {
 			readBackError = unmarshalErr.Error()
 		}
-	} else if err == nil {
-		readBackError = readErr.Error()
 	}
 	userConfigDir, _ := os.UserConfigDir()
 	workingDir, _ := os.Getwd()
 	executablePath, _ := os.Executable()
 	localAppData := os.Getenv("LOCALAPPDATA")
-	virtualizedPath, virtualizedExists, virtualizedBytes := findVirtualizedConfigPath(s.configPath, os.Getenv("APPDATA"), localAppData)
+	virtualizedPath, virtualizedExists, virtualizedBytes := findVirtualizedConfigPath(storagePath, os.Getenv("APPDATA"), localAppData)
 	return StorageStatus{
-		Path:              s.configPath,
+		Path:              storagePath,
 		Directory:         dir,
 		DirectoryExists:   dirErr == nil && dirInfo.IsDir(),
-		Exists:            err == nil,
+		Exists:            err == nil || legacyErr == nil,
 		Bytes:             size,
 		ReadBackOK:        readBackOK,
 		ReadBackBytes:     readBackBytes,
@@ -372,14 +385,7 @@ func (s *Service) saveLocked() error {
 	if s.configPath == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.configPath), 0o755); err != nil {
-		return err
-	}
-	raw, err := json.MarshalIndent(s.settings, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(s.configPath, raw, 0o600); err != nil {
+	if err := saveSettingsToSQLite(s.configPath, s.settings); err != nil {
 		return err
 	}
 	if _, err := readSettingsFile(s.configPath); err != nil {
@@ -389,15 +395,12 @@ func (s *Service) saveLocked() error {
 }
 
 func readSettingsFile(path string) (AppSettings, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
+	if loaded, ok, err := loadSettingsFromSQLite(path); err != nil {
 		return AppSettings{}, err
+	} else if ok {
+		return loaded, nil
 	}
-	var loaded AppSettings
-	if err := json.Unmarshal(raw, &loaded); err != nil {
-		return AppSettings{}, err
-	}
-	return loaded, nil
+	return AppSettings{}, os.ErrNotExist
 }
 
 func findVirtualizedConfigPath(configPath string, appData string, localAppData string) (string, bool, int64) {
@@ -535,6 +538,7 @@ func applyLegacyPreferences(next AppSettings, legacy map[string]any) AppSettings
 		next.AI.VectorStoreURI = asString(workMemory["vector_store_uri"], next.AI.VectorStoreURI)
 		next.AI.VectorCollection = asString(workMemory["vector_collection"], next.AI.VectorCollection)
 		next.AI.AgentsSDKEnabled = asBool(workMemory["agents_sdk_enabled"], next.AI.AgentsSDKEnabled)
+		next.AI.AgentResponsesEnabled = asBool(firstLegacyValue(workMemory, "agent_responses_enabled", "agents_responses_enabled", "agents_sdk_responses_enabled"), next.AI.AgentResponsesEnabled)
 		next.AI.TraceMode = asString(workMemory["trace_mode"], next.AI.TraceMode)
 		next.AI.OpsCoreSyncEnabled = asBool(workMemory["opscore_sync_enabled"], next.AI.OpsCoreSyncEnabled)
 		next.AI.ExternalAgentEnabled = asBool(workMemory["external_agent_enabled"], next.AI.ExternalAgentEnabled)
@@ -682,6 +686,7 @@ func defaultSettings() AppSettings {
 			VectorStoreURI:             "",
 			VectorCollection:           "ariadne_work_memory",
 			AgentsSDKEnabled:           true,
+			AgentResponsesEnabled:      true,
 			TraceMode:                  "off",
 			OpsCoreSyncEnabled:         false,
 			ExternalAgentEnabled:       true,
@@ -839,6 +844,10 @@ func migrateSettings(value AppSettings) AppSettings {
 		case "", "all_screens":
 			value.WorkMemory.CaptureScope = defaults.WorkMemory.CaptureScope
 		}
+	}
+	if value.Version < 14 {
+		defaults := defaultSettings()
+		value.AI.AgentResponsesEnabled = defaults.AI.AgentResponsesEnabled
 	}
 	return value
 }
@@ -1175,6 +1184,13 @@ func firstNonEmpty(value string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func infoSize(info os.FileInfo, err error) int64 {
+	if err != nil || info == nil {
+		return 0
+	}
+	return info.Size()
 }
 
 func normalizeTheme(value string) string {

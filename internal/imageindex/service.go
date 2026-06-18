@@ -1,7 +1,6 @@
 package imageindex
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
 	"ariadne/internal/contracts"
@@ -456,7 +456,7 @@ func (s *Service) listLocked(query string, limit int) []Entry {
 }
 
 func (s *Service) statusLocked(includeEntries bool) Status {
-	status := Status{Path: s.path, Count: len(s.entries), LastRunAt: s.lastRunAt, LastError: s.lastError}
+	status := Status{Path: firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path), Count: len(s.entries), LastRunAt: s.lastRunAt, LastError: s.lastError}
 	if s.ocr != nil {
 		ocrStatus := s.ocr.Status()
 		status.OCRAvailable = ocrStatus.Available
@@ -485,18 +485,11 @@ func (s *Service) load() {
 	if s.path == "" {
 		return
 	}
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
+	entries, ok, err := loadImageIndexFromSQLite(s.path)
+	if err != nil || !ok {
 		return
 	}
-	var state struct {
-		Version int     `json:"version"`
-		Entries []Entry `json:"entries"`
-	}
-	if json.Unmarshal(raw, &state) != nil {
-		return
-	}
-	for _, entry := range state.Entries {
+	for _, entry := range entries {
 		entry = normalizeEntry(entry)
 		if entry.ID != "" {
 			s.entries = append(s.entries, entry)
@@ -514,21 +507,7 @@ func (s *Service) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	state := struct {
-		Version int     `json:"version"`
-		Entries []Entry `json:"entries"`
-	}{
-		Version: 1,
-		Entries: s.entries,
-	}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return saveImageIndexToSQLite(s.path, s.entries)
 }
 
 func entryFromCapture(item capturehistory.Entry, result ocr.Result, now time.Time) Entry {
@@ -819,6 +798,15 @@ func firstPositive(values ...int) int {
 		}
 	}
 	return 0
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func contains(items []string, value string) bool {

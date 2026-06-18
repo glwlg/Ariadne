@@ -13,7 +13,7 @@ const fallbackLaunchers: Launcher[] = [
 ]
 
 let fallbackStatus: LauncherStatus = {
-  path: '%APPDATA%/Ariadne/launchers.json',
+  path: '%APPDATA%/Ariadne/ariadne.sqlite',
   count: fallbackLaunchers.length,
   items: structuredClone(fallbackLaunchers),
   lastSaveError: '',
@@ -86,7 +86,7 @@ function normalizeStatus(status: LauncherStatus): LauncherStatus {
     .filter((item) => item.id || item.name || item.target)
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
   return {
-    path: status.path || '%APPDATA%/Ariadne/launchers.json',
+    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
     count: items.length,
     items,
     lastSaveError: status.lastSaveError ?? '',

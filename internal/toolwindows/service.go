@@ -2,7 +2,6 @@ package toolwindows
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -12,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/launcherwindow"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -785,7 +785,7 @@ func (s *Service) networkMiniStatusLocked() NetworkMiniStatus {
 		AutoHidden:         s.networkMiniHidden,
 		Visible:            s.networkMiniConfig.Visible,
 		Locked:             true,
-		ConfigPath:         s.networkMiniPath,
+		ConfigPath:         firstNonEmpty(appdb.DatabasePathForPath(s.networkMiniPath), s.networkMiniPath),
 		LastError:          s.networkMiniError,
 	}
 }
@@ -794,61 +794,25 @@ func (s *Service) loadNetworkMiniConfig() {
 	if strings.TrimSpace(s.networkMiniPath) == "" {
 		return
 	}
-	raw, err := os.ReadFile(s.networkMiniPath)
+	config, ok, err := loadNetworkMiniConfigFromSQLite(s.networkMiniPath, s.networkMiniConfig)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			s.networkMiniError = "读取网速小窗配置失败: " + err.Error()
 		}
 		return
 	}
-	var config struct {
-		Anchor             string `json:"anchor"`
-		ScreenMode         string `json:"screenMode,omitempty"`
-		ScreenID           string `json:"screenId,omitempty"`
-		AutoHideFullscreen *bool  `json:"autoHideFullscreen"`
-		Visible            *bool  `json:"visible"`
-	}
-	if err := json.Unmarshal(raw, &config); err != nil {
-		s.networkMiniError = "解析网速小窗配置失败: " + err.Error()
+	if !ok {
 		return
 	}
-	if anchor := normalizeNetworkMiniAnchor(config.Anchor); anchor != "" {
-		s.networkMiniConfig.Anchor = anchor
-	}
-	s.networkMiniConfig.ScreenID = strings.TrimSpace(config.ScreenID)
-	if strings.TrimSpace(config.ScreenMode) != "" {
-		if mode := normalizeNetworkMiniScreenMode(config.ScreenMode); mode != "" {
-			s.networkMiniConfig.ScreenMode = mode
-		}
-	} else if strings.TrimSpace(config.ScreenID) != "" {
-		s.networkMiniConfig.ScreenMode = "screen"
-	}
-	if config.AutoHideFullscreen != nil {
-		s.networkMiniConfig.AutoHideFullscreen = *config.AutoHideFullscreen
-	}
-	if config.Visible != nil {
-		s.networkMiniConfig.Visible = *config.Visible
-	}
+	s.networkMiniConfig = config
 }
 
 func (s *Service) saveNetworkMiniConfigLocked() error {
 	if strings.TrimSpace(s.networkMiniPath) == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.networkMiniPath), 0o755); err != nil {
-		return fmt.Errorf("创建网速小窗配置目录失败: %w", err)
-	}
-	raw, err := json.MarshalIndent(s.networkMiniConfig, "", "  ")
-	if err != nil {
-		return fmt.Errorf("编码网速小窗配置失败: %w", err)
-	}
-	tmp := s.networkMiniPath + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	if err := saveNetworkMiniConfigToSQLite(s.networkMiniPath, s.networkMiniConfig); err != nil {
 		return fmt.Errorf("写入网速小窗配置失败: %w", err)
-	}
-	if err := os.Rename(tmp, s.networkMiniPath); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("替换网速小窗配置失败: %w", err)
 	}
 	return nil
 }
@@ -1062,6 +1026,15 @@ func defaultNetworkMiniConfigPath() string {
 		return filepath.Join(dir, "Ariadne", "network_mini_window.json")
 	}
 	return filepath.Join(".", "network_mini_window.json")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func normalizeNetworkMiniScreenMode(mode string) string {

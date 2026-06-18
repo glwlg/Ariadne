@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/contracts"
 	"ariadne/internal/imagepreview"
@@ -597,7 +598,7 @@ func (s *Service) listLocked(query string, limit int) []Entry {
 func (s *Service) statusLocked(includeEntries bool) Status {
 	thumbnailCount, thumbnailBytes := countFilesInDir(s.thumbnailDir)
 	status := Status{
-		Path:             s.path,
+		Path:             firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path),
 		ImageDir:         s.imageDir,
 		ThumbnailDir:     s.thumbnailDir,
 		Count:            len(s.entries),
@@ -666,18 +667,11 @@ func (s *Service) load() {
 	if s.path == "" {
 		return
 	}
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
+	entries, ok, err := loadEntriesFromSQLite(s.path)
+	if err != nil || !ok {
 		return
 	}
-	var state struct {
-		Version int     `json:"version"`
-		Entries []Entry `json:"entries"`
-	}
-	if json.Unmarshal(raw, &state) != nil {
-		return
-	}
-	for _, entry := range state.Entries {
+	for _, entry := range entries {
 		entry = normalizeEntry(entry)
 		if entryIsValid(entry) {
 			s.entries = append(s.entries, entry)
@@ -727,21 +721,7 @@ func (s *Service) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	state := struct {
-		Version int     `json:"version"`
-		Entries []Entry `json:"entries"`
-	}{
-		Version: 1,
-		Entries: s.entries,
-	}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return saveEntriesToSQLite(s.path, s.entries)
 }
 
 func (s *Service) trimLocked() {
@@ -1447,6 +1427,15 @@ func boolLabel(value bool) string {
 		return "是"
 	}
 	return "否"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func thumbnailLabel(entry Entry) string {

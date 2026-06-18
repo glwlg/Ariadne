@@ -7,7 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	_ "image/jpeg"
+	"image/png"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,6 +53,8 @@ type OpenAICompatibleExperienceDiscoverer struct {
 	APIKeyEnv     []string
 	SecretTargets []string
 }
+
+const ocrUploadMaxSide = 2600
 
 func NewOpenAICompatibleEmbedder() *OpenAICompatibleEmbedder {
 	return &OpenAICompatibleEmbedder{
@@ -266,7 +273,10 @@ func (p *OpenAICompatiblePolisher) apiKey() string {
 
 func (o *OpenAICompatibleImageOCR) RecognizeImageOCR(ctx context.Context, job ocr.AIOCRJob) (ocr.AIResult, error) {
 	provider := strings.TrimSpace(strings.ToLower(job.Provider))
-	if provider != "openai-compatible" && provider != "openai" {
+	if isOllamaGenerateProvider(provider) {
+		return o.recognizeImageOllamaGenerate(ctx, job)
+	}
+	if !isOpenAICompatibleProvider(provider) {
 		return ocr.AIResult{}, fmt.Errorf("不支持的大模型 OCR provider: %s", firstNonEmpty(job.Provider, "disabled"))
 	}
 	model := strings.TrimSpace(job.Model)
@@ -277,22 +287,15 @@ func (o *OpenAICompatibleImageOCR) RecognizeImageOCR(ctx context.Context, job oc
 	if imagePath == "" {
 		return ocr.AIResult{}, errors.New("大模型 OCR 图片路径为空")
 	}
-	rawImage, err := os.ReadFile(imagePath)
+	imagePayload, err := readOCRImagePayload(imagePath)
 	if err != nil {
-		return ocr.AIResult{}, fmt.Errorf("读取 OCR 图片失败: %w", err)
-	}
-	if len(rawImage) == 0 {
-		return ocr.AIResult{}, errors.New("OCR 图片为空")
+		return ocr.AIResult{}, err
 	}
 	apiKey := o.apiKey()
-	if apiKey == "" {
+	endpoint := openAIChatCompletionsEndpoint(job.BaseURL)
+	if apiKey == "" && strings.HasPrefix(endpoint, "https://api.openai.com/") {
 		return ocr.AIResult{}, errors.New("未检测到 ARIADNE_OCR_API_KEY、ARIADNE_AI_API_KEY 或 OPENAI_API_KEY")
 	}
-	endpoint := strings.TrimRight(strings.TrimSpace(job.BaseURL), "/")
-	if endpoint == "" {
-		endpoint = "https://api.openai.com/v1"
-	}
-	endpoint += "/chat/completions"
 
 	payload := visionChatCompletionRequest{
 		Model:       model,
@@ -305,11 +308,11 @@ func (o *OpenAICompatibleImageOCR) RecognizeImageOCR(ctx context.Context, job oc
 			{
 				Role: "user",
 				Content: []visionContentPart{
-					{Type: "text", Text: imageOCRPrompt()},
+					{Type: "text", Text: "ocr this image"},
 					{
 						Type: "image_url",
 						ImageURL: &visionImageURL{
-							URL:    "data:" + imageMimeType(imagePath) + ";base64," + base64.StdEncoding.EncodeToString(rawImage),
+							URL:    "data:" + imagePayload.MimeType + ";base64," + base64.StdEncoding.EncodeToString(imagePayload.Data),
 							Detail: "high",
 						},
 					},
@@ -326,7 +329,9 @@ func (o *OpenAICompatibleImageOCR) RecognizeImageOCR(ctx context.Context, job oc
 		return ocr.AIResult{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer "+apiKey)
+	if apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 
 	client := o.HTTPClient
 	if client == nil {
@@ -353,12 +358,82 @@ func (o *OpenAICompatibleImageOCR) RecognizeImageOCR(ctx context.Context, job oc
 	if len(result.Choices) == 0 {
 		return ocr.AIResult{}, errors.New("大模型 OCR provider 未返回 choices")
 	}
-	text := strings.TrimSpace(result.Choices[0].Message.Content)
+	text, lines := parseImageOCRContent(result.Choices[0].Message.Content)
 	if text == "" {
 		return ocr.AIResult{}, errors.New("大模型 OCR provider 返回空内容")
 	}
 	return ocr.AIResult{
 		Provider:  "vision:" + model,
+		Text:      text,
+		Lines:     lines,
+		ElapsedMs: int(time.Since(started) / time.Millisecond),
+	}, nil
+}
+
+func (o *OpenAICompatibleImageOCR) recognizeImageOllamaGenerate(ctx context.Context, job ocr.AIOCRJob) (ocr.AIResult, error) {
+	model := strings.TrimSpace(job.Model)
+	if model == "" {
+		return ocr.AIResult{}, errors.New("Ollama OCR model 未配置")
+	}
+	imagePath := strings.TrimSpace(job.ImagePath)
+	if imagePath == "" {
+		return ocr.AIResult{}, errors.New("Ollama OCR 图片路径为空")
+	}
+	imagePayload, err := readOCRImagePayload(imagePath)
+	if err != nil {
+		return ocr.AIResult{}, err
+	}
+
+	payload := ollamaGenerateRequest{
+		Model:  model,
+		Prompt: imageOCRPrompt(),
+		Images: []string{base64.StdEncoding.EncodeToString(imagePayload.Data)},
+		Stream: false,
+		Options: map[string]any{
+			"temperature": 0,
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ocr.AIResult{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, ollamaGenerateEndpoint(job.BaseURL), bytes.NewReader(raw))
+	if err != nil {
+		return ocr.AIResult{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	client := o.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	started := time.Now()
+	response, err := client.Do(request)
+	if err != nil {
+		return ocr.AIResult{}, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 8*1024*1024))
+	if err != nil {
+		return ocr.AIResult{}, err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return ocr.AIResult{}, fmt.Errorf("Ollama OCR 返回 HTTP %d: %s", response.StatusCode, truncate(string(body), 240))
+	}
+
+	var result ollamaGenerateResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return ocr.AIResult{}, err
+	}
+	if strings.TrimSpace(result.Error) != "" {
+		return ocr.AIResult{}, errors.New("Ollama OCR 返回错误: " + strings.TrimSpace(result.Error))
+	}
+	text := strings.TrimSpace(result.Response)
+	if text == "" {
+		return ocr.AIResult{}, errors.New("Ollama OCR 返回空内容")
+	}
+	return ocr.AIResult{
+		Provider:  "ollama-generate:" + model,
 		Text:      text,
 		Lines:     textToOCRLines(text),
 		ElapsedMs: int(time.Since(started) / time.Millisecond),
@@ -831,6 +906,29 @@ type visionImageURL struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+type ollamaGenerateRequest struct {
+	Model   string         `json:"model"`
+	Prompt  string         `json:"prompt"`
+	Images  []string       `json:"images,omitempty"`
+	Stream  bool           `json:"stream"`
+	Options map[string]any `json:"options,omitempty"`
+}
+
+type ollamaGenerateResponse struct {
+	Model    string `json:"model"`
+	Response string `json:"response"`
+	Done     bool   `json:"done"`
+	Error    string `json:"error,omitempty"`
+}
+
+type ocrImagePayload struct {
+	Data     []byte
+	MimeType string
+	Width    int
+	Height   int
+	Resized  bool
+}
+
 type experienceDiscoveryPayload struct {
 	Title    string `json:"title"`
 	Summary  string `json:"summary"`
@@ -877,6 +975,109 @@ func imageMimeType(path string) string {
 	}
 }
 
+func readOCRImagePayload(imagePath string) (ocrImagePayload, error) {
+	rawImage, err := os.ReadFile(imagePath)
+	if err != nil {
+		return ocrImagePayload{}, fmt.Errorf("读取 OCR 图片失败: %w", err)
+	}
+	if len(rawImage) == 0 {
+		return ocrImagePayload{}, errors.New("OCR 图片为空")
+	}
+	payload := ocrImagePayload{
+		Data:     rawImage,
+		MimeType: imageMimeType(imagePath),
+	}
+	resized, width, height, ok, err := resizeOCRImageForUpload(rawImage, ocrUploadMaxSide)
+	if err != nil {
+		return payload, nil
+	}
+	payload.Width = width
+	payload.Height = height
+	if ok {
+		payload.Data = resized
+		payload.MimeType = "image/png"
+		payload.Resized = true
+	}
+	return payload, nil
+}
+
+func resizeOCRImageForUpload(rawImage []byte, maxSide int) ([]byte, int, int, bool, error) {
+	if maxSide <= 0 {
+		maxSide = ocrUploadMaxSide
+	}
+	src, _, err := image.Decode(bytes.NewReader(rawImage))
+	if err != nil {
+		return nil, 0, 0, false, err
+	}
+	bounds := src.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	if width <= 0 || height <= 0 {
+		return nil, 0, 0, false, fmt.Errorf("OCR 图片尺寸无效")
+	}
+	if width <= maxSide && height <= maxSide {
+		return nil, width, height, false, nil
+	}
+
+	scale := float64(maxSide) / float64(max(width, height))
+	resizedWidth := max(1, int(math.Round(float64(width)*scale)))
+	resizedHeight := max(1, int(math.Round(float64(height)*scale)))
+	dst := image.NewNRGBA(image.Rect(0, 0, resizedWidth, resizedHeight))
+	for y := 0; y < resizedHeight; y++ {
+		sourceY := bounds.Min.Y + min(height-1, int(float64(y)*float64(height)/float64(resizedHeight)))
+		for x := 0; x < resizedWidth; x++ {
+			sourceX := bounds.Min.X + min(width-1, int(float64(x)*float64(width)/float64(resizedWidth)))
+			dst.SetNRGBA(x, y, color.NRGBAModel.Convert(src.At(sourceX, sourceY)).(color.NRGBA))
+		}
+	}
+
+	var out bytes.Buffer
+	if err := png.Encode(&out, dst); err != nil {
+		return nil, width, height, false, err
+	}
+	return out.Bytes(), resizedWidth, resizedHeight, true, nil
+}
+
+func openAIChatCompletionsEndpoint(baseURL string) string {
+	endpoint := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if endpoint == "" {
+		return "https://api.openai.com/v1/chat/completions"
+	}
+	if strings.HasSuffix(strings.ToLower(endpoint), "/chat/completions") {
+		return endpoint
+	}
+	return endpoint + "/chat/completions"
+}
+
+func isOpenAICompatibleProvider(provider string) bool {
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	return provider == "openai-compatible" || provider == "openai"
+}
+
+func isOllamaGenerateProvider(provider string) bool {
+	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case "ollama", "ollama-generate", "ollama_generate":
+		return true
+	default:
+		return false
+	}
+}
+
+func ollamaGenerateEndpoint(baseURL string) string {
+	endpoint := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if endpoint == "" {
+		return "http://localhost:11434/api/generate"
+	}
+	lower := strings.ToLower(endpoint)
+	if strings.HasSuffix(lower, "/api/generate") {
+		return endpoint
+	}
+	if strings.HasSuffix(lower, "/api") {
+		return endpoint + "/generate"
+	}
+	return endpoint + "/api/generate"
+}
+
 func textToOCRLines(text string) []ocr.Line {
 	lines := []ocr.Line{}
 	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
@@ -887,4 +1088,263 @@ func textToOCRLines(text string) []ocr.Line {
 		lines = append(lines, ocr.Line{Text: line, Confidence: 1})
 	}
 	return lines
+}
+
+func parseImageOCRContent(content string) (string, []ocr.Line) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "", nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(content), &payload); err != nil {
+		return content, textToOCRLines(content)
+	}
+
+	lines := extractStructuredOCRLines(payload)
+	text := strings.TrimSpace(stringFromAny(payload["text"]))
+	if text == "" {
+		parts := make([]string, 0, len(lines))
+		for _, line := range lines {
+			if strings.TrimSpace(line.Text) != "" {
+				parts = append(parts, strings.TrimSpace(line.Text))
+			}
+		}
+		text = strings.Join(parts, "\n")
+	}
+	if len(lines) == 0 {
+		lines = textToOCRLines(text)
+	}
+	return text, lines
+}
+
+func extractStructuredOCRLines(payload map[string]any) []ocr.Line {
+	lines := []ocr.Line{}
+	appendLineItems := func(value any) {
+		for _, item := range listFromAny(value) {
+			if line, ok := ocrLineFromAny(item); ok {
+				lines = append(lines, line)
+			}
+		}
+	}
+	appendPageLines := func(page any) {
+		if pageMap, ok := page.(map[string]any); ok {
+			appendLineItems(pageMap["lines"])
+		}
+	}
+
+	appendLineItems(payload["lines"])
+	for _, page := range listFromAny(payload["pages"]) {
+		appendPageLines(page)
+	}
+	for _, image := range listFromAny(payload["images"]) {
+		imageMap, ok := image.(map[string]any)
+		if !ok {
+			continue
+		}
+		appendLineItems(imageMap["lines"])
+		for _, page := range listFromAny(imageMap["pages"]) {
+			appendPageLines(page)
+		}
+	}
+	return lines
+}
+
+func ocrLineFromAny(value any) (ocr.Line, bool) {
+	switch item := value.(type) {
+	case string:
+		text := strings.TrimSpace(item)
+		return ocr.Line{Text: text, Confidence: 1}, text != ""
+	case map[string]any:
+		text := firstStringField(item, "text", "content", "transcription", "value")
+		if text == "" {
+			return ocr.Line{}, false
+		}
+		line := ocr.Line{
+			Text:       text,
+			Confidence: firstFloatField(item, "confidence", "score", "prob"),
+			Rect:       rectFromOCRMap(item),
+		}
+		if line.Confidence == 0 {
+			line.Confidence = 1
+		}
+		return line, true
+	case []any:
+		return ocrLineFromArray(item)
+	default:
+		return ocr.Line{}, false
+	}
+}
+
+func ocrLineFromArray(items []any) (ocr.Line, bool) {
+	if len(items) == 0 {
+		return ocr.Line{}, false
+	}
+	if len(items) >= 2 {
+		if text := strings.TrimSpace(stringFromAny(items[1])); text != "" {
+			confidence := floatFromAny(nil)
+			if len(items) >= 3 {
+				confidence = floatFromAny(items[2])
+			}
+			if confidence == 0 {
+				confidence = 1
+			}
+			return ocr.Line{Text: text, Confidence: confidence, Rect: rectFromAny(items[0])}, true
+		}
+	}
+	if text := strings.TrimSpace(stringFromAny(items[0])); text != "" {
+		confidence := 1.0
+		if len(items) >= 2 {
+			if value := floatFromAny(items[1]); value > 0 {
+				confidence = value
+			}
+		}
+		return ocr.Line{Text: text, Confidence: confidence}, true
+	}
+	return ocr.Line{}, false
+}
+
+func rectFromOCRMap(item map[string]any) ocr.Rect {
+	for _, key := range []string{"rect", "bbox", "box", "points", "poly", "polygon"} {
+		if rect := rectFromAny(item[key]); rect.Width > 0 || rect.Height > 0 {
+			return rect
+		}
+	}
+	return ocr.Rect{}
+}
+
+func rectFromAny(value any) ocr.Rect {
+	if item, ok := value.(map[string]any); ok {
+		return ocr.Rect{
+			X:      int(firstFloatField(item, "x", "left")),
+			Y:      int(firstFloatField(item, "y", "top")),
+			Width:  int(firstFloatField(item, "width", "w")),
+			Height: int(firstFloatField(item, "height", "h")),
+		}
+	}
+	values := listFromAny(value)
+	if len(values) >= 4 && allNumberLike(values[:4]) {
+		x1 := floatFromAny(values[0])
+		y1 := floatFromAny(values[1])
+		x2 := floatFromAny(values[2])
+		y2 := floatFromAny(values[3])
+		return ocr.Rect{
+			X:      int(x1),
+			Y:      int(y1),
+			Width:  maxInt(0, int(x2-x1)),
+			Height: maxInt(0, int(y2-y1)),
+		}
+	}
+	xs := []float64{}
+	ys := []float64{}
+	for _, point := range values {
+		coords := listFromAny(point)
+		if len(coords) < 2 {
+			continue
+		}
+		xs = append(xs, floatFromAny(coords[0]))
+		ys = append(ys, floatFromAny(coords[1]))
+	}
+	if len(xs) == 0 || len(ys) == 0 {
+		return ocr.Rect{}
+	}
+	minX, maxX := minMax(xs)
+	minY, maxY := minMax(ys)
+	return ocr.Rect{
+		X:      int(minX),
+		Y:      int(minY),
+		Width:  maxInt(0, int(maxX-minX)),
+		Height: maxInt(0, int(maxY-minY)),
+	}
+}
+
+func firstStringField(item map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(stringFromAny(item[key])); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstFloatField(item map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		if value := floatFromAny(item[key]); value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func listFromAny(value any) []any {
+	switch typed := value.(type) {
+	case []any:
+		return typed
+	case []string:
+		result := make([]any, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, item)
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case json.Number:
+		return typed.String()
+	default:
+		return ""
+	}
+}
+
+func floatFromAny(value any) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case json.Number:
+		result, _ := typed.Float64()
+		return result
+	default:
+		return 0
+	}
+}
+
+func allNumberLike(values []any) bool {
+	for _, value := range values {
+		if floatFromAny(value) == 0 && fmt.Sprint(value) != "0" {
+			return false
+		}
+	}
+	return true
+}
+
+func minMax(values []float64) (float64, float64) {
+	minValue := values[0]
+	maxValue := values[0]
+	for _, value := range values[1:] {
+		if value < minValue {
+			minValue = value
+		}
+		if value > maxValue {
+			maxValue = value
+		}
+	}
+	return minValue, maxValue
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }

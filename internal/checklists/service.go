@@ -3,7 +3,6 @@ package checklists
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/workmemory"
 )
 
@@ -145,7 +145,7 @@ func (s *Service) SaveChecklistDraft(request DraftSaveRequest) DraftSaveResult {
 
 func (s *Service) statusLocked() Status {
 	return Status{
-		Path:          s.path,
+		Path:          firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path),
 		Count:         len(s.checklists),
 		LastSaveError: s.lastSaveError,
 		Checklists:    cloneChecklists(s.checklists),
@@ -153,34 +153,15 @@ func (s *Service) statusLocked() Status {
 }
 
 func (s *Service) load() {
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
+	checklists, ok, err := loadChecklistsFromSQLite(s.path)
+	if err != nil || !ok {
 		return
 	}
-	var payload stateFile
-	if err := json.Unmarshal(raw, &payload); err == nil {
-		s.checklists = normalizeChecklists(payload.Checklists)
-		return
-	}
-	var legacy []Checklist
-	if err := json.Unmarshal(raw, &legacy); err == nil {
-		s.checklists = normalizeChecklists(legacy)
-	}
+	s.checklists = normalizeChecklists(checklists)
 }
 
 func (s *Service) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	payload := stateFile{
-		Version:    1,
-		Checklists: cloneChecklists(s.checklists),
-	}
-	raw, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return saveChecklistsToSQLite(s.path, cloneChecklists(s.checklists))
 }
 
 func checklistFromDraft(draft workmemory.ChecklistDraft) (Checklist, bool) {
@@ -356,4 +337,13 @@ func defaultPath() string {
 		base = "."
 	}
 	return filepath.Join(base, "Ariadne", "checklists.json")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

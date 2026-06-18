@@ -103,6 +103,9 @@ func (idx *ftsIndex) Rebuild(entries []Entry) error {
 		if entry.ID == "" {
 			continue
 		}
+		if !entryUsableForExtraction(entry) {
+			continue
+		}
 		if err = sqlitex.Execute(idx.conn, `INSERT INTO work_memory_fts(id, title, summary, body, ocr, window_title, app_name, tags) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);`, &sqlitex.ExecOptions{
 			Args: []any{
 				entry.ID,

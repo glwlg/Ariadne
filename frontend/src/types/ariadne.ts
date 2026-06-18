@@ -790,6 +790,7 @@ export interface WorkMemoryHealthAppStat {
   pending: number
   checked: number
   ocrDone: number
+  qualityOcr?: number
   sensitive: number
   lastSeenAt?: number
 }
@@ -818,6 +819,9 @@ export interface WorkMemoryHealthSummary {
   ocrDone: number
   ocrPending: number
   ocrFailed: number
+  qualityOcrDone?: number
+  qualityOcrPending?: number
+  qualityOcrFailed?: number
   skippedSensitive: number
   skippedPending: number
   lastCaptureAt?: number
@@ -991,6 +995,8 @@ export interface WorkMemoryEntry {
   text: string
   ocrText?: string
   ocrStatus?: string
+  qualityOcrText?: string
+  qualityOcrStatus?: string
   windowTitle?: string
   appName?: string
   captureId?: string
@@ -1397,6 +1403,7 @@ export interface AISettings {
   vectorStoreUri: string
   vectorCollection: string
   agentsSdkEnabled: boolean
+  agentResponsesEnabled: boolean
   traceMode: 'off' | 'local' | 'internal'
   opscoreSyncEnabled: boolean
   externalAgentEnabled: boolean

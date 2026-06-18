@@ -88,6 +88,7 @@ const fallbackSettings: AppSettings = {
     vectorStoreUri: '',
     vectorCollection: 'ariadne_work_memory',
     agentsSdkEnabled: true,
+    agentResponsesEnabled: true,
     traceMode: 'off',
     opscoreSyncEnabled: false,
     externalAgentEnabled: true,
@@ -184,7 +185,7 @@ function fallbackLegacyStatus(): LegacyConfigStatus {
 
 function fallbackStorageStatus(): SettingsStorageStatus {
   return {
-    path: '%APPDATA%/Ariadne/config.json',
+    path: '%APPDATA%/Ariadne/ariadne.sqlite',
     directory: '%APPDATA%/Ariadne',
     directoryExists: false,
     exists: false,

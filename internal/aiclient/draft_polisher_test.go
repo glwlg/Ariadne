@@ -1,9 +1,13 @@
 package aiclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +20,26 @@ import (
 	"ariadne/internal/ocr"
 	"ariadne/internal/workmemory"
 )
+
+func writeTestPNG(t *testing.T, width int, height int) string {
+	t.Helper()
+	imagePath := filepath.Join(t.TempDir(), "screen.png")
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x % 255), G: uint8(y % 255), B: 180, A: 255})
+		}
+	}
+	file, err := os.Create(imagePath)
+	if err != nil {
+		t.Fatalf("create image: %v", err)
+	}
+	defer file.Close()
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("encode image: %v", err)
+	}
+	return imagePath
+}
 
 func TestOpenAICompatiblePolisherPostsChatCompletion(t *testing.T) {
 	t.Setenv("ARIADNE_AI_API_KEY", "test-key")
@@ -180,6 +204,140 @@ func TestOpenAICompatibleImageOCRPostsVisionChatCompletion(t *testing.T) {
 	}
 }
 
+func TestOCRImagePayloadDownscalesOversizedPNG(t *testing.T) {
+	imagePath := writeTestPNG(t, 3840, 2099)
+	payload, err := readOCRImagePayload(imagePath)
+	if err != nil {
+		t.Fatalf("read OCR image payload: %v", err)
+	}
+	if !payload.Resized {
+		t.Fatalf("expected oversized OCR image to be resized")
+	}
+	if payload.MimeType != "image/png" {
+		t.Fatalf("expected resized OCR payload to stay png, got %s", payload.MimeType)
+	}
+	config, err := png.DecodeConfig(bytes.NewReader(payload.Data))
+	if err != nil {
+		t.Fatalf("decode resized payload: %v", err)
+	}
+	if config.Width != ocrUploadMaxSide || config.Height > ocrUploadMaxSide {
+		t.Fatalf("unexpected resized dimensions: %dx%d", config.Width, config.Height)
+	}
+	if config.Width != payload.Width || config.Height != payload.Height {
+		t.Fatalf("payload dimensions not updated: payload=%dx%d config=%dx%d", payload.Width, payload.Height, config.Width, config.Height)
+	}
+}
+
+func TestOpenAICompatibleImageOCRParsesStructuredOCRResponseWithoutAPIKey(t *testing.T) {
+	imagePath := filepath.Join(t.TempDir(), "screen.png")
+	if err := os.WriteFile(imagePath, []byte("fake png bytes"), 0o600); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+	var captured visionChatCompletionRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("local OCR-compatible endpoint should allow no authorization header, got %s", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		content := `{"text":"第一行\n第二行","images":[{"pages":[{"lines":[{"text":"第一行","score":0.98,"box":[10,20,110,40]},{"text":"第二行","confidence":0.87,"rect":{"x":12,"y":50,"width":128,"height":24}}]}]}]}`
+		_ = json.NewEncoder(w).Encode(chatCompletionResponse{Choices: []struct {
+			Message chatMessage `json:"message"`
+		}{{Message: chatMessage{Role: "assistant", Content: content}}}})
+	}))
+	defer server.Close()
+
+	client := &OpenAICompatibleImageOCR{HTTPClient: server.Client(), APIKeyEnv: []string{"ARIADNE_TEST_EMPTY_OCR_KEY"}}
+	result, err := client.RecognizeImageOCR(context.Background(), ocr.AIOCRJob{
+		Provider:  "openai-compatible",
+		BaseURL:   server.URL + "/v1",
+		Model:     "ppocrv6-medium-ocr",
+		ImagePath: imagePath,
+	})
+	if err != nil {
+		t.Fatalf("recognize image OCR: %v", err)
+	}
+	if captured.Model != "ppocrv6-medium-ocr" {
+		t.Fatalf("unexpected request payload: %#v", captured)
+	}
+	if len(captured.Messages) != 2 {
+		t.Fatalf("expected system plus user messages, got %#v", captured.Messages)
+	}
+	parts, ok := captured.Messages[1].Content.([]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("expected multimodal user content, got %#v", captured.Messages[1].Content)
+	}
+	textPart, ok := parts[0].(map[string]any)
+	if !ok || textPart["text"] != "ocr this image" {
+		t.Fatalf("expected OCR prompt for GPU endpoint, got %#v", parts[0])
+	}
+	if result.Provider != "vision:ppocrv6-medium-ocr" || result.Text != "第一行\n第二行" || len(result.Lines) != 2 {
+		t.Fatalf("unexpected OCR result: %#v", result)
+	}
+	if result.Lines[0].Rect.Width != 100 || result.Lines[1].Rect.Height != 24 {
+		t.Fatalf("structured OCR lines lost geometry: %#v", result.Lines)
+	}
+}
+
+func TestOllamaGenerateImageOCRPostsBase64Images(t *testing.T) {
+	imagePath := filepath.Join(t.TempDir(), "screen.png")
+	if err := os.WriteFile(imagePath, []byte("fake png bytes"), 0o600); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+	var captured ollamaGenerateRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("ollama generate should not require authorization header, got %s", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"model":"glm-ocr:latest","response":"第一行\n第二行","done":true}`))
+	}))
+	defer server.Close()
+
+	client := &OpenAICompatibleImageOCR{HTTPClient: server.Client()}
+	result, err := client.RecognizeImageOCR(context.Background(), ocr.AIOCRJob{
+		Provider:  "ollama-generate",
+		BaseURL:   server.URL,
+		Model:     "glm-ocr:latest",
+		ImagePath: imagePath,
+	})
+	if err != nil {
+		t.Fatalf("recognize image OCR: %v", err)
+	}
+	if captured.Model != "glm-ocr:latest" || captured.Stream || len(captured.Images) != 1 {
+		t.Fatalf("unexpected ollama request payload: %#v", captured)
+	}
+	if strings.HasPrefix(captured.Images[0], "data:") || !strings.Contains(captured.Prompt, "请识别图片中所有可见文字") {
+		t.Fatalf("unexpected ollama image/prompt payload: %#v", captured)
+	}
+	if result.Provider != "ollama-generate:glm-ocr:latest" || result.Text != "第一行\n第二行" || len(result.Lines) != 2 {
+		t.Fatalf("unexpected OCR result: %#v", result)
+	}
+}
+
+func TestOllamaGenerateEndpointAcceptsRootAPIAndFullPath(t *testing.T) {
+	cases := map[string]string{
+		"":                                       "http://localhost:11434/api/generate",
+		"http://192.168.1.11:11434":              "http://192.168.1.11:11434/api/generate",
+		"http://192.168.1.11:11434/api":          "http://192.168.1.11:11434/api/generate",
+		"http://192.168.1.11:11434/api/generate": "http://192.168.1.11:11434/api/generate",
+	}
+	for input, want := range cases {
+		if got := ollamaGenerateEndpoint(input); got != want {
+			t.Fatalf("ollama endpoint for %q = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestOpenAICompatibleExperienceDiscovererPostsChatCompletion(t *testing.T) {
 	t.Setenv("ARIADNE_AI_API_KEY", "test-key")
 	var captured chatCompletionRequest
@@ -314,6 +472,40 @@ func TestOpenAIAgentsSDKFlowAgentRunsBridgeProcess(t *testing.T) {
 	}
 	if result.Mode != "agent:openai-agents-sdk" || !strings.Contains(result.Answer, "SDK") {
 		t.Fatalf("unexpected SDK result: %#v", result)
+	}
+}
+
+func TestFlowAgentsSDKBridgePayloadEnablesNativeSkills(t *testing.T) {
+	payload := flowAgentsSDKBridgePayload(workmemory.FlowAgentJob{
+		Question:     "今天干了什么",
+		Intent:       "daily",
+		LocalAnswer:  "请通过 skill 查询。",
+		Provider:     "openai-compatible",
+		BaseURL:      "http://ai.local/v1",
+		Model:        "test-model",
+		NativeSkills: true,
+	}, "openai-compatible", "http://ai.local/v1", "test-model")
+
+	if payload["nativeSkills"] != true {
+		t.Fatalf("responses/native skill support should be passed to bridge: %#v", payload)
+	}
+	if payload["provider"] != "openai-compatible" || payload["baseURL"] != "http://ai.local/v1" || payload["model"] != "test-model" {
+		t.Fatalf("unexpected bridge payload identity: %#v", payload)
+	}
+}
+
+func TestLooksLikeUnexecutedAgentToolCall(t *testing.T) {
+	raw := `<tool_call>shell<arg_key>command</arg_key><arg_value>cat "C:\Users\luwei\AppData\Local\Temp\ariadne-agent-skills\ariadne-flow-memory\SKILL.md"</arg_value></tool_call>`
+	if !looksLikeUnexecutedAgentToolCall(raw) {
+		t.Fatalf("raw shell tool call should be rejected")
+	}
+	jsonTool := `{"tool_calls":[{"name":"shell","arguments":{"command":"ariadne workmemory recent"}}]}`
+	if !looksLikeUnexecutedAgentToolCall(jsonTool) {
+		t.Fatalf("raw JSON tool call should be rejected")
+	}
+	normal := "今天主要处理了心流 OCR 和 Agent 兼容问题。"
+	if looksLikeUnexecutedAgentToolCall(normal) {
+		t.Fatalf("normal answer should not be rejected")
 	}
 }
 

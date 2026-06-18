@@ -3,7 +3,7 @@ import type { ActionResult, CaptureHistoryStatus, ClipboardHistoryEntry, Clipboa
 let fallbackEntries: ClipboardHistoryEntry[] = []
 
 let fallbackStatus: ClipboardHistoryStatus = {
-  path: '%APPDATA%/Ariadne/clipboard_history.json',
+  path: '%APPDATA%/Ariadne/ariadne.sqlite',
   imageDir: '%APPDATA%/Ariadne/clipboard_images',
   thumbnailDir: '%APPDATA%/Ariadne/clipboard_thumbnails',
   count: 0,
@@ -130,7 +130,7 @@ export async function addClipboardImageToCapture(id: string): Promise<CaptureHis
     return normalizeCaptureStatus(await binding.AddImageToCapture(id))
   }
   return {
-    path: '%APPDATA%/Ariadne/capture_history.json',
+    path: '%APPDATA%/Ariadne/ariadne.sqlite',
     imageDir: '%APPDATA%/Ariadne/capture_images',
     count: 0,
     pinnedCount: 0,
@@ -206,7 +206,7 @@ function fallbackList(query: string, limit: number) {
 function normalizeStatus(status: ClipboardHistoryStatus): ClipboardHistoryStatus {
   const entries = normalizeEntries(status.entries ?? fallbackEntries)
   return {
-    path: status.path || '%APPDATA%/Ariadne/clipboard_history.json',
+    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
     imageDir: status.imageDir || '%APPDATA%/Ariadne/clipboard_images',
     thumbnailDir: status.thumbnailDir ?? '%APPDATA%/Ariadne/clipboard_thumbnails',
     count: status.count ?? entries.length,

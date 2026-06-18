@@ -41,6 +41,17 @@ export function ApplyRetentionPolicy(retentionDays, keepPinned) {
 }
 
 /**
+ * @param {number} maxStorageMB
+ * @param {boolean} keepPinned
+ * @returns {$CancellablePromise<$models.RetentionResult>}
+ */
+export function ApplyStoragePolicy(maxStorageMB, keepPinned) {
+    return $Call.ByID(2319293608, maxStorageMB, keepPinned).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * @param {number} x
  * @param {number} y
  * @param {number} width

@@ -116,6 +116,59 @@ func TestCaptureHistoryRetentionRemovesOldUnpinnedImages(t *testing.T) {
 	}
 }
 
+func TestCaptureHistoryDoesNotTrimOnLoadBeforeStoragePolicy(t *testing.T) {
+	root := t.TempDir()
+	historyPath := filepath.Join(root, "capture_history.json")
+	imageDir := filepath.Join(root, "capture_images")
+	service := NewServiceWithPaths(historyPath, imageDir)
+	var oldest Entry
+	for i := 0; i < 305; i++ {
+		entry := service.AddPNG(mustPNG(t), 1, 1, "time-machine", "", nil).Entries[0]
+		if i == 0 {
+			oldest = entry
+		}
+	}
+
+	reloaded := NewServiceWithPaths(historyPath, imageDir)
+
+	if reloaded.Status().Count != 305 {
+		t.Fatalf("startup should not trim capture history, got %#v", reloaded.Status())
+	}
+	if _, err := os.Stat(oldest.ImagePath); err != nil {
+		t.Fatalf("oldest image should remain before storage policy runs: %v", err)
+	}
+}
+
+func TestCaptureHistoryStoragePolicyRemovesOldUnpinnedImages(t *testing.T) {
+	root := t.TempDir()
+	service := NewServiceWithPaths(filepath.Join(root, "capture_history.json"), filepath.Join(root, "capture_images"))
+	now := time.Now()
+
+	old := service.AddPNG(testPNG(t, 300, 220), 300, 220, "old", "", nil).Entries[0]
+	pinnedOld := service.AddPNG(testPNG(t, 320, 220), 320, 220, "pinned-old", "", nil).Entries[0]
+	recent := service.AddPNG(testPNG(t, 340, 220), 340, 220, "recent", "", nil).Entries[0]
+	service.TogglePin(pinnedOld.ID)
+	service.setCreatedAtForTest(old.ID, now.Add(-40*24*time.Hour).Unix())
+	service.setCreatedAtForTest(pinnedOld.ID, now.Add(-50*24*time.Hour).Unix())
+	service.setCreatedAtForTest(recent.ID, now.Add(-2*24*time.Hour).Unix())
+	budget := entryStorageBytes(pinnedOld) + entryStorageBytes(recent)
+
+	result := service.applyStorageBudget(1, budget, true)
+
+	if !result.OK || result.RemovedByStorage != 1 || result.RemainingCount != 2 || result.KeptPinned != 1 {
+		t.Fatalf("unexpected storage policy result: %#v", result)
+	}
+	if _, err := os.Stat(old.ImagePath); !os.IsNotExist(err) {
+		t.Fatalf("old unpinned image should be removed, err=%v", err)
+	}
+	if _, err := os.Stat(pinnedOld.ImagePath); err != nil {
+		t.Fatalf("old pinned image should remain: %v", err)
+	}
+	if service.Entry(old.ID).ID != "" || service.Entry(pinnedOld.ID).ID == "" || service.Entry(recent.ID).ID == "" {
+		t.Fatalf("unexpected entries after storage policy: %#v", service.List("", 10))
+	}
+}
+
 func TestCaptureHistoryImageDataURL(t *testing.T) {
 	root := t.TempDir()
 	service := NewServiceWithPaths(filepath.Join(root, "capture_history.json"), filepath.Join(root, "capture_images"))

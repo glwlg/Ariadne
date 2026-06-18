@@ -400,7 +400,7 @@ onMounted(() => {
               <p class="settings-note">
                 收藏/最近使用 {{ settings.searchUsageStatus?.count ?? 0 }} 条
               </p>
-              <p class="settings-note">{{ settings.searchUsageStatus?.path || 'search_state.json 未初始化' }}</p>
+              <p class="settings-note">{{ settings.searchUsageStatus?.path || '搜索数据未初始化' }}</p>
               <div v-if="settings.searchUsageStatus?.records?.length" class="tag-row">
                 <span v-for="record in settings.searchUsageStatus.records.slice(0, 5)" :key="record.resultId">
                   {{ record.favorite ? '★ ' : '' }}{{ record.resultId }} · {{ record.useCount }} 次
@@ -947,7 +947,7 @@ onMounted(() => {
                     命令类启动项会作为高风险动作展示，执行前必须确认。
                   </p>
                   <p class="settings-note">
-                    配置文件 {{ settings.launcherStatus?.path || '%APPDATA%/Ariadne/launchers.json' }}
+                    配置文件 {{ settings.launcherStatus?.path || '%APPDATA%/Ariadne/ariadne.sqlite' }}
                   </p>
 
                   <div class="launcher-actions">
@@ -1011,7 +1011,7 @@ onMounted(() => {
                   <input v-model="settings.settings.workMemory.autoOcr" type="checkbox" />
                   <span />
                   <strong>自动 OCR</strong>
-                  <small>本地 RapidOCR 已接入，自动批处理策略仍需确认；图片外发仍需确认。</small>
+                  <small>本地 RapidOCR 已接入；大模型 OCR 可指向 GPU 服务，失败后本地兜底。</small>
                 </label>
                 <label class="settings-toggle">
                   <input v-model="settings.settings.workMemory.draftScheduleEnabled" type="checkbox" />
@@ -1201,13 +1201,19 @@ onMounted(() => {
                   <input v-model="settings.settings.ai.ocrModelEnabled" type="checkbox" />
                   <span />
                   <strong>大模型 OCR</strong>
-                  <small>截图 OCR 优先走视觉模型；未配置或失败自动降级本地 OCR。</small>
+                  <small>支持 OpenAI-compatible GPU OCR 或 Ollama /api/generate；失败自动降级本地 RapidOCR。</small>
                 </label>
                 <label class="settings-toggle">
                   <input v-model="settings.settings.ai.agentsSdkEnabled" type="checkbox" />
                   <span />
                   <strong>Agent sidecar</strong>
                   <small>使用 OpenAI Agents SDK runtime；未启用 Codex 时不走外部代理。</small>
+                </label>
+                <label class="settings-toggle">
+                  <input v-model="settings.settings.ai.agentResponsesEnabled" type="checkbox" />
+                  <span />
+                  <strong>Responses 原生 Skill</strong>
+                  <small>兼容接口支持 /responses 时优先用 OpenAIResponsesModel + ShellTool；失败回退工具降级。</small>
                 </label>
                 <label class="settings-toggle">
                   <input v-model="settings.settings.ai.externalAgentEnabled" type="checkbox" />
@@ -1244,15 +1250,15 @@ onMounted(() => {
                 </label>
                 <label class="settings-field">
                   <span>OCR provider</span>
-                  <input v-model="settings.settings.ai.ocrProvider" class="settings-input" placeholder="openai-compatible" />
+                  <input v-model="settings.settings.ai.ocrProvider" class="settings-input" placeholder="openai-compatible / ollama-generate" />
                 </label>
                 <label class="settings-field">
                   <span>OCR base URL</span>
-                  <input v-model="settings.settings.ai.ocrBaseUrl" class="settings-input" placeholder="留空则跟随 AI base URL" />
+                  <input v-model="settings.settings.ai.ocrBaseUrl" class="settings-input" placeholder="http://192.168.1.11:11434/api/generate" />
                 </label>
                 <label class="settings-field">
                   <span>OCR vision model</span>
-                  <input v-model="settings.settings.ai.ocrModel" class="settings-input" placeholder="支持图片输入的模型名" />
+                  <input v-model="settings.settings.ai.ocrModel" class="settings-input" placeholder="glm-ocr:latest" />
                 </label>
                 <label class="settings-field">
                   <span>Embedding provider</span>
@@ -1329,7 +1335,7 @@ onMounted(() => {
                       class="settings-input"
                       type="password"
                       autocomplete="off"
-                      placeholder="粘贴后保存，不写入 config.json"
+                      placeholder="粘贴后保存到安全存储"
                       :aria-label="`${record.label} 输入`"
                       :data-secret-input="record.kind"
                     />
@@ -1386,7 +1392,7 @@ onMounted(() => {
               <div class="settings-status-card">
                 <span>搜索收藏/最近使用</span>
                 <strong>{{ settings.searchUsageStatus?.count ?? 0 }} 条</strong>
-                <small>{{ settings.searchUsageStatus?.path || 'search_state.json 未初始化' }}</small>
+                <small>{{ settings.searchUsageStatus?.path || '搜索数据未初始化' }}</small>
               </div>
               <div class="settings-status-card">
                 <span>APPDATA</span>

@@ -15,7 +15,7 @@ import type {
 let fallbackSkills: SkillAsset[] = []
 
 let fallbackStatus: SkillStatus = {
-  path: '%APPDATA%/Ariadne/skills.json',
+  path: '%APPDATA%/Ariadne/ariadne.sqlite',
   count: 0,
   skills: fallbackSkills,
 }
@@ -320,7 +320,7 @@ function normalizeInstallDiagnosticsResult(result: SkillInstallDiagnosticsResult
 function normalizeStatus(status: SkillStatus): SkillStatus {
   const skills = normalizeSkills(status.skills ?? [])
   return {
-    path: status.path || '%APPDATA%/Ariadne/skills.json',
+    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
     count: Number(status.count ?? skills.length),
     lastSaveError: status.lastSaveError,
     skills,

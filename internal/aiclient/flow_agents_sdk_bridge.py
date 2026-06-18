@@ -157,6 +157,8 @@ async def _run(payload: dict) -> dict:
     answer = str(getattr(result, "final_output", "") or "").strip()
     if not answer:
         return {"ok": False, "error": "OpenAI Agents SDK 返回空内容"}
+    if _looks_like_unexecuted_tool_call(answer):
+        return {"ok": False, "error": "OpenAI Agents SDK function tool path 返回了未执行的 tool_call 文本"}
     message = "OpenAI Agents SDK 已通过 function tools 调用 Ariadne workmemory CLI（兼容接口降级）。"
     if native_error:
         message += " 原生 shell skill 未启用或不可用: " + native_error[:220]
@@ -236,6 +238,8 @@ async def _run_with_native_shell_skill(
     answer = str(getattr(result, "final_output", "") or "").strip()
     if not answer:
         return {"ok": False, "error": "OpenAI Agents SDK 原生 shell skill 返回空内容"}
+    if _looks_like_unexecuted_tool_call(answer):
+        return {"ok": False, "error": "OpenAI Agents SDK 原生 shell skill 返回了未执行的 tool_call 文本，当前兼容接口未真正执行 Responses 工具调用"}
     return {
         "ok": True,
         "answer": answer,
@@ -322,6 +326,21 @@ def _truthy(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _looks_like_unexecuted_tool_call(answer: str) -> bool:
+    text = str(answer or "").strip().lower()
+    if not text:
+        return False
+    if "<tool_call" in text or "</tool_call>" in text:
+        return True
+    if "<arg_key>" in text and "<arg_value>" in text:
+        return True
+    if ("\"tool_call\"" in text or "\"tool_calls\"" in text) and (
+        "\"arguments\"" in text or "\"command\"" in text or "\"name\"" in text
+    ):
+        return True
+    return False
 
 
 def _is_skill_read_command(command: str, skill_dir: Path) -> bool:

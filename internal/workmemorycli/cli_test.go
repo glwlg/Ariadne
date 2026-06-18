@@ -37,8 +37,8 @@ func TestRunSearchesWorkMemoryThroughCLI(t *testing.T) {
 	if !result.OK || len(result.Results) == 0 || result.Results[0].Title != "微信沟通" {
 		t.Fatalf("expected search hit, got %#v", result)
 	}
-	if result.ConfigPath != filepath.Join(root, "Ariadne", "config.json") {
-		t.Fatalf("unexpected config path: %s", result.ConfigPath)
+	if result.StoragePath != filepath.Join(root, "Ariadne", "ariadne.sqlite") {
+		t.Fatalf("unexpected storage path: %s", result.StoragePath)
 	}
 
 	stdout.Reset()

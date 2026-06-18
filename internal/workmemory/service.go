@@ -13,6 +13,7 @@ import (
 	"math/bits"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"time"
 	"unicode"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
 	"ariadne/internal/contracts"
@@ -36,6 +38,19 @@ const (
 var windowSwitchPollInterval = time.Second
 var qualityReviewInterval = time.Hour
 var ftsRebuildDebounceDelay = 750 * time.Millisecond
+
+var sensitiveCredentialPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\b(?:password|passwd|pwd|api[_-]?key|apikey|token|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|client[_-]?secret|private[_-]?key)\b["']?\s*[:=]\s*["']?[a-z0-9._~+/=@#$%^&*!?-]{4,}`),
+	regexp.MustCompile(`(?i)\bauthorization\b\s*:\s*(?:bearer|basic)\s+[a-z0-9._~+/=-]{8,}`),
+	regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+/=-]{16,}`),
+	regexp.MustCompile(`(?i)\b(?:cookie|set-cookie)\s*:\s*[a-z0-9._~-]{2,}=[a-z0-9._~+/=%-]{3,}`),
+	regexp.MustCompile(`(?i)-----begin [a-z0-9 ]*private key-----`),
+	regexp.MustCompile(`(?i)\bssh-(?:rsa|ed25519)\s+[a-z0-9+/=]{32,}`),
+	regexp.MustCompile(`(?i)\beyj[a-z0-9_-]{10,}\.eyj[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\b`),
+	regexp.MustCompile(`(?i)\b(?:sk|rk)-[a-z0-9_-]{20,}\b`),
+	regexp.MustCompile(`(?i)\bgh[pousr]_[a-z0-9_]{20,}\b`),
+	regexp.MustCompile(`(?i)(?:数据库密码|密码|密钥|令牌|验证码)\s*[:：=]\s*["']?[a-z0-9._~+/=@#$%^&*!?-]{4,}`),
+}
 
 type Status struct {
 	Enabled                    bool                `json:"enabled"`
@@ -250,12 +265,13 @@ type FlowAskResponse struct {
 }
 
 type FlowAgentPolicy struct {
-	Enabled  bool   `json:"enabled"`
-	Runner   string `json:"runner"`
-	Provider string `json:"provider,omitempty"`
-	BaseURL  string `json:"baseUrl,omitempty"`
-	Model    string `json:"model,omitempty"`
-	WorkDir  string `json:"workDir,omitempty"`
+	Enabled      bool   `json:"enabled"`
+	Runner       string `json:"runner"`
+	Provider     string `json:"provider,omitempty"`
+	BaseURL      string `json:"baseUrl,omitempty"`
+	Model        string `json:"model,omitempty"`
+	NativeSkills bool   `json:"nativeSkills,omitempty"`
+	WorkDir      string `json:"workDir,omitempty"`
 }
 
 type FlowAgentEvidence struct {
@@ -273,17 +289,18 @@ type FlowAgentEvidence struct {
 }
 
 type FlowAgentJob struct {
-	Question    string              `json:"question"`
-	Intent      string              `json:"intent"`
-	LocalAnswer string              `json:"localAnswer"`
-	Evidence    []FlowAgentEvidence `json:"evidence"`
-	ToolCommand string              `json:"toolCommand,omitempty"`
-	Runner      string              `json:"runner"`
-	Provider    string              `json:"provider,omitempty"`
-	BaseURL     string              `json:"baseUrl,omitempty"`
-	Model       string              `json:"model,omitempty"`
-	WorkDir     string              `json:"workDir,omitempty"`
-	Now         time.Time           `json:"now"`
+	Question     string              `json:"question"`
+	Intent       string              `json:"intent"`
+	LocalAnswer  string              `json:"localAnswer"`
+	Evidence     []FlowAgentEvidence `json:"evidence"`
+	ToolCommand  string              `json:"toolCommand,omitempty"`
+	Runner       string              `json:"runner"`
+	Provider     string              `json:"provider,omitempty"`
+	BaseURL      string              `json:"baseUrl,omitempty"`
+	Model        string              `json:"model,omitempty"`
+	NativeSkills bool                `json:"nativeSkills,omitempty"`
+	WorkDir      string              `json:"workDir,omitempty"`
+	Now          time.Time           `json:"now"`
 }
 
 type FlowAgentResult struct {
@@ -305,6 +322,8 @@ type Entry struct {
 	Text             string         `json:"text"`
 	OCRText          string         `json:"ocrText,omitempty"`
 	OCRStatus        string         `json:"ocrStatus,omitempty"`
+	QualityOCRText   string         `json:"qualityOcrText,omitempty"`
+	QualityOCRStatus string         `json:"qualityOcrStatus,omitempty"`
 	WindowTitle      string         `json:"windowTitle,omitempty"`
 	AppName          string         `json:"appName,omitempty"`
 	CaptureID        string         `json:"captureId,omitempty"`
@@ -626,6 +645,8 @@ type QualityReviewResult struct {
 	Checked          int    `json:"checked"`
 	CollapsedEntries int    `json:"collapsedEntries"`
 	RemovedFrames    int    `json:"removedFrames"`
+	QualityOCR       int    `json:"qualityOcr"`
+	OCRPromoted      int    `json:"ocrPromoted"`
 	SkippedActive    int    `json:"skippedActive"`
 	PendingRemaining int    `json:"pendingRemaining"`
 	ReviewedAt       int64  `json:"reviewedAt"`
@@ -637,6 +658,7 @@ type HealthAppStat struct {
 	Pending    int    `json:"pending"`
 	Checked    int    `json:"checked"`
 	OCRDone    int    `json:"ocrDone"`
+	QualityOCR int    `json:"qualityOcr"`
 	Sensitive  int    `json:"sensitive"`
 	LastSeenAt int64  `json:"lastSeenAt,omitempty"`
 }
@@ -665,6 +687,9 @@ type HealthSummary struct {
 	OCRDone            int                 `json:"ocrDone"`
 	OCRPending         int                 `json:"ocrPending"`
 	OCRFailed          int                 `json:"ocrFailed"`
+	QualityOCRDone     int                 `json:"qualityOcrDone"`
+	QualityOCRPending  int                 `json:"qualityOcrPending"`
+	QualityOCRFailed   int                 `json:"qualityOcrFailed"`
 	SkippedSensitive   int                 `json:"skippedSensitive"`
 	SkippedPending     int                 `json:"skippedPending"`
 	LastCaptureAt      int64               `json:"lastCaptureAt,omitempty"`
@@ -686,20 +711,22 @@ type OptionScreenCapturer interface {
 }
 
 type CapturePolicy struct {
-	ExcludeApps            []string            `json:"excludeApps,omitempty"`
-	ExcludeWindowKeywords  []string            `json:"excludeWindowKeywords,omitempty"`
-	ExcludePaths           []string            `json:"excludePaths,omitempty"`
-	ExcludeURLs            []string            `json:"excludeUrls,omitempty"`
-	ExcludeContentPatterns []string            `json:"excludeContentPatterns,omitempty"`
-	AppCaptureProfiles     []AppCaptureProfile `json:"appCaptureProfiles,omitempty"`
-	AutoOCR                bool                `json:"autoOcr"`
-	CaptureScope           string              `json:"captureScope,omitempty"`
-	MultiMonitor           string              `json:"multiMonitor,omitempty"`
-	CaptureOnWindowChange  bool                `json:"captureOnWindowChange"`
-	WindowChangeCooldown   int                 `json:"windowChangeCooldownSeconds,omitempty"`
-	PauseOnIdle            bool                `json:"pauseOnIdle"`
-	IdlePauseSeconds       int                 `json:"idlePauseSeconds,omitempty"`
-	PauseOnLock            bool                `json:"pauseOnLock"`
+	ExcludeApps              []string            `json:"excludeApps,omitempty"`
+	ExcludeWindowKeywords    []string            `json:"excludeWindowKeywords,omitempty"`
+	ExcludePaths             []string            `json:"excludePaths,omitempty"`
+	ExcludeURLs              []string            `json:"excludeUrls,omitempty"`
+	ExcludeContentPatterns   []string            `json:"excludeContentPatterns,omitempty"`
+	SensitiveRulesEnabled    bool                `json:"sensitiveRulesEnabled"`
+	SensitiveRulesConfigured bool                `json:"sensitiveRulesConfigured,omitempty"`
+	AppCaptureProfiles       []AppCaptureProfile `json:"appCaptureProfiles,omitempty"`
+	AutoOCR                  bool                `json:"autoOcr"`
+	CaptureScope             string              `json:"captureScope,omitempty"`
+	MultiMonitor             string              `json:"multiMonitor,omitempty"`
+	CaptureOnWindowChange    bool                `json:"captureOnWindowChange"`
+	WindowChangeCooldown     int                 `json:"windowChangeCooldownSeconds,omitempty"`
+	PauseOnIdle              bool                `json:"pauseOnIdle"`
+	IdlePauseSeconds         int                 `json:"idlePauseSeconds,omitempty"`
+	PauseOnLock              bool                `json:"pauseOnLock"`
 }
 
 type AppCaptureProfile struct {
@@ -804,6 +831,7 @@ type Service struct {
 	currentWindowSessionSignature string
 	currentWindowSessionEntryID   string
 	currentWindowSessionStartedAt int64
+	qualityReviewRunning          bool
 	saveError                     string
 }
 
@@ -838,6 +866,7 @@ func NewServiceWithPath(path string, capturer ScreenCapturer) *Service {
 		activity:              defaultActivityProvider(),
 		policy: CapturePolicy{
 			AutoOCR:               false,
+			SensitiveRulesEnabled: true,
 			CaptureScope:          "active_window",
 			MultiMonitor:          "combined",
 			CaptureOnWindowChange: true,
@@ -859,7 +888,7 @@ func NewServiceWithPath(path string, capturer ScreenCapturer) *Service {
 			PauseOnIdle:                true,
 			IdlePauseSeconds:           600,
 			PauseOnLock:                true,
-			StoragePath:                path,
+			StoragePath:                firstNonEmpty(appdb.DatabasePathForPath(path), path),
 		},
 	}
 	service.scheduledDrafts = service.scheduledDraftStatusLocked()
@@ -1441,21 +1470,27 @@ func (s *Service) semanticSearchMilvus(ctx context.Context, policy EmbeddingPoli
 func (s *Service) ApplyCapturePolicy(policy CapturePolicy) Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	sensitiveRulesEnabled := s.policy.SensitiveRulesEnabled
+	if policy.SensitiveRulesConfigured {
+		sensitiveRulesEnabled = policy.SensitiveRulesEnabled
+	}
 	s.policy = CapturePolicy{
-		ExcludeApps:            cleanStrings(policy.ExcludeApps),
-		ExcludeWindowKeywords:  cleanStrings(policy.ExcludeWindowKeywords),
-		ExcludePaths:           cleanStrings(policy.ExcludePaths),
-		ExcludeURLs:            cleanStrings(policy.ExcludeURLs),
-		ExcludeContentPatterns: cleanStrings(policy.ExcludeContentPatterns),
-		AppCaptureProfiles:     normalizeAppCaptureProfiles(policy.AppCaptureProfiles),
-		AutoOCR:                policy.AutoOCR,
-		CaptureScope:           normalizeCaptureScope(policy.CaptureScope),
-		MultiMonitor:           normalizeMultiMonitor(policy.MultiMonitor),
-		CaptureOnWindowChange:  policy.CaptureOnWindowChange,
-		WindowChangeCooldown:   normalizeWindowChangeCooldown(policy.WindowChangeCooldown),
-		PauseOnIdle:            policy.PauseOnIdle,
-		IdlePauseSeconds:       normalizeIdlePauseSeconds(policy.IdlePauseSeconds),
-		PauseOnLock:            policy.PauseOnLock,
+		ExcludeApps:              cleanStrings(policy.ExcludeApps),
+		ExcludeWindowKeywords:    cleanStrings(policy.ExcludeWindowKeywords),
+		ExcludePaths:             cleanStrings(policy.ExcludePaths),
+		ExcludeURLs:              cleanStrings(policy.ExcludeURLs),
+		ExcludeContentPatterns:   cleanStrings(policy.ExcludeContentPatterns),
+		SensitiveRulesEnabled:    sensitiveRulesEnabled,
+		SensitiveRulesConfigured: policy.SensitiveRulesConfigured,
+		AppCaptureProfiles:       normalizeAppCaptureProfiles(policy.AppCaptureProfiles),
+		AutoOCR:                  policy.AutoOCR,
+		CaptureScope:             normalizeCaptureScope(policy.CaptureScope),
+		MultiMonitor:             normalizeMultiMonitor(policy.MultiMonitor),
+		CaptureOnWindowChange:    policy.CaptureOnWindowChange,
+		WindowChangeCooldown:     normalizeWindowChangeCooldown(policy.WindowChangeCooldown),
+		PauseOnIdle:              policy.PauseOnIdle,
+		IdlePauseSeconds:         normalizeIdlePauseSeconds(policy.IdlePauseSeconds),
+		PauseOnLock:              policy.PauseOnLock,
 	}
 	s.status.AutoOCREnabled = s.policy.AutoOCR
 	s.status.CaptureScope = s.policy.CaptureScope
@@ -1558,6 +1593,9 @@ func (s *Service) Search(query string) []contracts.SearchResult {
 
 	results := []contracts.SearchResult{}
 	for _, entry := range entries {
+		if normalized != "" && entryQualityPending(entry) {
+			continue
+		}
 		score, match := scoreSearchMatch(entry, normalized)
 		if hit, ok := ftsMatches[entry.ID]; ok {
 			if ftsScore := scoreFTSMatch(entry, hit); ftsScore > score {
@@ -1688,13 +1726,14 @@ func (s *Service) AddNote(request NoteRequest) Entry {
 	}
 	context := s.context()
 	now := s.now()
+	policy := s.policy
 	s.mu.RUnlock()
 
 	title := strings.TrimSpace(request.Title)
 	if title == "" {
 		title = noteTitle(text)
 	}
-	sensitive := request.Sensitive || looksSensitive(title+" "+text+" "+strings.Join(request.Tags, " "))
+	sensitive := request.Sensitive || autoSensitive(policy, title+" "+text+" "+strings.Join(request.Tags, " "))
 	tags := append([]string{"手动笔记"}, request.Tags...)
 	tags = append(tags, classifyNoteTags(text)...)
 	if sensitive {
@@ -1725,6 +1764,7 @@ func (s *Service) RememberClipboardEntry(entry clipboardhistory.Entry) Entry {
 	s.mu.RLock()
 	enabled := s.status.Enabled
 	privacyMode := s.status.PrivacyMode
+	policy := s.policy
 	s.mu.RUnlock()
 	if !enabled || privacyMode {
 		return Entry{}
@@ -1754,6 +1794,10 @@ func (s *Service) RememberClipboardEntry(entry clipboardhistory.Entry) Entry {
 		title = "剪贴板文本：" + noteTitle(trimmed)
 	}
 	tags = append(tags, entry.Tags...)
+	sensitive := autoSensitive(policy, title+" "+summary+" "+text+" "+strings.Join(tags, " "))
+	if sensitive {
+		tags = append(tags, "敏感")
+	}
 	return s.addEntry(Entry{
 		ID:             "memory-clipboard-" + shortHash(identity),
 		Source:         "clipboard",
@@ -1768,6 +1812,7 @@ func (s *Service) RememberClipboardEntry(entry clipboardhistory.Entry) Entry {
 		Bytes:          entry.Bytes,
 		Tags:           tags,
 		Favorite:       entry.Pinned,
+		Sensitive:      sensitive,
 		CreatedAt:      entry.CreatedAt,
 	})
 }
@@ -1951,7 +1996,7 @@ func (s *Service) importTextMaterial(path string, request ImportMaterialRequest,
 	title := importedTextTitle(path, text)
 	tags := importTags(request, textMaterialTag(path), filepath.Ext(path))
 	tags = append(tags, classifyNoteTags(text)...)
-	sensitive := request.Sensitive || looksSensitive(title+" "+text+" "+strings.Join(tags, " "))
+	sensitive := request.Sensitive || autoSensitive(policy, title+" "+text+" "+strings.Join(tags, " "))
 	if sensitive {
 		tags = append(tags, "敏感")
 	}
@@ -2013,7 +2058,7 @@ func (s *Service) importDocumentMaterial(path string, request ImportMaterialRequ
 		return item, nil
 	}
 	tags := importTags(request, documentMaterialLabel(path), strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."))
-	sensitive := request.Sensitive || looksSensitive(title+" "+text+" "+strings.Join(tags, " "))
+	sensitive := request.Sensitive || autoSensitive(policy, title+" "+text+" "+strings.Join(tags, " "))
 	if sensitive {
 		tags = append(tags, "敏感")
 	}
@@ -2055,7 +2100,7 @@ func (s *Service) importImageMaterial(path string, request ImportMaterialRequest
 	}
 	title := strings.TrimSpace(filepath.Base(path))
 	tags := importTags(request, "图片", strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."))
-	sensitive := request.Sensitive || looksSensitive(title+" "+strings.Join(tags, " "))
+	sensitive := request.Sensitive
 	if sensitive {
 		tags = append(tags, "敏感")
 	}
@@ -2157,7 +2202,7 @@ func (s *Service) importMaterialZip(path string, request ImportMaterialRequest, 
 		}
 		entry.Tags = cleanStrings(append(entry.Tags, append(importTags(request, "ariadne_export"), "导出包")...))
 		entry.Favorite = entry.Favorite || request.Favorite
-		entry.Sensitive = entry.Sensitive || request.Sensitive || looksSensitive(entry.Title+" "+entry.Summary+" "+entry.Text+" "+strings.Join(entry.Tags, " "))
+		entry.Sensitive = entry.Sensitive || request.Sensitive || autoSensitive(policy, entry.Title+" "+entry.Summary+" "+entry.Text+" "+strings.Join(entry.Tags, " "))
 		if entry.Sensitive {
 			entry.Tags = cleanStrings(append(entry.Tags, "敏感"))
 		}
@@ -2257,6 +2302,12 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 		if s.entries[i].ID != id {
 			continue
 		}
+		if entryQualityPending(s.entries[i]) {
+			updated := s.applyQualityOCRTextLocked(i, text, provider)
+			s.saveLockedWithStatus()
+			s.mu.Unlock()
+			return updated
+		}
 		if strings.HasPrefix(provider, "failed:") {
 			s.entries[i].OCRStatus = provider
 			s.saveLockedWithStatus()
@@ -2264,8 +2315,8 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 			s.mu.Unlock()
 			return updated
 		}
-		if provider == "blocked_sensitive" {
-			s.entries[i].OCRStatus = "blocked_sensitive"
+		if strings.HasPrefix(provider, "blocked_") {
+			s.entries[i].OCRStatus = provider
 			s.saveLockedWithStatus()
 			updated := s.entries[i]
 			s.mu.Unlock()
@@ -2300,7 +2351,7 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 		s.entries[i].ContentType = "ocr_text"
 		applyLocalOCRSummary(&s.entries[i], text)
 		s.entries[i].Tags = cleanStrings(append(s.entries[i].Tags, append([]string{"OCR", "文字识别"}, classifyNoteTags(text)...)...))
-		if looksSensitive(text) {
+		if autoSensitive(s.policy, text) {
 			s.entries[i].Sensitive = true
 			s.entries[i].Tags = cleanStrings(append(s.entries[i].Tags, "敏感"))
 		}
@@ -2321,6 +2372,56 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 	}
 	s.mu.Unlock()
 	return Entry{}
+}
+
+func (s *Service) applyQualityOCRTextLocked(index int, text string, provider string) Entry {
+	if index < 0 || index >= len(s.entries) {
+		return Entry{}
+	}
+	entry := &s.entries[index]
+	if strings.HasPrefix(provider, "failed:") {
+		entry.QualityOCRStatus = provider
+		entry.QualityReason = firstNonEmpty(entry.QualityReason, "待质检 · OCR 预处理失败")
+		return *entry
+	}
+	if strings.HasPrefix(provider, "blocked_") {
+		entry.QualityOCRStatus = provider
+		if provider == "blocked_sensitive" {
+			entry.Sensitive = true
+			entry.Tags = cleanStrings(append(entry.Tags, "敏感"))
+			entry.QualityReason = firstNonEmpty(entry.QualityReason, "待质检 · OCR 识别到敏感内容")
+		}
+		return *entry
+	}
+	if excluded, reason := urlExcluded(text, s.policy); excluded {
+		entry.QualityOCRStatus = "blocked_excluded:url:" + reason
+		entry.QualityReason = firstNonEmpty(entry.QualityReason, "待质检 · OCR 命中 URL 排除规则")
+		return *entry
+	}
+	if excluded, reason := contentExcluded(text, s.policy); excluded {
+		entry.QualityOCRStatus = "blocked_excluded:" + reason
+		entry.QualityReason = firstNonEmpty(entry.QualityReason, "待质检 · OCR 命中内容排除规则")
+		return *entry
+	}
+	if text == "" {
+		entry.QualityOCRStatus = "empty"
+		entry.QualityReason = firstNonEmpty(entry.QualityReason, "待质检 · OCR 未识别到文字")
+		return *entry
+	}
+	entry.QualityOCRText = text
+	entry.QualityOCRStatus = "done"
+	if provider != "" {
+		entry.QualityOCRStatus = "done:" + provider
+	}
+	if entry.QualityReason == "" || strings.HasPrefix(entry.QualityReason, "待质检") {
+		entry.QualityReason = "待质检 · OCR 预处理完成"
+	}
+	if autoSensitive(s.policy, text) {
+		entry.Sensitive = true
+		entry.Tags = cleanStrings(append(entry.Tags, "敏感"))
+		entry.QualityReason = "待质检 · OCR 识别到疑似敏感内容"
+	}
+	return *entry
 }
 
 func shouldRunOCRAISummary(entry Entry, policy OCRSummaryPolicy, summarizer OCRSummarizer, privacyMode bool) bool {
@@ -3296,10 +3397,32 @@ func (s *Service) ReviewPendingCaptures() QualityReviewResult {
 		OK:         true,
 		ReviewedAt: now,
 	}
-	entriesForOCR := []Entry{}
+	entriesForQualityOCR := []Entry{}
 	s.mu.Lock()
 	activeSessionID := s.currentWindowSessionEntryID
 	policy := s.policy
+	for i := range s.entries {
+		entry := &s.entries[i]
+		if !entryQualityPending(*entry) {
+			continue
+		}
+		if entry.ID != "" && entry.ID == activeSessionID {
+			continue
+		}
+		if needsQualityOCRPrecheck(*entry, policy) {
+			entriesForQualityOCR = append(entriesForQualityOCR, *entry)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, entry := range entriesForQualityOCR {
+		s.processAutoOCR(entry, policy)
+	}
+	result.QualityOCR = len(entriesForQualityOCR)
+
+	entriesToPromote := []Entry{}
+	s.mu.Lock()
+	activeSessionID = s.currentWindowSessionEntryID
 	for i := range s.entries {
 		entry := &s.entries[i]
 		if !entryQualityPending(*entry) {
@@ -3317,12 +3440,12 @@ func (s *Service) ReviewPendingCaptures() QualityReviewResult {
 		entry.QualityStatus = qualityStatusChecked
 		entry.QualityCheckedAt = now
 		if entry.QualityReason == "" || strings.HasPrefix(entry.QualityReason, "待质检") {
-			entry.QualityReason = "自动质检通过"
+			entry.QualityReason = qualityReviewReason(*entry)
 		}
 		entry.Tags = removeStringFold(entry.Tags, "待质检")
 		entry.Tags = cleanStrings(append(entry.Tags, "已质检"))
-		if policy.AutoOCR && entry.ImagePath != "" && entry.OCRText == "" && entry.OCRStatus == "" {
-			entriesForOCR = append(entriesForOCR, *entry)
+		if needsQualityOCRPromotion(*entry) {
+			entriesToPromote = append(entriesToPromote, *entry)
 		}
 	}
 	for _, entry := range s.entries {
@@ -3337,8 +3460,10 @@ func (s *Service) ReviewPendingCaptures() QualityReviewResult {
 	result.Message = fmt.Sprintf("自动质检完成 · 检查 %d 条，折叠 %d 条，移除 %d 帧", result.Checked, result.CollapsedEntries, result.RemovedFrames)
 	s.mu.Unlock()
 
-	for _, entry := range entriesForOCR {
-		s.processAutoOCR(entry, policy)
+	for _, entry := range entriesToPromote {
+		if promoted := s.promoteQualityOCR(entry); promoted.ID != "" {
+			result.OCRPromoted++
+		}
 	}
 	return result
 }
@@ -3541,6 +3666,9 @@ func (s *Service) mergeDuplicateTimeMachineEntryLocked(entry Entry) Entry {
 func (s *Service) mergeTimeMachineEntryLocked(existing *Entry, incoming Entry, reason string, tag string, summaryMarker string) Entry {
 	existing.MergedCount++
 	existing.LastMergedAt = incoming.CreatedAt
+	existing.QualityStatus = qualityStatusPending
+	existing.QualityCheckedAt = 0
+	existing.QualityReason = "待质检：" + reason
 	existing.Tags = cleanStrings(append(existing.Tags, tag))
 	if existing.Summary != "" && !strings.Contains(existing.Summary, summaryMarker) {
 		existing.Summary = existing.Summary + "（" + reason + "）"
@@ -3553,6 +3681,25 @@ func (s *Service) mergeTimeMachineEntryLocked(existing *Entry, incoming Entry, r
 	s.refreshEntryCountLocked()
 	s.saveLockedWithStatus()
 	return *existing
+}
+
+func (s *Service) reviewPendingCapturesAsync() {
+	s.mu.Lock()
+	if s.qualityReviewRunning {
+		s.mu.Unlock()
+		return
+	}
+	s.qualityReviewRunning = true
+	s.mu.Unlock()
+
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.qualityReviewRunning = false
+			s.mu.Unlock()
+		}()
+		s.ReviewPendingCaptures()
+	}()
 }
 
 func (s *Service) entryFromCapture(source string, title string, summary string, capture capturehistory.Entry, policy CapturePolicy) Entry {
@@ -3751,6 +3898,7 @@ func (s *Service) runWorker(stop <-chan struct{}, interval time.Duration) {
 	}
 
 	s.captureIfWindowChanged()
+	s.reviewPendingCapturesAsync()
 	resetWindowTimer()
 	for {
 		select {
@@ -3884,8 +4032,10 @@ func (s *Service) captureIfWindowChanged() {
 	}
 
 	if profile, ok := windowCaptureProfileForContext(context, policy, intervalSeconds); ok {
+		changed := false
 		s.mu.Lock()
 		if signature != s.lastWindowSignature {
+			changed = true
 			s.lastWindowSignature = signature
 			s.lastWindowContext = context
 			s.status.LastWindowSwitchAt = now
@@ -3898,6 +4048,9 @@ func (s *Service) captureIfWindowChanged() {
 			s.pendingWindowDueAt = now + int64(profile.WindowSwitchDelaySeconds)
 		}
 		s.mu.Unlock()
+		if changed {
+			s.reviewPendingCapturesAsync()
+		}
 		if profile.WindowSwitchDelaySeconds <= 0 {
 			s.captureAppProfileIfDue(signature, profile, now)
 		}
@@ -3905,8 +4058,10 @@ func (s *Service) captureIfWindowChanged() {
 	}
 
 	if !policy.CaptureOnWindowChange {
+		changed := false
 		s.mu.Lock()
 		if signature != s.lastWindowSignature {
+			changed = true
 			s.lastWindowSignature = signature
 			s.lastWindowContext = context
 			s.status.LastWindowSwitchAt = now
@@ -3914,6 +4069,9 @@ func (s *Service) captureIfWindowChanged() {
 			s.pendingWindowDueAt = 0
 		}
 		s.mu.Unlock()
+		if changed {
+			s.reviewPendingCapturesAsync()
+		}
 		return
 	}
 
@@ -3933,6 +4091,7 @@ func (s *Service) captureIfWindowChanged() {
 	s.pendingWindowSignature = signature
 	s.pendingWindowDueAt = now + int64(cooldown)
 	s.mu.Unlock()
+	s.reviewPendingCapturesAsync()
 
 	if cooldown > 0 {
 		return
@@ -4090,7 +4249,7 @@ func (s *Service) setIntervalLocked(intervalSeconds int) {
 
 func (s *Service) refreshEntryCountLocked() {
 	s.status.EntryCount = len(s.entries)
-	s.status.StoragePath = s.path
+	s.status.StoragePath = firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path)
 }
 
 func (s *Service) statusSnapshotLocked() Status {
@@ -4099,7 +4258,7 @@ func (s *Service) statusSnapshotLocked() Status {
 	status.AutoOCREnabled = s.policy.AutoOCR
 	status.AppCaptureProfiles = cloneAppCaptureProfiles(s.policy.AppCaptureProfiles)
 	status.EntryCount = len(s.entries)
-	status.StoragePath = s.path
+	status.StoragePath = firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path)
 	return status
 }
 
@@ -4162,11 +4321,24 @@ func buildHealthSummary(entries []Entry, status Status, now time.Time) HealthSum
 			stat.Sensitive++
 			events = append(events, healthEventFromEntry(entry, "sensitive", "敏感记录已隔离", entry.QualityReason))
 		}
+		if entryQualityOCRDone(entry) {
+			summary.QualityOCRDone++
+			stat.QualityOCR++
+		} else if entryQualityOCRFailed(entry) {
+			summary.QualityOCRFailed++
+			events = append(events, healthEventFromEntry(entry, "quality_ocr_failed", "质检 OCR 需要重跑", entry.QualityOCRStatus))
+		} else if entryQualityPending(entry) && status.AutoOCREnabled && hasImage && !entry.Sensitive && !entryQualityOCRBlocked(entry) {
+			summary.QualityOCRPending++
+		}
 		if entryQualityPending(entry) {
 			summary.Pending++
 			summary.SkippedPending++
 			stat.Pending++
-			events = append(events, healthEventFromEntry(entry, "pending", "等待质检后再沉淀", entry.QualityReason))
+			pendingTitle := "等待质检后再沉淀"
+			if entryQualityOCRDone(entry) {
+				pendingTitle = "已完成质检 OCR，等待质检"
+			}
+			events = append(events, healthEventFromEntry(entry, "pending", pendingTitle, entry.QualityReason))
 			continue
 		}
 		if normalizeQualityStatus(entry.QualityStatus) == qualityStatusChecked {
@@ -4234,7 +4406,11 @@ func buildHealthSummary(entries []Entry, status Status, now time.Time) HealthSum
 
 	switch {
 	case summary.Pending > 0:
-		summary.Message = fmt.Sprintf("还有 %d 条采集等待质检，心流会先跳过这些记录", summary.Pending)
+		if summary.QualityOCRDone > 0 {
+			summary.Message = fmt.Sprintf("还有 %d 条采集等待质检，其中 %d 条已完成质检 OCR", summary.Pending, summary.QualityOCRDone)
+		} else {
+			summary.Message = fmt.Sprintf("还有 %d 条采集等待质检，心流会先跳过这些记录", summary.Pending)
+		}
 	case summary.OCRFailed > 0 || summary.LastAutoOCRError != "":
 		summary.Message = "最近 OCR 有异常，建议重跑 OCR + 总结后再沉淀"
 	case summary.OCRPending > 0:
@@ -4245,6 +4421,63 @@ func buildHealthSummary(entries []Entry, status Status, now time.Time) HealthSum
 		summary.Message = "采集健康，后台会继续质检、OCR 和清理"
 	}
 	return summary
+}
+
+func qualityReviewReason(entry Entry) string {
+	switch {
+	case entryQualityOCRDone(entry):
+		return "自动质检通过 · OCR 预处理完成"
+	case entryQualityOCRFailed(entry):
+		return "自动质检通过 · OCR 预处理异常，保留截图证据"
+	case entryQualityOCRBlocked(entry):
+		return "自动质检通过 · OCR 写回被安全规则阻止"
+	case entryQualityOCREmpty(entry):
+		return "自动质检通过 · OCR 未识别到文字"
+	default:
+		return "自动质检通过"
+	}
+}
+
+func needsQualityOCRPrecheck(entry Entry, policy CapturePolicy) bool {
+	if !policy.AutoOCR || entry.ID == "" || entry.Sensitive || !entryHasImage(entry) {
+		return false
+	}
+	if entry.OCRText != "" || entry.OCRStatus != "" || entry.QualityOCRText != "" || entry.QualityOCRStatus != "" {
+		return false
+	}
+	return true
+}
+
+func needsQualityOCRPromotion(entry Entry) bool {
+	if entry.ID == "" || entry.OCRText != "" || entry.OCRStatus != "" {
+		return false
+	}
+	return entry.QualityOCRText != "" || entry.QualityOCRStatus != ""
+}
+
+func (s *Service) promoteQualityOCR(entry Entry) Entry {
+	if entry.ID == "" || entry.OCRText != "" || entry.OCRStatus != "" {
+		return Entry{}
+	}
+	status := strings.TrimSpace(entry.QualityOCRStatus)
+	switch {
+	case entry.QualityOCRText != "":
+		return s.ApplyOCRText(entry.ID, entry.QualityOCRText, qualityOCRProvider(status))
+	case status == "empty":
+		return s.ApplyOCRText(entry.ID, "", "")
+	case strings.HasPrefix(status, "failed:") || strings.HasPrefix(status, "blocked_"):
+		return s.ApplyOCRText(entry.ID, "", status)
+	default:
+		return Entry{}
+	}
+}
+
+func qualityOCRProvider(status string) string {
+	status = strings.TrimSpace(status)
+	if strings.HasPrefix(status, "done:") {
+		return strings.TrimSpace(strings.TrimPrefix(status, "done:"))
+	}
+	return ""
 }
 
 func healthEventFromEntry(entry Entry, kind string, title string, detail string) HealthRecentEvent {
@@ -4315,20 +4548,28 @@ func (s *Service) processAutoOCR(entry Entry, policy CapturePolicy) Entry {
 		s.recordAutoOCRResult(entry.ID, "OCR 未返回工作记忆更新")
 		return entry
 	}
-	if strings.HasPrefix(updated.OCRStatus, "failed:") {
-		s.recordAutoOCRResult(updated.ID, strings.TrimSpace(strings.TrimPrefix(updated.OCRStatus, "failed:")))
+	resultStatus := autoOCRResultStatus(updated)
+	if strings.HasPrefix(resultStatus, "failed:") {
+		s.recordAutoOCRResult(updated.ID, strings.TrimSpace(strings.TrimPrefix(resultStatus, "failed:")))
 		return updated
 	}
-	if updated.OCRStatus == "blocked_sensitive" {
+	if resultStatus == "blocked_sensitive" {
 		s.recordAutoOCRResult(updated.ID, "敏感条目默认不执行 OCR")
 		return updated
 	}
-	if strings.HasPrefix(updated.OCRStatus, "blocked_excluded") {
+	if strings.HasPrefix(resultStatus, "blocked_excluded") {
 		s.recordAutoOCRResult(updated.ID, "排除规则阻止 OCR 写回")
 		return updated
 	}
 	s.recordAutoOCRResult(updated.ID, "")
 	return updated
+}
+
+func autoOCRResultStatus(entry Entry) string {
+	if entryQualityPending(entry) && entry.QualityOCRStatus != "" {
+		return strings.TrimSpace(entry.QualityOCRStatus)
+	}
+	return strings.TrimSpace(entry.OCRStatus)
 }
 
 func (s *Service) recordAutoOCRResult(id string, errText string) {
@@ -4483,27 +4724,14 @@ func (s *Service) load() bool {
 	if s.path == "" {
 		return false
 	}
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
+	state, ok, err := loadMemoryStateFromSQLite(s.path, s.now)
+	if err != nil || !ok {
 		return false
 	}
-	var state struct {
-		Version              int                            `json:"version"`
-		Entries              []Entry                        `json:"entries"`
-		ExperienceDecisions  map[string]ExperienceDecision  `json:"experienceDecisions,omitempty"`
-		AutonomousArtifacts  []AutonomousArtifact           `json:"autonomousArtifacts,omitempty"`
-		AutonomousRejections map[string]AutonomousRejection `json:"autonomousRejections,omitempty"`
-		LastAutonomousRunAt  int64                          `json:"lastAutonomousRunAt,omitempty"`
-	}
-	if json.Unmarshal(raw, &state) != nil {
-		return false
-	}
-	if s.decisions == nil {
-		s.decisions = map[string]ExperienceDecision{}
-	}
-	if s.autonomousRejections == nil {
-		s.autonomousRejections = map[string]AutonomousRejection{}
-	}
+	s.entries = nil
+	s.decisions = map[string]ExperienceDecision{}
+	s.autonomousArtifacts = nil
+	s.autonomousRejections = map[string]AutonomousRejection{}
 	for key, decision := range state.ExperienceDecisions {
 		decision = normalizeExperienceDecision(key, decision)
 		if decision.InsightID != "" && decision.Status != "" {
@@ -4533,7 +4761,7 @@ func (s *Service) load() bool {
 	}
 	sortEntries(s.entries)
 	s.trimLocked()
-	return len(s.entries) > 0
+	return true
 }
 
 func (s *Service) saveLockedWithStatus() {
@@ -4550,29 +4778,14 @@ func (s *Service) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	state := struct {
-		Version              int                            `json:"version"`
-		Entries              []Entry                        `json:"entries"`
-		ExperienceDecisions  map[string]ExperienceDecision  `json:"experienceDecisions,omitempty"`
-		AutonomousArtifacts  []AutonomousArtifact           `json:"autonomousArtifacts,omitempty"`
-		AutonomousRejections map[string]AutonomousRejection `json:"autonomousRejections,omitempty"`
-		LastAutonomousRunAt  int64                          `json:"lastAutonomousRunAt,omitempty"`
-	}{
-		Version:              3,
+	state := memoryState{
 		Entries:              s.entries,
 		ExperienceDecisions:  cloneExperienceDecisions(s.decisions),
 		AutonomousArtifacts:  cloneAutonomousArtifacts(s.autonomousArtifacts),
 		AutonomousRejections: cloneAutonomousRejections(s.autonomousRejections),
 		LastAutonomousRunAt:  s.lastAutonomousRunAt,
 	}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return saveMemoryStateToSQLite(s.path, state)
 }
 
 func (s *Service) trimLocked() {
@@ -4807,6 +5020,8 @@ func normalizeEntry(entry Entry) Entry {
 	entry.Text = strings.TrimSpace(entry.Text)
 	entry.OCRText = strings.TrimSpace(entry.OCRText)
 	entry.OCRStatus = strings.TrimSpace(entry.OCRStatus)
+	entry.QualityOCRText = strings.TrimSpace(entry.QualityOCRText)
+	entry.QualityOCRStatus = strings.TrimSpace(entry.QualityOCRStatus)
 	entry.WindowTitle = strings.TrimSpace(entry.WindowTitle)
 	entry.AppName = strings.TrimSpace(entry.AppName)
 	entry.CaptureID = strings.TrimSpace(entry.CaptureID)
@@ -4904,6 +5119,25 @@ func entryOCRFailed(entry Entry) bool {
 func entryOCRBlocked(entry Entry) bool {
 	status := strings.ToLower(strings.TrimSpace(entry.OCRStatus))
 	return strings.HasPrefix(status, "blocked_") || status == "empty"
+}
+
+func entryQualityOCRDone(entry Entry) bool {
+	status := strings.ToLower(strings.TrimSpace(entry.QualityOCRStatus))
+	return strings.TrimSpace(entry.QualityOCRText) != "" || status == "done" || strings.HasPrefix(status, "done:")
+}
+
+func entryQualityOCRFailed(entry Entry) bool {
+	status := strings.ToLower(strings.TrimSpace(entry.QualityOCRStatus))
+	return strings.HasPrefix(status, "failed:") || strings.Contains(status, "error")
+}
+
+func entryQualityOCRBlocked(entry Entry) bool {
+	status := strings.ToLower(strings.TrimSpace(entry.QualityOCRStatus))
+	return strings.HasPrefix(status, "blocked_")
+}
+
+func entryQualityOCREmpty(entry Entry) bool {
+	return strings.EqualFold(strings.TrimSpace(entry.QualityOCRStatus), "empty")
 }
 
 func entryUsableForExtraction(entry Entry) bool {
@@ -6679,17 +6913,18 @@ func completeFlowAnswerWithAgent(base FlowAskResponse, selected []Entry, privacy
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	result, err := runner.AnswerFlow(ctx, FlowAgentJob{
-		Question:    base.Question,
-		Intent:      base.Intent,
-		LocalAnswer: base.Answer,
-		Evidence:    evidence,
-		Runner:      policy.Runner,
-		Provider:    policy.Provider,
-		BaseURL:     policy.BaseURL,
-		Model:       policy.Model,
-		WorkDir:     policy.WorkDir,
-		ToolCommand: flowAgentToolCommand(),
-		Now:         now,
+		Question:     base.Question,
+		Intent:       base.Intent,
+		LocalAnswer:  base.Answer,
+		Evidence:     evidence,
+		Runner:       policy.Runner,
+		Provider:     policy.Provider,
+		BaseURL:      policy.BaseURL,
+		Model:        policy.Model,
+		NativeSkills: policy.NativeSkills,
+		WorkDir:      policy.WorkDir,
+		ToolCommand:  flowAgentToolCommand(),
+		Now:          now,
 	})
 	if err != nil {
 		base.OK = false
@@ -7768,13 +8003,11 @@ func (s *Service) loadEmbeddingIndex() {
 	if s.path == "" {
 		return
 	}
-	raw, err := os.ReadFile(s.embeddingIndexPath())
+	payload, ok, err := loadEmbeddingStateFromSQLite(s.embeddingIndexPath())
 	if err != nil {
-		return
-	}
-	var payload embeddingStateFile
-	if err := json.Unmarshal(raw, &payload); err != nil {
 		s.embeddingError = err.Error()
+		return
+	} else if !ok {
 		return
 	}
 	index := map[string]embeddingRecord{}
@@ -7807,9 +8040,6 @@ func (s *Service) saveEmbeddingIndexLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.embeddingIndexPath()), 0o755); err != nil {
-		return err
-	}
 	records := make([]embeddingRecord, 0, len(s.embeddingIndex))
 	for _, record := range s.embeddingIndex {
 		record.Vector = append([]float64(nil), record.Vector...)
@@ -7828,19 +8058,12 @@ func (s *Service) saveEmbeddingIndexLocked() error {
 		LastIndexedAt:    s.lastEmbeddingAt,
 		Records:          records,
 	}
-	raw, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.embeddingIndexPath(), raw, 0o600)
+	return saveEmbeddingStateToSQLite(s.embeddingIndexPath(), payload)
 }
 
 func (s *Service) saveEmbeddingMetadataLocked(records []embeddingRecord) error {
 	if s.path == "" {
 		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(s.embeddingIndexPath()), 0o755); err != nil {
-		return err
 	}
 	metadata := make([]embeddingRecord, 0, len(records))
 	for _, record := range records {
@@ -7862,11 +8085,7 @@ func (s *Service) saveEmbeddingMetadataLocked(records []embeddingRecord) error {
 		LastIndexedAt:    s.lastEmbeddingAt,
 		Records:          metadata,
 	}
-	raw, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.embeddingIndexPath(), raw, 0o600)
+	return saveEmbeddingStateToSQLite(s.embeddingIndexPath(), payload)
 }
 
 func (s *Service) embeddingIndexPath() string {
@@ -8317,8 +8536,7 @@ func enrichEntry(entry Entry) Entry {
 		entry.ContentType = inferNoteContentType(corpus)
 	}
 	entry.Tags = cleanStrings(append(entry.Tags, classifyNoteTags(corpus)...))
-	if entry.Sensitive || looksSensitive(corpus+" "+strings.Join(entry.Tags, " ")) {
-		entry.Sensitive = true
+	if entry.Sensitive {
 		entry.Tags = cleanStrings(append(entry.Tags, "敏感"))
 	}
 	return entry
@@ -8478,30 +8696,21 @@ func containsIPv4Like(lower string) bool {
 	return false
 }
 
+func LooksSensitiveText(text string) bool {
+	return looksSensitive(text)
+}
+
+func autoSensitive(policy CapturePolicy, text string) bool {
+	return policy.SensitiveRulesEnabled && looksSensitive(text)
+}
+
 func looksSensitive(text string) bool {
-	lower := strings.ToLower(text)
-	patterns := []string{
-		"password",
-		"passwd",
-		"pwd=",
-		"token",
-		"api_key",
-		"apikey",
-		"secret",
-		"authorization:",
-		"bearer ",
-		"cookie:",
-		"private key",
-		"ssh-rsa",
-		"ssh-ed25519",
-		"数据库密码",
-		"密码",
-		"密钥",
-		"令牌",
-		"验证码",
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
 	}
-	for _, pattern := range patterns {
-		if strings.Contains(lower, pattern) {
+	for _, pattern := range sensitiveCredentialPatterns {
+		if pattern.MatchString(text) {
 			return true
 		}
 	}

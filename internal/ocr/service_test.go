@@ -102,14 +102,14 @@ func TestRecognizeImageFallsBackToLocalOCRWhenAIFails(t *testing.T) {
 		if path != imagePath {
 			t.Fatalf("expected image path %q, got %q", imagePath, path)
 		}
-		return bridgeOutput{OK: true, Provider: "rapidocr_onnxruntime", Text: "本地 OCR 文本"}, Status{Available: true, Provider: "rapidocr_onnxruntime"}
+		return bridgeOutput{OK: true, Provider: localOCRProvider, Text: "本地 OCR 文本"}, Status{Available: true, Provider: localOCRProvider}
 	}
 	RegisterAIClient(service, &fakeAIClient{err: errors.New("vision provider unavailable")})
 	service.ApplyAIOCRPolicy(AIOCRPolicy{Enabled: true, Provider: "openai-compatible", Model: "vision-model"})
 
 	result := service.RecognizeImagePath(imagePath)
 
-	if !localCalled || !result.OK || result.Text != "本地 OCR 文本" || result.Provider != "rapidocr_onnxruntime" {
+	if !localCalled || !result.OK || result.Text != "本地 OCR 文本" || result.Provider != localOCRProvider {
 		t.Fatalf("expected local OCR fallback, got result=%#v localCalled=%v", result, localCalled)
 	}
 }
@@ -120,7 +120,7 @@ func TestRecognizeImageUsesLocalOCRWhenAIOCRIsNotConfigured(t *testing.T) {
 	localCalled := false
 	service.runner = func(_ context.Context, _ string) (bridgeOutput, Status) {
 		localCalled = true
-		return bridgeOutput{OK: true, Provider: "rapidocr_onnxruntime", Text: "本地 OCR 文本"}, Status{Available: true, Provider: "rapidocr_onnxruntime"}
+		return bridgeOutput{OK: true, Provider: localOCRProvider, Text: "本地 OCR 文本"}, Status{Available: true, Provider: localOCRProvider}
 	}
 	RegisterAIClient(service, &fakeAIClient{
 		result: AIResult{Provider: "vision:test-model", Text: "不应该使用"},
@@ -131,6 +131,27 @@ func TestRecognizeImageUsesLocalOCRWhenAIOCRIsNotConfigured(t *testing.T) {
 
 	if !localCalled || !result.OK || result.Text != "本地 OCR 文本" {
 		t.Fatalf("expected local OCR when AI model is missing, got result=%#v localCalled=%v", result, localCalled)
+	}
+}
+
+func TestRecognizeImageSensitiveFlagRequiresCredentialShape(t *testing.T) {
+	imagePath := testImage(t)
+	service := NewService(nil, nil, nil)
+	service.runner = func(_ context.Context, _ string) (bridgeOutput, Status) {
+		return bridgeOutput{OK: true, Provider: "test-ocr", Text: "登录页包含密码输入框、验证码按钮和 token 配置说明"}, Status{Available: true, Provider: "test-ocr"}
+	}
+
+	normal := service.RecognizeImagePath(imagePath)
+	if !normal.OK || normal.Sensitive {
+		t.Fatalf("plain security wording should not mark OCR result sensitive: %#v", normal)
+	}
+
+	service.runner = func(_ context.Context, _ string) (bridgeOutput, Status) {
+		return bridgeOutput{OK: true, Provider: "test-ocr", Text: "Authorization: Bearer abcdefghijklmnop"}, Status{Available: true, Provider: "test-ocr"}
+	}
+	secret := service.RecognizeImagePath(imagePath)
+	if !secret.OK || !secret.Sensitive {
+		t.Fatalf("credential-shaped OCR text should be sensitive: %#v", secret)
 	}
 }
 

@@ -3,13 +3,13 @@ package launchers
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/contracts"
 )
 
@@ -145,7 +145,7 @@ func (s *Service) Status() Status {
 }
 
 func (s *Service) statusLocked() Status {
-	return Status{Path: s.path, Count: len(s.launchers), Items: append([]Launcher{}, s.launchers...), LastSaveError: s.lastError}
+	return Status{Path: firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path), Count: len(s.launchers), Items: append([]Launcher{}, s.launchers...), LastSaveError: s.lastError}
 }
 
 func (s *Service) load() {
@@ -153,21 +153,12 @@ func (s *Service) load() {
 		sortLaunchers(s.launchers)
 		return
 	}
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
+	state, ok, err := loadLauncherStateFromSQLite(s.path)
+	if err != nil || !ok {
 		sortLaunchers(s.launchers)
 		return
 	}
-	var state struct {
-		Version    int        `json:"version"`
-		Launchers  []Launcher `json:"launchers"`
-		RemovedIDs []string   `json:"removedIds,omitempty"`
-	}
-	if json.Unmarshal(raw, &state) != nil {
-		sortLaunchers(s.launchers)
-		return
-	}
-	for _, id := range state.RemovedIDs {
+	for id := range state.Removed {
 		id = strings.TrimSpace(id)
 		if id != "" {
 			s.removed[id] = true
@@ -197,28 +188,7 @@ func (s *Service) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	removedIDs := make([]string, 0, len(s.removed))
-	for id := range s.removed {
-		removedIDs = append(removedIDs, id)
-	}
-	sort.Strings(removedIDs)
-	state := struct {
-		Version    int        `json:"version"`
-		Launchers  []Launcher `json:"launchers"`
-		RemovedIDs []string   `json:"removedIds,omitempty"`
-	}{
-		Version:    1,
-		Launchers:  s.launchers,
-		RemovedIDs: removedIDs,
-	}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return saveLauncherStateToSQLite(s.path, launcherState{Launchers: s.launchers, Removed: s.removed})
 }
 
 func launcherToResult(launcher Launcher, score float64) contracts.SearchResult {
@@ -476,4 +446,13 @@ func wordPrefix(value string, query string) bool {
 func stableID(value string) string {
 	sum := sha1.Sum([]byte(strings.ToLower(value)))
 	return hex.EncodeToString(sum[:])[:12]
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

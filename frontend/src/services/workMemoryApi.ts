@@ -543,6 +543,9 @@ function normalizeHealthSummary(summary: WorkMemoryHealthSummary): WorkMemoryHea
     ocrDone: Number(summary?.ocrDone || 0),
     ocrPending: Number(summary?.ocrPending || 0),
     ocrFailed: Number(summary?.ocrFailed || 0),
+    qualityOcrDone: Number(summary?.qualityOcrDone || 0),
+    qualityOcrPending: Number(summary?.qualityOcrPending || 0),
+    qualityOcrFailed: Number(summary?.qualityOcrFailed || 0),
     skippedSensitive: Number(summary?.skippedSensitive || 0),
     skippedPending: Number(summary?.skippedPending || 0),
     lastCaptureAt: summary?.lastCaptureAt,
@@ -557,6 +560,7 @@ function normalizeHealthSummary(summary: WorkMemoryHealthSummary): WorkMemoryHea
           pending: Number(item.pending || 0),
           checked: Number(item.checked || 0),
           ocrDone: Number(item.ocrDone || 0),
+          qualityOcr: Number(item.qualityOcr || 0),
           sensitive: Number(item.sensitive || 0),
           lastSeenAt: item.lastSeenAt,
         }))

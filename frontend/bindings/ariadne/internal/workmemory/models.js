@@ -601,6 +601,20 @@ export class CapturePolicy {
              */
             this["excludeContentPatterns"] = undefined;
         }
+        if (!("sensitiveRulesEnabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["sensitiveRulesEnabled"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["sensitiveRulesConfigured"] = undefined;
+        }
         if (/** @type {any} */(false)) {
             /**
              * @member
@@ -679,7 +693,7 @@ export class CapturePolicy {
         const $$createField2_0 = $$createType0;
         const $$createField3_0 = $$createType0;
         const $$createField4_0 = $$createType0;
-        const $$createField5_0 = $$createType5;
+        const $$createField7_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("excludeApps" in $$parsedSource) {
             $$parsedSource["excludeApps"] = $$createField0_0($$parsedSource["excludeApps"]);
@@ -697,7 +711,7 @@ export class CapturePolicy {
             $$parsedSource["excludeContentPatterns"] = $$createField4_0($$parsedSource["excludeContentPatterns"]);
         }
         if ("appCaptureProfiles" in $$parsedSource) {
-            $$parsedSource["appCaptureProfiles"] = $$createField5_0($$parsedSource["appCaptureProfiles"]);
+            $$parsedSource["appCaptureProfiles"] = $$createField7_0($$parsedSource["appCaptureProfiles"]);
         }
         return new CapturePolicy(/** @type {Partial<CapturePolicy>} */($$parsedSource));
     }
@@ -1327,6 +1341,20 @@ export class Entry {
              * @member
              * @type {string | undefined}
              */
+            this["qualityOcrText"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["qualityOcrStatus"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
             this["windowTitle"] = undefined;
         }
         if (/** @type {any} */(false)) {
@@ -1472,14 +1500,14 @@ export class Entry {
      * @returns {Entry}
      */
     static createFrom($$source = {}) {
-        const $$createField14_0 = $$createType9;
-        const $$createField22_0 = $$createType0;
+        const $$createField16_0 = $$createType9;
+        const $$createField24_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("frames" in $$parsedSource) {
-            $$parsedSource["frames"] = $$createField14_0($$parsedSource["frames"]);
+            $$parsedSource["frames"] = $$createField16_0($$parsedSource["frames"]);
         }
         if ("tags" in $$parsedSource) {
-            $$parsedSource["tags"] = $$createField22_0($$parsedSource["tags"]);
+            $$parsedSource["tags"] = $$createField24_0($$parsedSource["tags"]);
         }
         return new Entry(/** @type {Partial<Entry>} */($$parsedSource));
     }
@@ -2241,6 +2269,13 @@ export class FlowAgentPolicy {
         if (/** @type {any} */(false)) {
             /**
              * @member
+             * @type {boolean | undefined}
+             */
+            this["nativeSkills"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
              * @type {string | undefined}
              */
             this["workDir"] = undefined;
@@ -2551,6 +2586,13 @@ export class HealthAppStat {
              */
             this["ocrDone"] = 0;
         }
+        if (!("qualityOcr" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["qualityOcr"] = 0;
+        }
         if (!("sensitive" in $$source)) {
             /**
              * @member
@@ -2747,6 +2789,27 @@ export class HealthSummary {
              */
             this["ocrFailed"] = 0;
         }
+        if (!("qualityOcrDone" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["qualityOcrDone"] = 0;
+        }
+        if (!("qualityOcrPending" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["qualityOcrPending"] = 0;
+        }
+        if (!("qualityOcrFailed" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["qualityOcrFailed"] = 0;
+        }
         if (!("skippedSensitive" in $$source)) {
             /**
              * @member
@@ -2827,14 +2890,14 @@ export class HealthSummary {
      * @returns {HealthSummary}
      */
     static createFrom($$source = {}) {
-        const $$createField21_0 = $$createType18;
-        const $$createField22_0 = $$createType20;
+        const $$createField24_0 = $$createType18;
+        const $$createField25_0 = $$createType20;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("appStats" in $$parsedSource) {
-            $$parsedSource["appStats"] = $$createField21_0($$parsedSource["appStats"]);
+            $$parsedSource["appStats"] = $$createField24_0($$parsedSource["appStats"]);
         }
         if ("recentEvents" in $$parsedSource) {
-            $$parsedSource["recentEvents"] = $$createField22_0($$parsedSource["recentEvents"]);
+            $$parsedSource["recentEvents"] = $$createField25_0($$parsedSource["recentEvents"]);
         }
         return new HealthSummary(/** @type {Partial<HealthSummary>} */($$parsedSource));
     }
@@ -3201,6 +3264,20 @@ export class QualityReviewResult {
              * @type {number}
              */
             this["removedFrames"] = 0;
+        }
+        if (!("qualityOcr" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["qualityOcr"] = 0;
+        }
+        if (!("ocrPromoted" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["ocrPromoted"] = 0;
         }
         if (!("skippedActive" in $$source)) {
             /**

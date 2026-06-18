@@ -12,8 +12,8 @@ import {
   Download,
   FileText,
   Flag,
+  ImageOff,
   KeyRound,
-  Pause,
   Play,
   Plus,
   RefreshCw,
@@ -28,12 +28,24 @@ import {
   X,
 } from '@lucide/vue'
 import { Clipboard as WailsClipboard } from '@wailsio/runtime'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import AriButton from '../ui/AriButton.vue'
-import OCRImageOverlay from '../ocr/OCRImageOverlay.vue'
+import FlowHomePage from './flow/pages/FlowHomePage.vue'
+import FlowTimelinePage from './flow/pages/FlowTimelinePage.vue'
+import FlowInsightsPage from './flow/pages/FlowInsightsPage.vue'
+import FlowDraftsPage from './flow/pages/FlowDraftsPage.vue'
+import FlowAssetsPage from './flow/pages/FlowAssetsPage.vue'
+import FlowRulesPage from './flow/pages/FlowRulesPage.vue'
+import FlowCommandDock from './flow/components/FlowCommandDock.vue'
+import FlowDetailDrawer from './flow/components/FlowDetailDrawer.vue'
+import FlowSettingsDrawer from './flow/components/FlowSettingsDrawer.vue'
+import FlowSidebar from './flow/components/FlowSidebar.vue'
+import FlowStageTop from './flow/components/FlowStageTop.vue'
+import { workMemoryFlowContextKey } from './flow/context'
 import { useAppShellStore } from '../../stores/appShell'
 import { useSettingsStore } from '../../stores/settings'
 import { useWorkMemoryStore } from '../../stores/workMemory'
+import { getCaptureThumbnailDataURL } from '../../services/captureApi'
 import type { AgentTaskPackage, ExperienceInsight, WorkMemoryAppCaptureProfile, WorkMemoryAutonomousArtifact, WorkMemoryEntry, WorkMemoryFlowAskResponse } from '../../types/ariadne'
 
 const appShell = useAppShellStore()
@@ -76,11 +88,48 @@ interface TimelineDayGroup {
   entries: WorkMemoryEntry[]
 }
 
+interface FlowCanvasEntry {
+  message: FlowChatMessage
+  conclusion: string
+  evidenceEntries: WorkMemoryEntry[]
+  uncertainty: string[]
+  recommendedActions: string[]
+}
+
+interface TimelineLane {
+  key: string
+  label: string
+  appName: string
+  entries: WorkMemoryEntry[]
+}
+
+interface TimelineAxisTick {
+  left: number
+  label: string
+}
+
+interface InsightMapNode {
+  insight: ExperienceInsight
+  angle: number
+  radius: number
+}
+
+type DraftKind = 'daily' | 'retrospective' | 'knowledge'
+
+interface DraftKindItem {
+  kind: DraftKind
+  label: string
+  title: string
+  icon: string
+  emptyHint: string
+}
+
 const selected = computed(() => memory.selectedEntry)
 const visibleEntries = computed(() => memory.filteredEntries)
 const activeFlowPage = ref<FlowPage>('flow')
-const activeAssetFocus = ref<'agent' | 'workflow' | 'checklist' | ''>('')
+const activeAssetFocus = ref<'agent' | 'workflow' | 'checklist' | 'skill' | ''>('')
 const flowQuestion = ref('')
+const globalFlowSearch = ref('')
 const flowBusy = ref(false)
 const flowChatThreadRef = ref<HTMLElement | null>(null)
 const flowChatInputRef = ref<HTMLTextAreaElement | null>(null)
@@ -105,27 +154,70 @@ const flowSettingsTab = ref<FlowSettingsTab>('capture')
 const selectedAppCaptureProfileId = ref('')
 const evidenceExpanded = ref(false)
 const detailDrawerOpen = ref(false)
+const flowCanvasActiveId = ref('')
+const activeDraftKind = ref<DraftKind>('daily')
+const activeInsightId = ref('')
 const timelineSourceFilter = ref<TimelineSourceFilter>('all')
 const timelineAppFilter = ref('all')
 const timelineAppPickerOpen = ref(false)
 const timelineAppSearch = ref('')
 const timelineAppSelectRef = ref<HTMLElement | null>(null)
 const timelineAppSearchRef = ref<HTMLInputElement | null>(null)
+const timelineLaneMenuRef = ref<HTMLElement | null>(null)
+const timelineLaneMenu = ref({
+  open: false,
+  x: 0,
+  y: 0,
+  appName: '',
+  label: '',
+  count: 0,
+})
+const timelineExclusionFeedback = ref('')
 const timelineSelectedIds = ref<string[]>([])
 const timelineDeleteArmed = ref(false)
+const timelineThumbnailUrls = ref<Record<string, string>>({})
+const timelineThumbnailMissing = ref<Record<string, boolean>>({})
 const timelineVisibleDayCount = ref(2)
 const timelineLoadMoreRef = ref<HTMLElement | null>(null)
+const DAY_SECONDS = 86400
+const FLOW_DAY_START_HOUR = 6
+const FLOW_DAY_END_HOUR = 22
+const selectedFlowDayStart = ref(startOfLocalDaySeconds(Math.floor(Date.now() / 1000)))
+const selectedFlowHour = ref(currentFlowHour())
 const assetFeedback = ref('')
 const rejectingAutonomousArtifactId = ref('')
 const autonomousRejectReason = ref('')
 let timelineLoadObserver: IntersectionObserver | null = null
+const draftKinds: DraftKindItem[] = [
+  {
+    kind: 'daily',
+    label: '日报',
+    icon: '日报',
+    title: '日报',
+    emptyHint: '等待从今日上下文生成日报，或手动选择证据后生成。',
+  },
+  {
+    kind: 'retrospective',
+    label: '复盘',
+    icon: '复盘',
+    title: '复盘',
+    emptyHint: '选择一组证据后生成复盘，可回放关键决策路径。',
+  },
+  {
+    kind: 'knowledge',
+    label: '知识',
+    icon: '知识',
+    title: '知识',
+    emptyHint: '从高价值记录里提炼可复用条目。',
+  },
+]
 const flowPages = [
-  { id: 'flow' as const, label: '心流', detail: '对话', icon: Brain },
-  { id: 'timeline' as const, label: '时间线', detail: '回放', icon: Clock3 },
-  { id: 'insights' as const, label: '洞察', detail: '归纳', icon: Sparkles },
-  { id: 'drafts' as const, label: '草稿', detail: '输出', icon: FileText },
-  { id: 'assets' as const, label: '资产', detail: '能力', icon: Database },
-  { id: 'rules' as const, label: '规则', detail: '边界', icon: Shield },
+  { id: 'flow' as const, label: '心流', detail: '对话', icon: markRaw(Brain) },
+  { id: 'timeline' as const, label: '时间线', detail: '回放', icon: markRaw(Clock3) },
+  { id: 'insights' as const, label: '洞察', detail: '归纳', icon: markRaw(Sparkles) },
+  { id: 'drafts' as const, label: '草稿', detail: '输出', icon: markRaw(FileText) },
+  { id: 'assets' as const, label: '资产', detail: '能力', icon: markRaw(Database) },
+  { id: 'rules' as const, label: '规则', detail: '边界', icon: markRaw(Shield) },
 ]
 const flowQuestions = [
   '我今天干了些什么？',
@@ -201,9 +293,25 @@ const vectorStoreLabel = computed(() => {
   }
   return status.vectorStoreType
 })
-const todayEntries = computed(() => {
-  const start = startOfToday()
-  return memory.entries.filter((entry) => entry.createdAt >= start)
+const selectedFlowDayEnd = computed(() => selectedFlowDayStart.value + DAY_SECONDS - 1)
+const todayEntries = computed(() =>
+  memory.entries
+    .filter((entry) => isEntryInSelectedFlowDay(entry))
+    .sort((left, right) => right.createdAt - left.createdAt),
+)
+const visibleDayEntries = computed(() =>
+  visibleEntries.value
+    .filter((entry) => isEntryInSelectedFlowDay(entry))
+    .sort((left, right) => right.createdAt - left.createdAt),
+)
+const selectedFlowTimeWindowEntries = computed(() => {
+  const entries = todayEntries.value
+  if (!entries.length) return []
+  const center = selectedFlowDayStart.value + Math.round(selectedFlowHour.value * 3600)
+  const windowStart = center - 30 * 60
+  const windowEnd = center + 30 * 60
+  const matches = entries.filter((entry) => entry.createdAt >= windowStart && entry.createdAt <= windowEnd)
+  return matches.length ? matches : entries
 })
 const askedEvidenceEntries = computed(() => {
   const evidence = memory.flowAskResult?.evidence ?? []
@@ -215,7 +323,7 @@ const recentEvidence = computed(() => {
   if (askedEvidenceEntries.value.length) {
     return askedEvidenceEntries.value
   }
-  return (todayEntries.value.length ? todayEntries.value : memory.entries).slice(0, 8)
+  return selectedFlowTimeWindowEntries.value.slice(0, 8)
 })
 const topApps = computed(() => {
   const counts = new Map<string, number>()
@@ -234,7 +342,7 @@ const selectedAppCaptureProfile = computed(() => {
 const appCaptureCandidates = computed<CaptureAppCandidate[]>(() => {
   const existing = new Set(appCaptureProfiles.value.map((profile) => appProfileId(profile.processName || profile.displayName || profile.id)))
   const counts = new Map<string, CaptureAppCandidate>()
-  const entries = todayEntries.value.length ? todayEntries.value : memory.entries
+  const entries = todayEntries.value
   for (const entry of entries) {
     const processName = (entry.appName || '').trim()
     if (!processName) continue
@@ -258,52 +366,114 @@ const flowSuggestedQuestions = computed(() => {
   const suggested = memory.flowAskResult?.suggestedQuestions?.filter(Boolean) ?? []
   return (suggested.length ? suggested : flowQuestions).slice(0, 3)
 })
+const flowCanvasEntryLookup = computed(() => {
+  const byId = new Map<string, WorkMemoryEntry>()
+  for (const entry of memory.entries) {
+    byId.set(entry.id, entry)
+  }
+  return byId
+})
+const flowCanvasMessages = computed<FlowCanvasEntry[]>(() => {
+  return flowChatMessages.value
+    .filter((message) => !message.system)
+    .filter((message) => message.role === 'assistant')
+    .filter((message) => message.text.trim())
+    .map((message) => {
+      const evidenceEntries = (message.result?.evidence ?? [])
+        .map((item) => flowCanvasEntryLookup.value.get(item.id))
+        .filter(Boolean) as WorkMemoryEntry[]
+      const uncertainty: string[] = []
+      if (message.pending) {
+        uncertainty.push('处理中')
+      }
+      if (message.error) {
+        uncertainty.push('本次归纳出现异常')
+      }
+      if (!message.result?.usedAi && !message.result?.mode) {
+        uncertainty.push('仅基于本地检索生成')
+      }
+      if (!evidenceEntries.length) {
+        uncertainty.push('当前结论缺少可展开证据')
+      }
+      const recommendedActions = message.result?.evidence?.length
+        ? ['打开证据', '复制该结论', ...(message.result.usedAi ? ['转为 AI 润色提示'] : [])]
+        : ['补充证据']
+      return {
+        message,
+        conclusion: message.text.trim().slice(0, 220),
+        evidenceEntries,
+        uncertainty,
+        recommendedActions,
+      }
+    })
+})
+const flowCanvasPrimaryEntry = computed(() => {
+  const all = flowCanvasMessages.value
+  const fallback = all[all.length - 1] ?? null
+  const matched = flowCanvasMessages.value.find((entry) => entry.message.id === flowCanvasActiveId.value)
+  return matched ?? fallback
+})
+const flowCanvasEvidenceClusters = computed(() => {
+  const clusters = new Map<string, { source: string; items: FlowCanvasEntry[] }>()
+  for (const entry of flowCanvasMessages.value) {
+    for (const evidence of entry.evidenceEntries) {
+      const source = sourceLabel(evidence)
+      const current = clusters.get(source) ?? { source, items: [] }
+      current.items.push(entry)
+      clusters.set(source, current)
+    }
+  }
+  return [...clusters.values()].map((cluster) => ({
+    source: cluster.source,
+    size: cluster.items.length,
+    examples: cluster.items.slice(-2),
+  }))
+})
 const selectableFlowChatMessages = computed(() => flowChatMessages.value.filter(isFlowMessageSelectable))
+const draftItems = computed(() => {
+  return draftKinds.map((item) => {
+    const draft = {
+      daily: memory.dailyDraft,
+      retrospective: memory.retrospectiveDraft,
+      knowledge: memory.knowledgeDraft,
+    }[item.kind]
+    if (!draft) {
+      return {
+        ...item,
+        draft: null,
+        evidence: [],
+        createdAtLabel: '',
+      }
+    }
+    return {
+      ...item,
+      draft,
+      evidence: evidenceEntriesFromIds(draft.evidence),
+      createdAtLabel: formatTime(draft.createdAt),
+    }
+  })
+})
+const activeDraft = computed(() => draftItems.value.find((item) => item.kind === activeDraftKind.value) ?? draftItems.value[0])
+const draftTimelineEntries = computed(() => activeDraft.value?.evidence ?? [])
+const draftEvidenceTimeline = computed(() =>
+  [...draftTimelineEntries.value]
+    .filter((entry) => entry.createdAt)
+    .sort((left, right) => left.createdAt - right.createdAt),
+)
+const activeDraftSourceSummary = computed(() => {
+  const count = draftTimelineEntries.value.length
+  if (!count) return '尚未绑定证据'
+  return `已绑定 ${count} 条证据`
+})
 const selectedFlowChatMessages = computed(() => {
   const selectedIds = new Set(flowChatSelectedIds.value)
   return selectableFlowChatMessages.value.filter((message) => selectedIds.has(message.id))
 })
+const flowChatIsEmpty = computed(() => flowChatMessages.value.length === 1 && Boolean(flowChatMessages.value[0]?.system))
 const flowSelectionLabel = computed(() => {
   const count = selectedFlowChatMessages.value.length
   return count ? `已选 ${count} 条` : '右键或勾选消息后加入沉淀'
 })
-const flowChatStatusText = computed(() => {
-  const count = todayEntries.value.length || memory.status.entryCount
-  const evidenceCount = evidenceCounts.value.screenshots + evidenceCounts.value.clipboard + evidenceCounts.value.ocr + evidenceCounts.value.notes
-  if (!count) return '等待上下文'
-  return `${count} 条上下文 · ${evidenceCount} 条证据线索`
-})
-const flowHealthCards = computed(() => {
-  const health = memory.health
-  if (!health) {
-    return [
-      { label: '后台质检', value: '加载中', note: '正在读取采集健康状态', tone: 'neutral' },
-      { label: 'OCR', value: '加载中', note: '等待 OCR 状态', tone: 'neutral' },
-      { label: '清理', value: '加载中', note: '等待自检状态', tone: 'neutral' },
-    ]
-  }
-  return [
-    {
-      label: '后台质检',
-      value: health.pending ? `${health.pending} 待质检` : `${health.checked} 已质检`,
-      note: health.pending ? '未质检记录不会进入总结和沉淀' : health.message,
-      tone: health.pending ? 'warn' : 'ok',
-    },
-    {
-      label: 'OCR',
-      value: health.ocrFailed ? `${health.ocrFailed} 异常` : health.ocrPending ? `${health.ocrPending} 待处理` : `${health.ocrDone} 已完成`,
-      note: health.lastAutoOcrError || (health.ocrPending ? '后台会继续补 OCR 和标题总结' : '截图证据已进入可检索状态'),
-      tone: health.ocrFailed ? 'error' : health.ocrPending ? 'warn' : 'ok',
-    },
-    {
-      label: '自动清理',
-      value: health.collapsedEntries ? `折叠 ${health.collapsedEntries} 组` : '安静运行',
-      note: health.removedFrames ? `已移除 ${health.removedFrames} 帧重复画面` : '每小时自检重复和无效采集',
-      tone: health.collapsedEntries ? 'ok' : 'neutral',
-    },
-  ]
-})
-const flowHealthEvents = computed(() => memory.health?.recentEvents?.slice(0, 3) ?? [])
 const autonomousInboxSummary = computed(() => {
   const count = memory.autonomousArtifacts.length
   if (!count) return '暂无待确认产物'
@@ -311,7 +481,7 @@ const autonomousInboxSummary = computed(() => {
   return `${count} 个自主产物${skillCount ? ` · ${skillCount} 个 Skill` : ''}`
 })
 const evidenceCounts = computed(() => {
-  const entries = todayEntries.value.length ? todayEntries.value : memory.entries
+  const entries = todayEntries.value
   return {
     screenshots: entries.filter((entry) => Boolean(entry.imagePath || entry.captureId)).length,
     clipboard: entries.filter((entry) => /clipboard/.test(entry.source)).length,
@@ -320,7 +490,7 @@ const evidenceCounts = computed(() => {
   }
 })
 const timelineFilterCounts = computed<Record<TimelineSourceFilter, number>>(() => {
-  const entries = visibleEntries.value
+  const entries = visibleDayEntries.value
   return {
     all: entries.length,
     screenshots: entries.filter(isScreenshotEntry).length,
@@ -330,7 +500,7 @@ const timelineFilterCounts = computed<Record<TimelineSourceFilter, number>>(() =
   }
 })
 const timelineSourceEntries = computed(() => {
-  const entries = visibleEntries.value
+  const entries = visibleDayEntries.value
   switch (timelineSourceFilter.value) {
     case 'screenshots':
       return entries.filter(isScreenshotEntry)
@@ -379,6 +549,10 @@ const timelineSelectedEntries = computed(() => {
   const selected = timelineSelectedIdSet.value
   return memory.entries.filter((entry) => selected.has(entry.id))
 })
+const timelineCurrentSelectionCount = computed(() => timelineEntries.value.filter((entry) => timelineSelectedIdSet.value.has(entry.id)).length)
+const timelineAllCurrentSelected = computed(() => Boolean(timelineEntries.value.length) && timelineCurrentSelectionCount.value === timelineEntries.value.length)
+const timelineSelectAllLabel = computed(() => (timelineAllCurrentSelected.value ? '取消全选' : `全选当前 ${timelineEntries.value.length}`))
+const timelineDeleteLabel = computed(() => (timelineDeleteArmed.value ? `确认删除 ${timelineSelectedEntries.value.length}` : '删除所选'))
 const timelineDayGroups = computed<TimelineDayGroup[]>(() => {
   const groups = new Map<string, TimelineDayGroup>()
   const sorted = timelineEntries.value.slice().sort((left, right) => right.createdAt - left.createdAt)
@@ -426,6 +600,43 @@ const timelineSelectionSummary = computed(() => {
   const sensitive = timelineSelectedEntries.value.filter((entry) => entry.sensitive).length
   return sensitive ? `已选 ${count} 条，含 ${sensitive} 条敏感` : `已选 ${count} 条`
 })
+const timelineRangeWindow = computed(() => {
+  const min = selectedFlowDayStart.value + FLOW_DAY_START_HOUR * 3600
+  const max = selectedFlowDayStart.value + FLOW_DAY_END_HOUR * 3600
+  return {
+    min,
+    max,
+    span: Math.max(1, max - min),
+  }
+})
+const timelineAxisTicks = computed<TimelineAxisTick[]>(() => {
+  return flowTimeRulerTicks.value
+})
+const timelineLanes = computed<TimelineLane[]>(() => {
+  const byLane = new Map<string, TimelineLane>()
+  const sorted = timelineEntries.value.slice().sort((left, right) => left.createdAt - right.createdAt)
+  for (const entry of sorted) {
+    const appName = entry.appName?.trim() ?? ''
+    const key = appName || sourceLabel(entry)
+    const lane = byLane.get(key) ?? { key, label: key, appName, entries: [] }
+    if (appName && !lane.appName) {
+      lane.appName = appName
+    }
+    lane.entries.push(entry)
+    byLane.set(key, lane)
+  }
+  return [...byLane.values()].sort((left, right) => right.entries.length - left.entries.length)
+})
+const timelineScrubPercent = computed(() => {
+  if (!memory.playbackEntries.length) return 0
+  if (memory.playbackIndex < 0) return 0
+  return ((memory.playbackIndex + 1) / memory.playbackEntries.length) * 100
+})
+const timelinePlayStateLabel = computed(() => {
+  if (!memory.playbackEntries.length) return '暂无回放帧'
+  if (memory.playbackEntry) return `回放中 ${memory.playbackPosition}`
+  return `可用 ${memory.playbackEntries.length} 帧`
+})
 const deleteProgressPercent = computed(() => {
   if (!memory.deleteProgressTotal) return 0
   return Math.min(100, Math.round((memory.deleteProgressDone / memory.deleteProgressTotal) * 100))
@@ -435,23 +646,284 @@ const batchOcrProgressPercent = computed(() => {
   return Math.min(100, Math.round((memory.batchOcrProgressDone / memory.batchOcrProgressTotal) * 100))
 })
 const timelineBatchOcrEntries = computed(() => {
-  const selected = timelineSelectedEntries.value.filter(canRunTimelineOCR)
-  if (selected.length) {
-    return selected
-  }
-  return timelineEntries.value.filter(needsOCRSummary)
-})
-const timelineBatchOcrLabel = computed(() => {
-  if (memory.isBatchRecognizingOCR) return 'OCR+总结中'
-  const count = timelineBatchOcrEntries.value.length
-  if (timelineSelectedEntries.value.length) return count ? `OCR+总结 ${count} 条` : 'OCR+总结'
-  return count ? `补跑 OCR+总结 ${count}` : '批量 OCR+总结'
+  return timelineSelectedEntries.value.filter(canRunTimelineOCR)
 })
 const insightProgressPercent = computed(() => Math.min(100, Math.max(0, memory.experienceDiscoveryProgress || 0)))
-const timelineSelectedSummary = computed(() => {
-  if (!memory.retrospectiveSelectionCount) return '还没有选择复盘证据。可以只勾几条关键轨迹，或者一键选择当前筛选结果。'
-  return `已选择 ${memory.retrospectiveSelectionCount} 条证据，后续可生成复盘、日报或任务包。`
+const insightNodes = computed<InsightMapNode[]>(() => {
+  const insights = memory.experienceReport?.insights ?? []
+  if (!insights.length) return []
+  const baseRadius = insights.length > 8 ? 188 : insights.length > 5 ? 208 : 224
+  return insights.map((insight, index) => {
+    const angle = (360 / insights.length) * index
+    return {
+      insight,
+      angle,
+      radius: baseRadius + (index % 2 === 0 ? 0 : 34),
+    }
+  })
 })
+const selectedInsight = computed(() => {
+  const current = insightNodes.value.find((node) => node.insight.id === activeInsightId.value)
+  return current?.insight ?? insightNodes.value[0]?.insight ?? null
+})
+const insightEvidencePreview = computed(() => {
+  if (!selectedInsight.value) return []
+  return evidenceEntriesFromIds(selectedInsight.value.evidence)
+})
+const rulesPipelineStatus = computed(() => {
+  const now = memory.status
+  return [
+    {
+      key: 'capture',
+      label: '采集',
+      state: now.timeMachineEnabled ? '运行中' : '待启动',
+      status: now.timeMachineEnabled ? 'ok' : 'warn',
+      note: now.timeMachineEnabled ? '持续接入时间机器输出' : '关闭会暂停新证据采集',
+    },
+    {
+      key: 'ocr',
+      label: 'OCR',
+      state: now.autoOcrEnabled ? '就绪' : '未启用',
+      status: now.autoOcrEnabled ? 'ok' : 'warn',
+      note: now.autoOcrEnabled ? '可复用截图内容' : '截图需手动触发',
+    },
+    {
+      key: 'quality',
+      label: '质检',
+      state: memory.semanticStatus ? '已接入' : '未连接',
+      status: memory.semanticStatus?.embeddingIndexed || memory.semanticStatus?.indexedEntries ? 'ok' : 'warn',
+      note:
+        memory.semanticStatus?.embeddingIndexed || memory.semanticStatus?.indexedEntries
+          ? '质检结果可回看'
+          : '需确认向量与模型状态',
+    },
+    {
+      key: 'index',
+      label: '索引',
+      state: memory.semanticStatus ? vectorStoreLabel.value : '未初始化',
+      status: memory.semanticStatus?.embeddingIndexed ? 'ok' : 'warn',
+      note: `总计 ${memory.semanticStatus?.embeddingIndexed ?? 0} 条已索引`,
+    },
+    {
+      key: 'export',
+      label: '导出/打包',
+      state: memory.scheduledDraftStatus ? '可同步' : '待触发',
+      status: 'ok',
+      note: '导出与导入为规则链保留入口',
+    },
+  ]
+})
+const timelineSelectedSummary = computed(() => {
+  if (!memory.retrospectiveSelectionCount) return '未选择复盘证据。可勾选关键轨迹或选择当前筛选结果。'
+  return `已选择 ${memory.retrospectiveSelectionCount} 条证据，可生成复盘、日报或任务包。`
+})
+const flowDateLabel = computed(() => new Date(selectedFlowDayStart.value * 1000).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', weekday: 'short' }))
+const flowDateButtonLabel = computed(() => {
+  const date = new Date(selectedFlowDayStart.value * 1000)
+  const weekday = date.toLocaleDateString('zh-CN', { weekday: 'short' })
+  const relative = relativeDayLabel(selectedFlowDayStart.value)
+  return `${timelineDayKey(selectedFlowDayStart.value)} ${relative ? `${relative} · ` : ''}${weekday}`
+})
+const flowCurrentClock = computed(() => flowHourLabel(selectedFlowHour.value))
+const flowTimeRangeLabel = computed(() => `${String(FLOW_DAY_START_HOUR).padStart(2, '0')}:00-${String(FLOW_DAY_END_HOUR).padStart(2, '0')}:00`)
+const flowWorkHoursLabel = computed(() => '09:00-18:30')
+const flowTimeRulerTicks = computed(() =>
+  [6, 9, 12, 15, 18, 21].map((hour) => ({
+    label: `${String(hour).padStart(2, '0')}:00`,
+    left: flowHourToPercent(hour),
+  })),
+)
+const flowTimeRulerNowPercent = computed(() => {
+  return flowHourToPercent(selectedFlowHour.value)
+})
+const globalSearchPlaceholder = computed(() => {
+  const labels: Record<FlowPage, string> = {
+    flow: '搜索证据、窗口、OCR 或对话...',
+    timeline: '搜索时间线证据...',
+    insights: '搜索洞察和证据链...',
+    drafts: '搜索草稿来源...',
+    assets: '搜索任务包和资产...',
+    rules: '搜索规则和索引...',
+  }
+  return labels[activeFlowPage.value]
+})
+const flowEvidenceThumbGroups = computed(() => {
+  const entries = recentEvidence.value
+  return [
+    { key: 'screenshots', label: '截图', count: evidenceCounts.value.screenshots, entries: entries.filter(isScreenshotEntry).slice(0, 3), icon: 'CAM' },
+    { key: 'ocr', label: 'OCR', count: evidenceCounts.value.ocr, entries: entries.filter(isOcrEntry).slice(0, 3), icon: 'OCR' },
+    { key: 'clipboard', label: '剪贴板', count: evidenceCounts.value.clipboard, entries: entries.filter(isClipboardEntry).slice(0, 3), icon: 'CLP' },
+  ]
+})
+const flowWindowPanelItems = computed(() => {
+  const byApp = new Map<string, { app: string; count: number; latest?: WorkMemoryEntry }>()
+  for (const entry of selectedFlowTimeWindowEntries.value) {
+    const app = entry.appName || 'Unknown'
+    const current = byApp.get(app) ?? { app, count: 0, latest: entry }
+    current.count += 1
+    if (!current.latest || entry.createdAt > current.latest.createdAt) {
+      current.latest = entry
+    }
+    byApp.set(app, current)
+  }
+  return [...byApp.values()].sort((left, right) => right.count - left.count).slice(0, 5)
+})
+const timelineDensityBars = computed(() => {
+  const buckets = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }))
+  for (const entry of timelineEntries.value) {
+    const hour = new Date(entry.createdAt * 1000).getHours()
+    buckets[hour].count += 1
+  }
+  const max = Math.max(...buckets.map((bucket) => bucket.count), 1)
+  return buckets.map((bucket) => ({
+    ...bucket,
+    height: Math.max(10, Math.round((bucket.count / max) * 100)),
+  }))
+})
+const insightLinks = computed(() => {
+  const nodes = insightNodes.value
+  return nodes.slice(0, -1).map((node, index) => {
+    const next = nodes[index + 1]
+    return {
+      id: `${node.insight.id}-${next.insight.id}`,
+      x1: 50 + Math.cos((node.angle * Math.PI) / 180) * (node.radius / 5.4),
+      y1: 50 + Math.sin((node.angle * Math.PI) / 180) * (node.radius / 5.4),
+      x2: 50 + Math.cos((next.angle * Math.PI) / 180) * (next.radius / 5.4),
+      y2: 50 + Math.sin((next.angle * Math.PI) / 180) * (next.radius / 5.4),
+      strength: index % 3,
+    }
+  })
+})
+const assetReadinessScore = computed(() => {
+  const task = memory.agentTask
+  if (!task) return 0
+  const checks = [Boolean(task.goal), Boolean(task.context), task.evidence.length > 0, task.boundaries.length > 0, task.acceptance.length > 0]
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100)
+})
+const assetReadinessParts = computed(() => [
+  { label: 'Goal', ok: Boolean(memory.agentTask?.goal) },
+  { label: 'Context', ok: Boolean(memory.agentTask?.context) },
+  { label: 'Evidence', ok: Boolean(memory.agentTask?.evidence.length) },
+  { label: 'Boundaries', ok: Boolean(memory.agentTask?.boundaries.length) },
+  { label: 'Acceptance', ok: Boolean(memory.agentTask?.acceptance.length) },
+])
+const assetMissingEvidence = computed(() => {
+  if (!memory.agentTask) return ['生成任务包后检查关键证据', '补充验收标准', '确认外部访问边界']
+  const missing: string[] = []
+  if (!memory.agentTask.evidence.length) missing.push('缺少可追溯证据')
+  if (!memory.agentTask.boundaries.length) missing.push('缺少权限和隐私边界')
+  if (!memory.agentTask.acceptance.length) missing.push('缺少验收标准')
+  return missing.length ? missing : ['任务包字段完整，外发前人工确认']
+})
+const captureSourceCards = computed(() => [
+  { label: '屏幕截图', count: evidenceCounts.value.screenshots, state: memory.status.timeMachineEnabled ? '运行中' : '暂停' },
+  { label: 'OCR 文本', count: evidenceCounts.value.ocr, state: memory.status.autoOcrEnabled ? '自动' : '手动' },
+  { label: '剪贴板', count: evidenceCounts.value.clipboard, state: '本地' },
+  { label: '应用上下文', count: topApps.value.length, state: '记录中' },
+  { label: '窗口标题', count: todayEntries.value.filter((entry) => entry.windowTitle).length, state: '索引中' },
+])
+const exclusionRuleTabs = computed(() => {
+  const draft = memory.exclusionDraft
+  const countLines = (value?: string) =>
+    String(value || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean).length
+  return [
+    { key: 'apps', label: '应用进程', count: countLines(draft.apps) },
+    { key: 'window', label: '窗口关键词', count: countLines(draft.windowKeywords) },
+    { key: 'paths', label: '路径片段', count: countLines(draft.paths) },
+    { key: 'content', label: '内容正则', count: countLines(draft.contentPatterns) },
+    { key: 'sensitive', label: '敏感凭据', count: rulesImpactStats.value[0]?.value ?? '0' },
+  ]
+})
+const exclusionRuleRows = computed(() => {
+  const draft = memory.exclusionDraft
+  const rows: Array<{ group: string; value: string; action: string; hits: number; priority: string }> = []
+  const addRows = (group: string, value: string | undefined, action: string, priority: string) => {
+    String(value || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 6)
+      .forEach((line, index) => rows.push({ group, value: line, action, hits: Math.max(0, todayEntries.value.length - index * 2), priority }))
+  }
+  addRows('应用进程', draft.apps, '阻止采集', 'P0')
+  addRows('窗口关键词', draft.windowKeywords, '标记敏感', 'P1')
+  addRows('路径片段', draft.paths, '阻止索引', 'P1')
+  addRows('内容正则', draft.contentPatterns, '质检隔离', 'P2')
+  return rows.length ? rows : [{ group: '默认', value: '暂无排除规则', action: '允许采集', hits: 0, priority: 'P3' }]
+})
+const rulesImpactStats = computed(() => {
+  const sensitive = todayEntries.value.filter((entry) => entry.sensitive).length
+  const blocked = sensitive
+  const reduced = Math.round((blocked / Math.max(todayEntries.value.length, 1)) * 100)
+  return [
+    { label: '阻止采集', value: String(blocked), note: '今日敏感/排除' },
+    { label: '减少体积', value: `${reduced}%`, note: '估算节省' },
+    { label: '节省索引', value: String(blocked), note: '未入库记录' },
+  ]
+})
+
+async function runGlobalFlowSearch() {
+  const query = globalFlowSearch.value.trim()
+  if (!query) return
+  if (activeFlowPage.value === 'flow') {
+    await askFlow(query)
+    return
+  }
+  memory.semanticDraft.query = query
+  await memory.runSemanticSearch()
+}
+
+async function copyTimelineSelectionReference() {
+  const entries = timelineSelectedEntries.value.length ? timelineSelectedEntries.value : timelineEntries.value.slice(0, 8)
+  if (!entries.length) return
+  await copyText(entries.map((entry) => `${formatTime(entry.createdAt)} · ${entryFocusTitle(entry)} · ${entry.id}`).join('\n'))
+}
+
+function evidenceEntriesFromIds(ids: string[]) {
+  return ids
+    .map((id) => flowCanvasEntryLookup.value.get(id))
+    .filter(Boolean)
+    .slice(0, 16) as WorkMemoryEntry[]
+}
+
+function setActiveDraftKind(kind: DraftKind) {
+  activeDraftKind.value = kind
+}
+
+function setActiveInsight(insight: ExperienceInsight) {
+  activeInsightId.value = insight.id
+}
+
+function insightNodeStyle(node: InsightMapNode) {
+  return {
+    transform: `rotate(${node.angle}deg) translate(${node.radius}px) rotate(-${node.angle}deg)`,
+  }
+}
+
+function openTimelinePlaybackTick(event: Event) {
+  const target = event.target as HTMLInputElement | null
+  if (!target) return
+  const value = Number(target.value)
+  if (!Number.isFinite(value)) return
+  const index = Math.max(0, Math.min(memory.playbackEntries.length - 1, value - 1))
+  void memory.selectPlayback(index)
+}
+
+function timelineEventLeft(entry: WorkMemoryEntry) {
+  const { min, span } = timelineRangeWindow.value
+  const pos = Math.max(0, Math.min(100, ((entry.createdAt - min) / span) * 100))
+  return pos
+}
+
+function timelineEventStyle(entry: WorkMemoryEntry, index = 0) {
+  return {
+    left: `${timelineEventLeft(entry)}%`,
+    top: `${8 + (index % 3) * 48}px`,
+  }
+}
 
 function sourceLabel(entry: WorkMemoryEntry) {
   const labels: Record<string, string> = {
@@ -482,18 +954,71 @@ function isOcrEntry(entry: WorkMemoryEntry) {
   return Boolean(entry.ocrText || entry.ocrStatus)
 }
 
-function canRunTimelineOCR(entry: WorkMemoryEntry) {
-  return Boolean(entry.imagePath) && !entry.sensitive && entry.qualityStatus !== 'pending'
+function timelineThumbnailUrl(entry: WorkMemoryEntry) {
+  const captureId = entry.captureId?.trim()
+  if (!captureId) return ''
+  return timelineThumbnailUrls.value[captureId] ?? ''
 }
 
-function needsOCRSummary(entry: WorkMemoryEntry) {
-  if (!canRunTimelineOCR(entry)) {
-    return false
+function timelineThumbnailIsMissing(entry: WorkMemoryEntry) {
+  const captureId = entry.captureId?.trim()
+  if (!captureId) return false
+  return Boolean(timelineThumbnailMissing.value[captureId])
+}
+
+async function loadTimelineThumbnail(captureId: string) {
+  if (!captureId || timelineThumbnailUrls.value[captureId] !== undefined) {
+    return
   }
-  if (!entry.ocrText || !String(entry.ocrStatus || '').startsWith('done')) {
-    return true
+  timelineThumbnailUrls.value = {
+    ...timelineThumbnailUrls.value,
+    [captureId]: '',
   }
-  return isGenericTimelineTitle(entry.title) || isGenericTimelineTitle(entry.summary)
+  timelineThumbnailMissing.value = {
+    ...timelineThumbnailMissing.value,
+    [captureId]: false,
+  }
+  try {
+    const url = await getCaptureThumbnailDataURL(captureId)
+    if (url) {
+      timelineThumbnailUrls.value = {
+        ...timelineThumbnailUrls.value,
+        [captureId]: url,
+      }
+    } else {
+      timelineThumbnailMissing.value = {
+        ...timelineThumbnailMissing.value,
+        [captureId]: true,
+      }
+    }
+  } catch {
+    timelineThumbnailUrls.value = {
+      ...timelineThumbnailUrls.value,
+      [captureId]: '',
+    }
+    timelineThumbnailMissing.value = {
+      ...timelineThumbnailMissing.value,
+      [captureId]: true,
+    }
+  }
+}
+
+function primeTimelineThumbnails(entries: WorkMemoryEntry[]) {
+  if (activeFlowPage.value !== 'timeline') return
+  const captureIds = [
+    ...new Set(
+      entries
+        .map((entry) => entry.captureId?.trim() ?? '')
+        .filter(Boolean),
+    ),
+  ].slice(0, 160)
+  for (const captureId of captureIds) {
+    void loadTimelineThumbnail(captureId)
+  }
+}
+
+function canRunTimelineOCR(entry: WorkMemoryEntry) {
+  return Boolean(entry.imagePath) && !entry.sensitive && entry.qualityStatus !== 'pending'
 }
 
 function timelineAppKey(entry: WorkMemoryEntry) {
@@ -519,6 +1044,18 @@ function timelineDayLabel(timestamp: number) {
   if (diffDays === 0) return `今天 · ${weekday}`
   if (diffDays === 1) return `昨天 · ${weekday}`
   return `${date.getMonth() + 1}月${date.getDate()}日 · ${weekday}`
+}
+
+function relativeDayLabel(timestamp: number) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const target = new Date(timestamp * 1000)
+  target.setHours(0, 0, 0, 0)
+  const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000)
+  if (diffDays === 0) return '今天'
+  if (diffDays === 1) return '昨天'
+  if (diffDays === -1) return '明天'
+  return ''
 }
 
 function timelineDayNote(entries: WorkMemoryEntry[]) {
@@ -613,12 +1150,92 @@ function closeTimelineAppPicker() {
   timelineAppSearch.value = ''
 }
 
+function timelineExclusionLines() {
+  return memory.exclusionDraft.apps
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function isTimelineAppExcluded(appName?: string) {
+  const normalized = String(appName || '').trim().toLowerCase()
+  if (!normalized) return false
+  return timelineExclusionLines().some((line) => line.toLowerCase() === normalized)
+}
+
+function closeTimelineLaneMenu() {
+  timelineLaneMenu.value = {
+    open: false,
+    x: 0,
+    y: 0,
+    appName: '',
+    label: '',
+    count: 0,
+  }
+}
+
+function openTimelineLaneMenu(event: MouseEvent, lane: TimelineLane) {
+  const appName = lane.appName.trim()
+  if (!appName) {
+    closeTimelineLaneMenu()
+    return
+  }
+  timelineAppPickerOpen.value = false
+  const menuWidth = 252
+  const menuHeight = 176
+  timelineLaneMenu.value = {
+    open: true,
+    x: Math.max(12, Math.min(event.clientX, window.innerWidth - menuWidth - 12)),
+    y: Math.max(12, Math.min(event.clientY, window.innerHeight - menuHeight - 12)),
+    appName,
+    label: lane.label,
+    count: lane.entries.length,
+  }
+}
+
+function showTimelineFeedback(message: string) {
+  timelineExclusionFeedback.value = message
+  window.setTimeout(() => {
+    if (timelineExclusionFeedback.value === message) {
+      timelineExclusionFeedback.value = ''
+    }
+  }, 2400)
+}
+
+function showTimelineExclusionFeedback(message: string) {
+  showTimelineFeedback(message)
+}
+
+async function addTimelineLaneAppToExclusions(appName = timelineLaneMenu.value.appName) {
+  const normalized = appName.trim()
+  if (!normalized) {
+    closeTimelineLaneMenu()
+    return
+  }
+  const lines = timelineExclusionLines()
+  if (lines.some((line) => line.toLowerCase() === normalized.toLowerCase())) {
+    showTimelineExclusionFeedback(`${normalized} 已在排除名单`)
+    closeTimelineLaneMenu()
+    return
+  }
+  memory.exclusionDraft.apps = [...lines, normalized].join('\n')
+  showTimelineExclusionFeedback(`正在保存排除应用：${normalized}`)
+  closeTimelineLaneMenu()
+  await memory.saveExclusionRules()
+}
+
 function selectTimelineAppFilter(filter: string) {
   setTimelineAppFilter(filter)
   closeTimelineAppPicker()
 }
 
 function handleTimelineAppPointerDown(event: PointerEvent) {
+  if (timelineLaneMenu.value.open) {
+    const target = event.target
+    if (!(target instanceof Node && timelineLaneMenuRef.value?.contains(target))) {
+      closeTimelineLaneMenu()
+    }
+  }
   if (!timelineAppPickerOpen.value) {
     return
   }
@@ -676,14 +1293,26 @@ function toggleTimelineSelection(id: string) {
   timelineSelectedIds.value = [...timelineSelectedIds.value, id]
 }
 
-function selectCurrentTimelineEntries() {
-  timelineDeleteArmed.value = false
-  timelineSelectedIds.value = timelineEntries.value.map((entry) => entry.id)
-}
-
 function clearTimelineSelection() {
   timelineDeleteArmed.value = false
   timelineSelectedIds.value = []
+}
+
+function toggleCurrentTimelineSelection() {
+  const currentIds = timelineEntries.value.map((entry) => entry.id).filter(Boolean)
+  timelineDeleteArmed.value = false
+  if (!currentIds.length) {
+    showTimelineFeedback('当前没有可选择的轨迹')
+    return
+  }
+  if (timelineAllCurrentSelected.value) {
+    const current = new Set(currentIds)
+    timelineSelectedIds.value = timelineSelectedIds.value.filter((id) => !current.has(id))
+    showTimelineFeedback(`已取消当前 ${currentIds.length} 条轨迹`)
+    return
+  }
+  timelineSelectedIds.value = [...new Set([...timelineSelectedIds.value, ...currentIds])]
+  showTimelineFeedback(`已全选当前 ${currentIds.length} 条轨迹`)
 }
 
 function selectCurrentTimelineForRetrospective() {
@@ -697,15 +1326,33 @@ function addTimelineSelectionToRetrospective() {
 async function deleteTimelineSelection() {
   const ids = timelineSelectedEntries.value.map((entry) => entry.id)
   if (!ids.length) {
+    showTimelineFeedback('先勾选要删除的轨迹')
     return
   }
   if (!timelineDeleteArmed.value) {
     timelineDeleteArmed.value = true
+    showTimelineFeedback(`再次点击删除 ${ids.length} 条轨迹`)
     return
   }
-  const deleted = await memory.deleteEntries(ids)
-  if (deleted) {
+  timelineDeleteArmed.value = false
+  const removed = await memory.deleteEntries(ids)
+  if (removed) {
     clearTimelineSelection()
+  }
+}
+
+async function exportTimelineSelection() {
+  const ids = timelineSelectedEntries.value.map((entry) => entry.id)
+  if (!ids.length) {
+    showTimelineFeedback('先勾选要导出的轨迹')
+    return
+  }
+  const previous = memory.exportDraft.entryIds
+  memory.exportDraft.entryIds = ids.join('\n')
+  try {
+    await memory.exportData()
+  } finally {
+    memory.exportDraft.entryIds = previous
   }
 }
 
@@ -891,10 +1538,80 @@ function canClearSecret(stored: boolean) {
   return Boolean(settings.secretStatus?.available && stored && !settings.isSaving)
 }
 
-function startOfToday() {
-  const date = new Date()
+function startOfLocalDaySeconds(timestamp: number) {
+  const date = new Date(timestamp * 1000)
   date.setHours(0, 0, 0, 0)
   return Math.floor(date.getTime() / 1000)
+}
+
+function isEntryInSelectedFlowDay(entry: WorkMemoryEntry) {
+  return entry.createdAt >= selectedFlowDayStart.value && entry.createdAt <= selectedFlowDayEnd.value
+}
+
+function currentFlowHour() {
+  const now = new Date()
+  return clampFlowHour(now.getHours() + now.getMinutes() / 60)
+}
+
+function clampFlowHour(hour: number) {
+  if (!Number.isFinite(hour)) return FLOW_DAY_START_HOUR
+  return Math.max(FLOW_DAY_START_HOUR, Math.min(FLOW_DAY_END_HOUR, hour))
+}
+
+function flowHourToPercent(hour: number) {
+  return ((clampFlowHour(hour) - FLOW_DAY_START_HOUR) / (FLOW_DAY_END_HOUR - FLOW_DAY_START_HOUR)) * 100
+}
+
+function flowHourLabel(hour: number) {
+  const clamped = clampFlowHour(hour)
+  const wholeHour = Math.floor(clamped)
+  const minute = Math.round((clamped - wholeHour) * 60)
+  return `${String(wholeHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function setFlowSelectedHour(hour: number) {
+  selectedFlowHour.value = clampFlowHour(hour)
+}
+
+function shiftFlowDate(days: number) {
+  selectedFlowDayStart.value += days * DAY_SECONDS
+  resetTimelinePaging()
+  clearTimelineSelection()
+  closeTimelineAppPicker()
+}
+
+function resetFlowDateToday() {
+  selectedFlowDayStart.value = startOfLocalDaySeconds(Math.floor(Date.now() / 1000))
+  selectedFlowHour.value = currentFlowHour()
+  resetTimelinePaging()
+  clearTimelineSelection()
+  closeTimelineAppPicker()
+}
+
+function setFlowTimeFromPointer(event: PointerEvent) {
+  const target = event.currentTarget
+  if (!(target instanceof HTMLElement)) return
+  const rect = target.getBoundingClientRect()
+  if (!rect.width) return
+  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+  setFlowSelectedHour(FLOW_DAY_START_HOUR + ratio * (FLOW_DAY_END_HOUR - FLOW_DAY_START_HOUR))
+}
+
+function adjustFlowTimeByKey(event: KeyboardEvent) {
+  const step = event.shiftKey ? 1 : 0.25
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+    event.preventDefault()
+    setFlowSelectedHour(selectedFlowHour.value - step)
+  } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    setFlowSelectedHour(selectedFlowHour.value + step)
+  } else if (event.key === 'Home') {
+    event.preventDefault()
+    setFlowSelectedHour(FLOW_DAY_START_HOUR)
+  } else if (event.key === 'End') {
+    event.preventDefault()
+    setFlowSelectedHour(FLOW_DAY_END_HOUR)
+  }
 }
 
 function createFlowChatMessage(role: FlowChatRole, text: string, patch: Partial<FlowChatMessage> = {}): FlowChatMessage {
@@ -1006,6 +1723,124 @@ function flowMessageModeClass(message: FlowChatMessage) {
   }
 }
 
+function flowMessageHtml(message: FlowChatMessage) {
+  return renderFlowMarkdown(message.text)
+}
+
+function renderFlowMarkdown(source: string) {
+  const lines = String(source || '').replace(/\r\n?/g, '\n').trim().split('\n')
+  const blocks: string[] = []
+  let paragraph: string[] = []
+  let listType: 'ul' | 'ol' | '' = ''
+  let listItems: string[] = []
+  let quote: string[] = []
+  let inCode = false
+  let codeLines: string[] = []
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return
+    blocks.push(`<p>${paragraph.map(renderInlineMarkdown).join('<br>')}</p>`)
+    paragraph = []
+  }
+  const flushList = () => {
+    if (!listType || !listItems.length) return
+    blocks.push(`<${listType}>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</${listType}>`)
+    listType = ''
+    listItems = []
+  }
+  const flushQuote = () => {
+    if (!quote.length) return
+    blocks.push(`<blockquote>${quote.map(renderInlineMarkdown).join('<br>')}</blockquote>`)
+    quote = []
+  }
+  const flushCode = () => {
+    blocks.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`)
+    codeLines = []
+  }
+  const flushLoose = () => {
+    flushParagraph()
+    flushList()
+    flushQuote()
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (/^```/.test(trimmed)) {
+      if (inCode) {
+        flushCode()
+        inCode = false
+      } else {
+        flushLoose()
+        inCode = true
+      }
+      continue
+    }
+    if (inCode) {
+      codeLines.push(line)
+      continue
+    }
+    if (!trimmed) {
+      flushLoose()
+      continue
+    }
+    const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed)
+    if (heading) {
+      flushLoose()
+      const level = Math.min(5, heading[1].length + 2)
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`)
+      continue
+    }
+    const unordered = /^[-*]\s+(.+)$/.exec(trimmed)
+    if (unordered) {
+      flushParagraph()
+      flushQuote()
+      if (listType && listType !== 'ul') flushList()
+      listType = 'ul'
+      listItems.push(unordered[1])
+      continue
+    }
+    const ordered = /^\d+[.)]\s+(.+)$/.exec(trimmed)
+    if (ordered) {
+      flushParagraph()
+      flushQuote()
+      if (listType && listType !== 'ol') flushList()
+      listType = 'ol'
+      listItems.push(ordered[1])
+      continue
+    }
+    const quoted = /^>\s?(.+)$/.exec(trimmed)
+    if (quoted) {
+      flushParagraph()
+      flushList()
+      quote.push(quoted[1])
+      continue
+    }
+    flushList()
+    flushQuote()
+    paragraph.push(line)
+  }
+  if (inCode) flushCode()
+  flushLoose()
+  return blocks.join('')
+}
+
+function renderInlineMarkdown(source: string) {
+  let html = escapeHtml(source)
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  return html
+}
+
+function escapeHtml(source: string) {
+  return String(source)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function flowTranscript(messages: FlowChatMessage[]) {
   return messages
     .map((message) => `【${flowMessageRoleLabel(message)} · ${flowMessageTime(message)}】\n${message.text.trim()}`)
@@ -1048,7 +1883,7 @@ function showAssetFeedback(message: string) {
   }, 2400)
 }
 
-function focusAsset(kind: 'agent' | 'workflow' | 'checklist') {
+function focusAsset(kind: 'agent' | 'workflow' | 'checklist' | 'skill') {
   activeAssetFocus.value = kind
   activeFlowPage.value = 'assets'
   detailDrawerOpen.value = false
@@ -1203,6 +2038,7 @@ function focusFlowChatInput(event?: PointerEvent) {
 function openFlowPage(page: FlowPage) {
   activeFlowPage.value = page
   detailDrawerOpen.value = false
+  closeTimelineLaneMenu()
 }
 
 function openEvidence(entry: WorkMemoryEntry) {
@@ -1228,6 +2064,246 @@ function evidenceLabel() {
   return evidenceExpanded.value ? '收起证据' : `查看 ${count} 条证据`
 }
 
+const flowPageContext = reactive({
+  AriButton: markRaw(AriButton),
+  ArrowLeft: markRaw(ArrowLeft),
+  ArrowRight: markRaw(ArrowRight),
+  Brain: markRaw(Brain),
+  Camera: markRaw(Camera),
+  Check: markRaw(Check),
+  ChevronDown: markRaw(ChevronDown),
+  Clock3: markRaw(Clock3),
+  Copy: markRaw(Copy),
+  Database: markRaw(Database),
+  Download: markRaw(Download),
+  FileText: markRaw(FileText),
+  Flag: markRaw(Flag),
+  ImageOff: markRaw(ImageOff),
+  KeyRound: markRaw(KeyRound),
+  Play: markRaw(Play),
+  Plus: markRaw(Plus),
+  RefreshCw: markRaw(RefreshCw),
+  Search: markRaw(Search),
+  Settings: markRaw(Settings),
+  Shield: markRaw(Shield),
+  Sparkles: markRaw(Sparkles),
+  Tags: markRaw(Tags),
+  Trash2: markRaw(Trash2),
+  Upload: markRaw(Upload),
+  Workflow: markRaw(Workflow),
+  X: markRaw(X),
+  DAY_SECONDS,
+  FLOW_DAY_END_HOUR,
+  FLOW_DAY_START_HOUR,
+  activeAssetFocus,
+  activeDraft,
+  activeDraftKind,
+  activeDraftSourceSummary,
+  activeFlowPage,
+  activeInsightId,
+  addAppCaptureProfile,
+  addTimelineLaneAppToExclusions,
+  addTimelineSelectionToRetrospective,
+  adjustFlowTimeByKey,
+  appAvatarText,
+  appCaptureCandidates,
+  appCaptureProfiles,
+  appShell,
+  askFlow,
+  askedEvidenceEntries,
+  assetFeedback,
+  assetMissingEvidence,
+  assetReadinessParts,
+  assetReadinessScore,
+  autonomousInboxSummary,
+  autonomousKindLabel,
+  autonomousRejectReason,
+  batchOcrProgressPercent,
+  beginRejectAutonomousArtifact,
+  buildAutomationFromInsight,
+  buildChecklistFromInsight,
+  buildCurrentMemoryTaskPackage,
+  canClearSecret,
+  canRunTimelineOCR,
+  canSaveSecret,
+  cancelRejectAutonomousArtifact,
+  captureScopeLabel,
+  captureSourceCards,
+  clearFlowChatSelection,
+  clearTimelineSelection,
+  closeFlowMessageMenu,
+  closeTimelineAppPicker,
+  closeTimelineLaneMenu,
+  confidenceLabel,
+  confirmRejectAutonomousArtifact,
+  copyAutonomousArtifact,
+  copyCurrentAgentTask,
+  copyFlowMessage,
+  copySelectedFlowMessages,
+  copyTimelineSelectionReference,
+  decisionLabel,
+  deleteProgressPercent,
+  deleteTimelineSelection,
+  detailDrawerOpen,
+  displayAppName,
+  draftEvidenceTimeline,
+  draftItems,
+  draftTimelineEntries,
+  entryEvidenceBadges,
+  entryFocusSummary,
+  entryFocusTitle,
+  evidenceCounts,
+  evidenceEntriesFromIds,
+  evidenceExpanded,
+  evidenceLabel,
+  exclusionRuleRows,
+  exclusionRuleTabs,
+  exportTimelineSelection,
+  filteredTimelineAppOptions,
+  flowBusy,
+  flowCanvasActiveId,
+  flowCanvasEvidenceClusters,
+  flowCanvasPrimaryEntry,
+  flowChatInputRef,
+  flowChatIsEmpty,
+  flowChatMessages,
+  flowChatSelectedIds,
+  flowChatThreadRef,
+  flowContextMenu,
+  flowCurrentClock,
+  flowDateButtonLabel,
+  flowDateLabel,
+  flowEvidenceThumbGroups,
+  flowMessageEvidenceLabel,
+  flowMessageHtml,
+  flowMessageModeClass,
+  flowMessageModeLabel,
+  flowMessageRoleLabel,
+  flowMessageTime,
+  flowPages,
+  flowQuestion,
+  flowRememberFeedback,
+  flowSelectionLabel,
+  flowSettingsOpen,
+  flowSettingsTab,
+  flowSettingsTabs,
+  flowSuggestedQuestions,
+  flowTimeRangeLabel,
+  flowTimeRulerNowPercent,
+  flowTimeRulerTicks,
+  flowWindowPanelItems,
+  flowWorkHoursLabel,
+  focusAsset,
+  focusFlowChatInput,
+  formatDuration,
+  formatTime,
+  formatTimelineClock,
+  globalFlowSearch,
+  globalSearchPlaceholder,
+  handleFlowMessageClick,
+  handoffInsightToAgent,
+  insightEvidencePreview,
+  insightLinks,
+  insightNodeStyle,
+  insightNodes,
+  insightProgressPercent,
+  isClipboardEntry,
+  isFlowMessageSelectable,
+  isFlowMessageSelected,
+  isNoteEntry,
+  isOcrEntry,
+  isScreenshotEntry,
+  isTimelineAppExcluded,
+  isTimelineSelected,
+  loadMoreTimelineDays,
+  memory,
+  multiMonitorLabel,
+  openEvidence,
+  openFlowPage,
+  openFlowSettings,
+  openFlowMessageMenu,
+  openTimelineLaneMenu,
+  openTimelinePlaybackTick,
+  recentEvidence,
+  rejectingAutonomousArtifactId,
+  rememberSelectedFlowMessages,
+  removeAppCaptureProfile,
+  resetFlowDateToday,
+  rulesImpactStats,
+  rulesPipelineStatus,
+  runAutonomousFlow,
+  runGlobalFlowSearch,
+  runTimelineBatchOCR,
+  runtimeStatusText,
+  saveFlowSettings,
+  secretInputValue,
+  secretSourceLabel,
+  selectAppCaptureProfile,
+  selectCurrentTimelineForRetrospective,
+  selectSingleFlowMessage,
+  selectTimelineAppFilter,
+  selected,
+  selectedAppCaptureProfile,
+  selectedAppCaptureProfileId,
+  selectedFlowChatMessages,
+  selectedFlowHour,
+  selectedInsight,
+  selectedTimelineAppLabel,
+  selectedTimelineAppCount,
+  setActiveDraftKind,
+  setActiveInsight,
+  setFlowSettingsTab,
+  setFlowTimeFromPointer,
+  setTimelineFilter,
+  settings,
+  shiftFlowDate,
+  sourceLabel,
+  timeMachineLabel,
+  timelineAllCurrentSelected,
+  timelineAppFilter,
+  timelineAppOptions,
+  timelineAppPickerOpen,
+  timelineAppSearch,
+  timelineAppSearchRef,
+  timelineAppSelectRef,
+  timelineAxisTicks,
+  timelineBatchOcrEntries,
+  timelineDeleteLabel,
+  timelineDensityBars,
+  timelineEntries,
+  timelineEventStyle,
+  timelineExclusionFeedback,
+  timelineFilterCounts,
+  timelineFilters,
+  timelineHasMoreDays,
+  timelineLaneMenu,
+  timelineLaneMenuRef,
+  timelineLanes,
+  timelineLoadMoreRef,
+  timelinePlayStateLabel,
+  timelineScrubPercent,
+  timelineSelectAllLabel,
+  timelineSelectedEntries,
+  timelineSelectedSummary,
+  timelineSourceEntries,
+  timelineSourceFilter,
+  timelineStats,
+  timelineThumbnailIsMissing,
+  timelineThumbnailUrl,
+  todayEntries,
+  toggleCurrentTimelineSelection,
+  toggleFlowMessageSelection,
+  toggleTimelineAppPicker,
+  toggleTimelineSelection,
+  topApps,
+  useFlowQuestion,
+  vectorProviderLabel,
+  vectorStatusLabel,
+  vectorStoreLabel,
+})
+
+provide(workMemoryFlowContextKey, flowPageContext)
+
 onMounted(() => {
   void memory.load()
   void settings.load()
@@ -1239,6 +2315,12 @@ watch(
   () => [activeFlowPage.value, visibleTimelineDayGroups.value.length, timelineHasMoreDays.value],
   () => setupTimelineLoadObserver(),
   { flush: 'post' },
+)
+
+watch(
+  () => [activeFlowPage.value, timelineEntries.value.map((entry) => `${entry.id}:${entry.captureId ?? ''}`).join('|')],
+  () => primeTimelineThumbnails(timelineEntries.value),
+  { immediate: true, flush: 'post' },
 )
 
 onBeforeUnmount(() => {
@@ -1253,1492 +2335,23 @@ onBeforeUnmount(() => {
     <div class="app-frame">
       <section class="launcher-shell memory-shell flow-shell" aria-label="Ariadne flow center">
         <div class="flow-app-shell">
-          <aside class="flow-sidebar" aria-label="心流导航">
-            <div class="flow-sidebar-brand">
-              <div class="flow-logo-mark" aria-hidden="true">
-                <img src="/favicon.svg" alt="" />
-              </div>
-              <div>
-                <strong>心流</strong>
-                <span>你的第二大脑</span>
-              </div>
-            </div>
+          <FlowSidebar />
 
-            <nav class="flow-side-nav">
-              <button
-                v-for="page in flowPages"
-                :key="page.id"
-                type="button"
-                class="flow-side-nav-item"
-                :class="{ 'is-active': activeFlowPage === page.id }"
-                @click="openFlowPage(page.id)"
-              >
-                <component :is="page.icon" :size="22" />
-                <span>{{ page.label }}</span>
-              </button>
-            </nav>
+          <section class="flow-stage" :class="{ 'is-chat-home': activeFlowPage === 'flow' }">
+            <FlowStageTop v-if="activeFlowPage !== 'flow'" />
 
-            <div class="flow-sidebar-footer">
-              <button type="button" class="flow-side-nav-item" @click="openFlowSettings()">
-                <Settings :size="22" />
-                <span>设置</span>
-              </button>
-              <button type="button" class="flow-side-nav-item" @click="appShell.openLauncher()">
-                <ArrowLeft :size="22" />
-                <span>收起</span>
-              </button>
-            </div>
-          </aside>
+            <FlowHomePage v-if="activeFlowPage === 'flow'" />
+            <FlowTimelinePage v-else-if="activeFlowPage === 'timeline'" />
+            <FlowInsightsPage v-else-if="activeFlowPage === 'insights'" />
+            <FlowDraftsPage v-else-if="activeFlowPage === 'drafts'" />
+            <FlowAssetsPage v-else-if="activeFlowPage === 'assets'" />
+            <FlowRulesPage v-else-if="activeFlowPage === 'rules'" />
 
-          <section class="flow-stage">
-            <header class="flow-stage-top">
-              <div class="flow-center-pill">
-                <span aria-hidden="true"></span>
-                自动整理中 · 自建模型
-              </div>
-              <div class="flow-stage-actions">
-                <button type="button" class="flow-soft-action" :disabled="memory.isRunningAutonomousFlow" @click="runAutonomousFlow()">
-                  <RefreshCw :size="14" />
-                  {{ memory.isRunningAutonomousFlow ? '整理中' : '自主整理' }}
-                </button>
-                <button
-                  type="button"
-                  class="flow-soft-action"
-                  :disabled="memory.proactiveSourcesEnabled"
-                  @click="memory.enableProactiveSinking()"
-                >
-                  <Sparkles :size="14" />
-                  {{ memory.proactiveSourcesEnabled ? '主动沉淀已开' : '开启主动沉淀' }}
-                </button>
-                <button type="button" class="flow-soft-action" @click="memory.toggleTimeMachine()">
-                  <component :is="memory.status.timeMachineEnabled ? Pause : Play" :size="14" />
-                  {{ memory.status.timeMachineEnabled ? `采集${timeMachineLabel}` : '开启采集' }}
-                </button>
-                <button
-                  type="button"
-                  class="flow-soft-action"
-                  :class="{ 'is-active': memory.status.privacyMode }"
-                  @click="memory.togglePrivacyMode()"
-                >
-                  <Shield :size="14" />
-                  {{ memory.status.privacyMode ? '隐私模式' : '本地优先' }}
-                </button>
-              </div>
-            </header>
+        <FlowSettingsDrawer />
 
-        <section v-if="activeFlowPage === 'flow'" class="flow-home flow-chat-home" aria-label="我与心流的对话" @click="closeFlowMessageMenu()">
-          <section class="flow-chat-panel" data-no-drag>
-            <header class="flow-chat-header">
-              <div class="flow-chat-title">
-                <span>
-                  <Brain :size="16" />
-                  我与心流的对话
-                </span>
-                <h1>直接问，把上下文交给心流整理</h1>
-                <p>对话默认不进入沉淀，选中消息后再加入。</p>
-              </div>
-              <div class="flow-chat-status">
-                <strong>{{ flowChatStatusText }}</strong>
-                <small>{{ vectorProviderLabel }} · {{ vectorStoreLabel }}</small>
-              </div>
-            </header>
+        <FlowDetailDrawer />
 
-            <section class="flow-health-strip" data-no-drag>
-              <article v-for="card in flowHealthCards" :key="card.label" :class="`is-${card.tone}`">
-                <span>{{ card.label }}</span>
-                <strong>{{ card.value }}</strong>
-                <small>{{ card.note }}</small>
-              </article>
-              <button v-if="memory.autonomousArtifacts.length" type="button" class="flow-inbox-nudge" @click.stop="activeFlowPage = 'assets'">
-                <Sparkles :size="16" />
-                <span>{{ autonomousInboxSummary }}</span>
-                <small>去资产收件箱</small>
-              </button>
-            </section>
-            <div v-if="flowHealthEvents.length" class="flow-health-events" data-no-drag>
-              <span v-for="event in flowHealthEvents" :key="`${event.kind}-${event.id || event.createdAt}`">
-                {{ event.title }}<small v-if="event.detail"> · {{ event.detail }}</small>
-              </span>
-            </div>
-
-            <div v-if="selectedFlowChatMessages.length" class="flow-selection-bar">
-              <span>{{ flowSelectionLabel }}</span>
-              <button type="button" @click.stop="copySelectedFlowMessages()">
-                <Copy :size="14" />
-                复制
-              </button>
-              <button type="button" @click.stop="rememberSelectedFlowMessages()">
-                <Plus :size="14" />
-                {{ flowRememberFeedback || '加入沉淀' }}
-              </button>
-              <button type="button" @click.stop="clearFlowChatSelection()">
-                <X :size="14" />
-                取消
-              </button>
-            </div>
-
-            <div ref="flowChatThreadRef" class="flow-chat-thread" data-no-drag>
-              <article
-                v-for="message in flowChatMessages"
-                :key="message.id"
-                class="flow-message"
-                :class="{
-                  'is-user': message.role === 'user',
-                  'is-assistant': message.role === 'assistant',
-                  'is-selected': isFlowMessageSelected(message),
-                  'is-pending': message.pending,
-                  'is-error': message.error,
-                }"
-                @click="handleFlowMessageClick(message, $event)"
-                @contextmenu="openFlowMessageMenu($event, message)"
-              >
-                <button
-                  v-if="isFlowMessageSelectable(message)"
-                  type="button"
-                  class="flow-message-selector"
-                  :aria-pressed="isFlowMessageSelected(message)"
-                  :aria-label="isFlowMessageSelected(message) ? '取消选择消息' : '选择消息'"
-                  @click.stop="toggleFlowMessageSelection(message)"
-                >
-                  <Check v-if="isFlowMessageSelected(message)" :size="13" />
-                </button>
-                <div class="flow-message-avatar" aria-hidden="true">
-                  <span v-if="message.role === 'user'">我</span>
-                  <Sparkles v-else :size="20" />
-                </div>
-                <div class="flow-message-bubble" data-no-drag>
-                  <div class="flow-message-meta">
-                    <strong>{{ flowMessageRoleLabel(message) }}</strong>
-                    <span v-if="flowMessageModeLabel(message)" class="flow-message-mode" :class="flowMessageModeClass(message)">
-                      {{ flowMessageModeLabel(message) }}
-                    </span>
-                    <small>{{ flowMessageTime(message) }}</small>
-                  </div>
-                  <p class="flow-message-text" data-no-drag>{{ message.text }}</p>
-                  <div v-if="message.result?.evidence.length" class="flow-message-foot">
-                    <button type="button" @click.stop="evidenceExpanded = true">
-                      <Camera :size="14" />
-                      {{ flowMessageEvidenceLabel(message) }}
-                    </button>
-                    <span>{{ message.result.usedAi ? 'AI 组织' : '本地归纳' }}</span>
-                  </div>
-                  <div v-if="isFlowMessageSelectable(message)" class="flow-message-actions">
-                    <button type="button" @click.stop="copyFlowMessage(message)">
-                      <Copy :size="13" />
-                      复制
-                    </button>
-                    <button type="button" @click.stop="selectSingleFlowMessage(message); rememberSelectedFlowMessages()">
-                      <Plus :size="13" />
-                      沉淀
-                    </button>
-                  </div>
-                </div>
-              </article>
-            </div>
-
-            <footer class="flow-chat-composer" data-no-drag>
-              <div class="flow-chat-question-chips">
-                <button v-for="question in flowSuggestedQuestions" :key="question" type="button" @click="useFlowQuestion(question)">
-                  {{ question }}
-                </button>
-              </div>
-              <div class="flow-chat-input-row" @pointerdown="focusFlowChatInput">
-                <textarea
-                  ref="flowChatInputRef"
-                  v-model="flowQuestion"
-                  spellcheck="false"
-                  placeholder="问心流，比如：今天哪些人找过我"
-                  @keydown.enter.exact.prevent="askFlow()"
-                  @keydown.ctrl.enter.prevent="askFlow()"
-                />
-                <button type="button" class="flow-send-button" :disabled="flowBusy || memory.isAskingFlow || !flowQuestion.trim()" aria-label="发送给心流" @click="askFlow()">
-                  <ArrowRight :size="22" />
-                </button>
-              </div>
-              <div class="flow-evidence-summary flow-chat-evidence-summary">
-                <strong>证据</strong>
-                <span>
-                  <Camera :size="14" />
-                  {{ evidenceCounts.screenshots }}
-                </span>
-                <span>
-                  <FileText :size="14" />
-                  {{ evidenceCounts.ocr }}
-                </span>
-                <span>
-                  <Copy :size="14" />
-                  {{ evidenceCounts.clipboard }}
-                </span>
-                <button type="button" @click.stop="evidenceExpanded = !evidenceExpanded">{{ evidenceLabel() }}</button>
-                <small v-if="flowRememberFeedback && !selectedFlowChatMessages.length">{{ flowRememberFeedback }}</small>
-              </div>
-            </footer>
-          </section>
-
-          <div
-            v-if="flowContextMenu.open"
-            class="flow-chat-context-menu"
-            :style="{ left: `${flowContextMenu.x}px`, top: `${flowContextMenu.y}px` }"
-            @click.stop
-          >
-            <button type="button" @click="rememberSelectedFlowMessages()">
-              <Plus :size="14" />
-              加入沉淀
-            </button>
-            <button type="button" @click="copySelectedFlowMessages()">
-              <Copy :size="14" />
-              复制选中
-            </button>
-            <button type="button" @click="clearFlowChatSelection(); closeFlowMessageMenu()">
-              <X :size="14" />
-              清除选择
-            </button>
-          </div>
-
-          <section class="flow-evidence-panel flow-chat-evidence-panel" :class="{ 'is-expanded': evidenceExpanded }">
-            <div class="flow-panel-head">
-              <div>
-                <span>证据抽屉</span>
-                <h2>{{ evidenceExpanded ? '最近证据' : '已收起' }}</h2>
-              </div>
-              <button type="button" class="flow-text-button" @click="evidenceExpanded = !evidenceExpanded">
-                {{ evidenceExpanded ? '收起' : '展开' }}
-              </button>
-            </div>
-            <div v-if="evidenceExpanded" class="flow-evidence-list">
-              <button v-for="entry in recentEvidence" :key="entry.id" type="button" class="flow-evidence-row" @click="openEvidence(entry)">
-                <span>{{ sourceLabel(entry) }}</span>
-                <strong>{{ entry.title }}</strong>
-                <small>{{ entry.appName || 'Unknown' }} · {{ formatTime(entry.createdAt) }}</small>
-              </button>
-              <div v-if="!recentEvidence.length" class="flow-empty-note">还没有可展示的证据。</div>
-            </div>
-          </section>
-        </section>
-
-        <section v-else-if="activeFlowPage === 'timeline'" class="flow-page-panel flow-timeline-page" aria-label="心流时间线">
-          <div class="flow-page-header flow-timeline-hero">
-            <div>
-              <span>TIMELINE</span>
-              <h1>时间线</h1>
-              <p>只按时间回看关键轨迹。明细、OCR 和图片证据默认收起，需要时再打开。</p>
-            </div>
-            <div class="flow-page-actions">
-              <AriButton size="sm" variant="secondary" :disabled="!timelineEntries.length" @click="selectCurrentTimelineEntries()">
-                <Check :size="14" />
-                选择当前结果
-              </AriButton>
-              <AriButton
-                size="sm"
-                variant="secondary"
-                :disabled="!timelineBatchOcrEntries.length || memory.isBatchRecognizingOCR"
-                @click="runTimelineBatchOCR()"
-              >
-                <RefreshCw :size="14" :class="{ 'is-spinning': memory.isBatchRecognizingOCR }" />
-                {{ timelineBatchOcrLabel }}
-              </AriButton>
-              <AriButton
-                size="sm"
-                :variant="timelineDeleteArmed ? 'primary' : 'secondary'"
-                class="flow-danger-action"
-                :disabled="!timelineSelectedEntries.length || memory.isDeletingEntries || memory.isBatchRecognizingOCR"
-                @click="deleteTimelineSelection()"
-              >
-                <Trash2 :size="14" />
-                {{ timelineDeleteArmed ? `确认删除 ${timelineSelectedEntries.length} 条` : '删除选中' }}
-              </AriButton>
-              <AriButton size="sm" variant="ghost" :disabled="!timelineSelectedEntries.length" @click="clearTimelineSelection()">
-                清空
-              </AriButton>
-            </div>
-          </div>
-
-          <div class="flow-timeline-stats">
-            <div v-for="stat in timelineStats" :key="stat.label" class="flow-timeline-stat">
-              <span>{{ stat.label }}</span>
-              <strong>{{ stat.value }}</strong>
-              <small>{{ stat.note }}</small>
-            </div>
-          </div>
-
-          <div class="flow-filter-strip" aria-label="时间线筛选">
-            <button
-              v-for="filter in timelineFilters"
-              :key="filter.id"
-              type="button"
-              :class="{ 'is-active': timelineSourceFilter === filter.id }"
-              @click="setTimelineFilter(filter.id)"
-            >
-              <component :is="filter.icon" :size="15" />
-              <span>{{ filter.label }}</span>
-              <small>{{ timelineFilterCounts[filter.id] }}</small>
-            </button>
-          </div>
-
-          <div v-if="timelineAppOptions.length" ref="timelineAppSelectRef" class="flow-app-select" aria-label="来源程序筛选" @keydown.esc.stop.prevent="closeTimelineAppPicker()">
-            <button
-              type="button"
-              class="flow-app-select-trigger"
-              :class="{ 'is-open': timelineAppPickerOpen, 'is-filtered': timelineAppFilter !== 'all' }"
-              :aria-expanded="timelineAppPickerOpen"
-              aria-haspopup="listbox"
-              @click="toggleTimelineAppPicker()"
-            >
-              <span class="flow-app-select-label">
-                <span>来源程序</span>
-                <strong>{{ selectedTimelineAppLabel }}</strong>
-              </span>
-              <small>{{ selectedTimelineAppCount }}</small>
-              <ChevronDown :size="16" />
-            </button>
-            <div v-if="timelineAppPickerOpen" class="flow-app-select-menu" role="listbox">
-              <label class="flow-app-select-search">
-                <Search :size="15" />
-                <input ref="timelineAppSearchRef" v-model="timelineAppSearch" type="search" placeholder="搜索程序" />
-              </label>
-              <div class="flow-app-select-options">
-                <button
-                  type="button"
-                  role="option"
-                  :aria-selected="timelineAppFilter === 'all'"
-                  :class="{ 'is-active': timelineAppFilter === 'all' }"
-                  @click="selectTimelineAppFilter('all')"
-                >
-                  <span class="flow-app-avatar">A</span>
-                  <span>全部程序</span>
-                  <small>{{ timelineSourceEntries.length }}</small>
-                </button>
-                <button
-                  v-for="option in filteredTimelineAppOptions"
-                  :key="option.id"
-                  type="button"
-                  role="option"
-                  :title="option.label"
-                  :aria-selected="timelineAppFilter === option.id"
-                  :class="{ 'is-active': timelineAppFilter === option.id }"
-                  @click="selectTimelineAppFilter(option.id)"
-                >
-                  <span class="flow-app-avatar">{{ appAvatarText(option.label) }}</span>
-                  <span>{{ option.label }}</span>
-                  <small>{{ option.count }}</small>
-                </button>
-                <div v-if="!filteredTimelineAppOptions.length" class="flow-app-select-empty">没有匹配的程序</div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="memory.isDeletingEntries || memory.deleteProgressTotal" class="flow-progress-strip is-danger" role="status" aria-live="polite">
-            <div>
-              <strong>正在删除选中轨迹</strong>
-              <small>{{ memory.deleteProgressDone }} / {{ memory.deleteProgressTotal }} 条</small>
-            </div>
-            <div class="flow-progress-track">
-              <span :style="{ width: `${deleteProgressPercent}%` }" />
-            </div>
-          </div>
-
-          <div v-if="memory.isBatchRecognizingOCR || memory.batchOcrProgressTotal" class="flow-progress-strip" role="status" aria-live="polite">
-            <div>
-              <strong>正在批量 OCR+总结</strong>
-              <small>{{ memory.batchOcrProgressDone }} / {{ memory.batchOcrProgressTotal }} 条</small>
-            </div>
-            <p v-if="memory.batchOcrProgressStage" class="flow-progress-note">{{ memory.batchOcrProgressStage }}</p>
-            <div class="flow-progress-track">
-              <span :style="{ width: `${batchOcrProgressPercent}%` }" />
-            </div>
-          </div>
-
-          <div class="flow-timeline-layout">
-            <section class="flow-timeline-main" aria-label="轨迹列表">
-              <div class="flow-panel-head">
-                <div>
-                  <span>最近轨迹</span>
-                  <strong>{{ timelineEntries.length }} 条 · {{ selectedTimelineAppLabel }}</strong>
-                </div>
-                <small>{{ timelineSelectionSummary }}，点击条目打开证据抽屉</small>
-              </div>
-
-              <div class="flow-timeline-list">
-                <section v-for="group in visibleTimelineDayGroups" :key="group.id" class="flow-timeline-day">
-                  <div class="flow-timeline-day-marker">
-                    <span>{{ group.label }}</span>
-                    <small>{{ group.note }}</small>
-                  </div>
-                  <div class="flow-timeline-day-events">
-                    <article
-                      v-for="entry in group.entries"
-                      :key="entry.id"
-                      class="flow-timeline-row"
-                      :class="{
-                        'is-selected': entry.id === memory.selectedId,
-                        'is-timeline-selected': isTimelineSelected(entry.id),
-                        'is-retrospective-selected': memory.isRetrospectiveSelected(entry.id),
-                        'is-sensitive': entry.sensitive,
-                      }"
-                    >
-                      <button
-                        type="button"
-                        class="flow-timeline-check"
-                        :aria-pressed="isTimelineSelected(entry.id)"
-                        :aria-label="isTimelineSelected(entry.id) ? '从批量选择中移除' : '加入批量选择'"
-                        @click.stop="toggleTimelineSelection(entry.id)"
-                      >
-                        <Check v-if="isTimelineSelected(entry.id)" :size="13" />
-                      </button>
-                      <button type="button" class="flow-timeline-open" @click="openEvidence(entry)">
-                        <span class="flow-timeline-time">{{ formatTimelineClock(entry.createdAt) }}</span>
-                        <span class="flow-timeline-copy">
-                          <strong>{{ entryFocusTitle(entry) }}</strong>
-                          <span>{{ entryFocusSummary(entry) }}</span>
-                          <small>
-                            <span>{{ entry.appName || 'Unknown' }}</span>
-                            <span>{{ sourceLabel(entry) }}</span>
-                            <span>{{ entry.windowTitle || '无窗口标题' }}</span>
-                          </small>
-                        </span>
-                      </button>
-                      <span class="flow-timeline-kind">
-                        <Camera v-if="isScreenshotEntry(entry)" :size="14" />
-                        <Copy v-else-if="isClipboardEntry(entry)" :size="14" />
-                        <FileText v-else :size="14" />
-                        {{ sourceLabel(entry) }}
-                      </span>
-                      <div v-if="entryEvidenceBadges(entry).length" class="flow-timeline-badges" aria-label="证据类型">
-                        <span v-for="badge in entryEvidenceBadges(entry)" :key="badge">{{ badge }}</span>
-                      </div>
-                    </article>
-                  </div>
-                </section>
-
-                <div v-if="timelineHasMoreDays" ref="timelineLoadMoreRef" class="flow-timeline-load-more">
-                  <span>继续向下滚动加载更早一天</span>
-                  <button type="button" @click="loadMoreTimelineDays">立即加载</button>
-                </div>
-
-                <div v-if="!timelineEntries.length" class="flow-empty-card">
-                  <Clock3 :size="24" />
-                  <strong>没有匹配的轨迹</strong>
-                  <p>换一个来源筛选，或在主搜索里查找 OCR、剪贴板、窗口标题和笔记。</p>
-                </div>
-              </div>
-            </section>
-
-            <aside class="flow-timeline-sidebar" aria-label="时间线辅助信息">
-              <section class="flow-quiet-panel">
-                <div class="side-title">
-                  <Flag :size="15" />
-                  复盘选择
-                </div>
-                <strong>{{ memory.retrospectiveTargetLabel }}</strong>
-                <p>{{ timelineSelectedSummary }}</p>
-                <div class="memory-side-actions">
-                  <AriButton size="sm" variant="secondary" :disabled="!timelineSelectedEntries.length" @click="addTimelineSelectionToRetrospective()">
-                    选中入复盘
-                  </AriButton>
-                  <AriButton size="sm" variant="secondary" :disabled="!timelineEntries.length" @click="selectCurrentTimelineForRetrospective()">
-                    当前入复盘
-                  </AriButton>
-                  <AriButton size="sm" variant="ghost" :disabled="!memory.retrospectiveSelectionCount" @click="memory.clearRetrospectiveSelection()">
-                    清空复盘
-                  </AriButton>
-                  <AriButton size="sm" variant="primary" :disabled="!memory.retrospectiveSelectionCount" @click="memory.buildRetrospectiveDraft()">
-                    生成复盘
-                  </AriButton>
-                </div>
-              </section>
-
-              <section class="flow-quiet-panel">
-                <div class="side-title">
-                  <Clock3 :size="15" />
-                  时间机器
-                </div>
-                <div class="flow-mini-playback" :class="{ 'has-image': Boolean(memory.playbackImageUrl) }">
-                  <img v-if="memory.playbackImageUrl" :src="memory.playbackImageUrl" alt="时间机器回放帧" />
-                  <span v-else>{{ memory.playbackEntries.length ? '可回放截图帧' : '暂无截图帧' }}</span>
-                </div>
-                <div class="memory-side-actions">
-                  <AriButton size="sm" variant="ghost" :disabled="!memory.playbackEntries.length" @click="memory.stepPlayback(-1)">
-                    <ArrowLeft :size="14" />
-                  </AriButton>
-                  <AriButton size="sm" variant="secondary" :disabled="!memory.playbackEntries.length || memory.isLoadingPlaybackImage" @click="memory.startPlayback()">
-                    <Play :size="14" />
-                    {{ memory.playbackEntry ? '定位' : '开始' }}
-                  </AriButton>
-                  <AriButton size="sm" variant="ghost" :disabled="!memory.playbackEntries.length" @click="memory.stepPlayback(1)">
-                    <ArrowRight :size="14" />
-                  </AriButton>
-                </div>
-                <small>{{ memory.playbackPosition }}</small>
-              </section>
-
-              <section class="flow-quiet-panel">
-                <div class="side-title">
-                  <Database :size="15" />
-                  今日来源
-                </div>
-                <div class="flow-source-summary">
-                  <span><Camera :size="14" /> 截图 {{ evidenceCounts.screenshots }}</span>
-                  <span><Copy :size="14" /> 剪贴板 {{ evidenceCounts.clipboard }}</span>
-                  <span><FileText :size="14" /> OCR {{ evidenceCounts.ocr }}</span>
-                </div>
-                <div class="flow-app-list">
-                  <span v-for="[app, count] in topApps" :key="app">
-                    <strong>{{ app }}</strong>
-                    <small>{{ count }} 条</small>
-                  </span>
-                </div>
-              </section>
-            </aside>
-          </div>
-        </section>
-
-        <section v-else-if="activeFlowPage === 'insights'" class="flow-page-panel flow-insights-page" aria-label="心流洞察">
-          <div class="flow-page-header">
-            <div>
-              <span>INSIGHTS</span>
-              <h1>自动归纳的线索</h1>
-              <p>这里不再要求你逐条接受或驳回。Ariadne 只展示可解释的发现，真正要转成任务包、工作流或清单时再确认。</p>
-            </div>
-            <div class="flow-page-actions">
-              <AriButton size="sm" variant="secondary" @click="memory.discoverExperienceReport()">
-                <Sparkles :size="14" />
-                本地归纳
-              </AriButton>
-              <AriButton
-                size="sm"
-                :variant="memory.experienceDiscoveryArmed ? 'primary' : 'secondary'"
-                :disabled="memory.isDiscoveringExperienceAI"
-                @click="memory.discoverExperienceReportAI()"
-              >
-                <Shield :size="14" />
-                {{ memory.experienceDiscoveryArmed ? '确认 AI 归纳' : 'AI 归纳' }}
-              </AriButton>
-            </div>
-          </div>
-          <div v-if="memory.experienceDiscoveryResult" class="flow-note-strip">
-            {{ memory.experienceDiscoveryResult.message }}
-            <template v-if="memory.experienceDiscoveryResult.provider || memory.experienceDiscoveryResult.model">
-              · {{ memory.experienceDiscoveryResult.provider }} / {{ memory.experienceDiscoveryResult.model }}
-            </template>
-          </div>
-          <div v-if="memory.isDiscoveringExperienceAI || memory.experienceDiscoveryProgress" class="flow-progress-strip" role="status" aria-live="polite">
-            <div>
-              <strong>{{ memory.experienceDiscoveryStage || 'AI 正在归纳' }}</strong>
-              <small>{{ insightProgressPercent }}%</small>
-            </div>
-            <div class="flow-progress-track">
-              <span :style="{ width: `${insightProgressPercent}%` }" />
-            </div>
-          </div>
-          <div class="flow-insight-board">
-            <article v-for="insight in memory.experienceReport?.insights || []" :key="insight.id" class="flow-insight-card">
-              <div class="flow-insight-head">
-                <div>
-                  <span>{{ insight.kind }} · {{ insight.severity }}</span>
-                  <h2>{{ insight.title }}</h2>
-                </div>
-                <strong>{{ confidenceLabel(insight.confidence) }}</strong>
-              </div>
-              <p>{{ insight.summary }}</p>
-              <small>{{ insight.reason }}</small>
-              <div class="experience-meta">
-                <span>证据 {{ insight.evidence.length }}</span>
-                <span>{{ decisionLabel(insight.decisionStatus) }}</span>
-                <span>{{ formatTime(insight.createdAt) }}</span>
-              </div>
-              <div class="flow-insight-actions">
-                <AriButton size="sm" variant="secondary" title="生成可复制的外部代理任务包，交给 Codex 或其他 agent 处理" @click="handoffInsightToAgent(insight)">
-                  <Workflow :size="14" />
-                  交给代理
-                </AriButton>
-                <AriButton size="sm" variant="secondary" title="生成可保存到 Ariadne 的自动化工作流草稿" @click="buildAutomationFromInsight(insight)">
-                  <Workflow :size="14" />
-                  生成自动化
-                </AriButton>
-                <AriButton size="sm" variant="secondary" title="生成可复用的检查清单草稿" @click="buildChecklistFromInsight(insight)">
-                  <Check :size="14" />
-                  生成检查清单
-                </AriButton>
-              </div>
-            </article>
-            <div v-if="!memory.experienceReport?.insights.length" class="flow-empty-card">
-              <Sparkles :size="22" />
-              <strong>还没有稳定洞察</strong>
-              <p>点击“本地归纳”后，系统会从最近记录里找重复问题、知识沉淀和自动化机会。</p>
-            </div>
-          </div>
-        </section>
-
-        <section v-else-if="activeFlowPage === 'drafts'" class="flow-page-panel" aria-label="心流草稿">
-          <div class="flow-page-header">
-            <div>
-              <span>DRAFTS</span>
-              <h1>摘要、复盘和知识草稿</h1>
-              <p>草稿页只保留输出物，不混入原始明细。需要证据时再从抽屉或时间线打开。</p>
-            </div>
-            <div class="flow-page-actions">
-              <AriButton size="sm" variant="primary" @click="memory.buildDailyDraft()">
-                <FileText :size="14" />
-                生成日报
-              </AriButton>
-              <AriButton size="sm" variant="secondary" @click="memory.buildRetrospectiveDraft()">
-                <Clock3 :size="14" />
-                生成复盘
-              </AriButton>
-              <AriButton size="sm" variant="secondary" @click="memory.buildKnowledgeDraft()">
-                <Brain :size="14" />
-                生成知识
-              </AriButton>
-            </div>
-          </div>
-          <div class="flow-draft-grid">
-            <article class="flow-draft-card">
-              <span>日报</span>
-              <h2>{{ memory.dailyDraft?.title || '未生成' }}</h2>
-              <pre>{{ memory.dailyDraft?.body || '等待从今日上下文生成。' }}</pre>
-              <small v-if="memory.dailyDraft">证据 {{ memory.dailyDraft.evidence.length }} 条</small>
-              <AriButton v-if="memory.dailyDraft" size="sm" variant="secondary" :disabled="memory.isPolishingDailyDraft" @click="memory.polishDailyDraft()">
-                <Sparkles :size="14" />
-                {{ memory.dailyDraftPolishArmed ? '确认外发润色' : 'AI 润色' }}
-              </AriButton>
-            </article>
-            <article class="flow-draft-card">
-              <span>复盘</span>
-              <h2>{{ memory.retrospectiveDraft?.title || '未生成' }}</h2>
-              <pre>{{ memory.retrospectiveDraft?.body || '选择一组证据后生成问题复盘。' }}</pre>
-              <small>范围 {{ memory.retrospectiveTargetLabel }}</small>
-            </article>
-            <article class="flow-draft-card">
-              <span>知识</span>
-              <h2>{{ memory.knowledgeDraft?.title || '未生成' }}</h2>
-              <p>{{ memory.knowledgeDraft?.body || '把高价值记录整理成可保存的知识条目。' }}</p>
-              <small v-if="memory.knowledgeDraft">证据 {{ memory.knowledgeDraft.evidence.join(', ') }}</small>
-              <AriButton v-if="memory.knowledgeDraft" size="sm" variant="secondary" :disabled="memory.isSavingKnowledgeDraft" @click="memory.saveCurrentKnowledgeDraft()">
-                <Check :size="14" />
-                {{ memory.knowledgeDraftSaveArmed ? '确认保存' : '保存为 Skill' }}
-              </AriButton>
-            </article>
-          </div>
-        </section>
-
-        <section v-else-if="activeFlowPage === 'assets'" class="flow-page-panel" aria-label="心流资产">
-          <div class="flow-page-header">
-            <div>
-              <span>ASSETS</span>
-              <h1>从记忆沉淀成可复用能力</h1>
-              <p>这里先放心流自动生成的产物。你不删除就默认采纳；删除时写原因，心流会避免下次重复生成。</p>
-            </div>
-            <div class="flow-page-actions">
-              <small v-if="assetFeedback" class="flow-asset-feedback">{{ assetFeedback }}</small>
-              <AriButton size="sm" variant="secondary" :disabled="memory.isRunningAutonomousFlow" @click="runAutonomousFlow()">
-                <RefreshCw :size="14" :class="{ 'is-spinning': memory.isRunningAutonomousFlow }" />
-                {{ memory.isRunningAutonomousFlow ? '整理中' : '立即整理' }}
-              </AriButton>
-              <AriButton size="sm" variant="secondary" @click="buildCurrentMemoryTaskPackage()">
-                <Workflow :size="14" />
-                从当前记忆生成任务包
-              </AriButton>
-            </div>
-          </div>
-
-          <section class="flow-auto-inbox flow-auto-inbox-assets" data-no-drag>
-            <div class="flow-auto-inbox-head">
-              <div>
-                <span>AUTONOMOUS INBOX</span>
-                <strong>{{ autonomousInboxSummary }}</strong>
-                <small>心流只在证据足够且流程清晰时生成；不需要逐条接受。</small>
-              </div>
-            </div>
-            <div v-if="memory.autonomousArtifacts.length" class="flow-auto-artifacts">
-              <article v-for="artifact in memory.autonomousArtifacts" :key="artifact.id" class="flow-auto-artifact">
-                <div class="flow-auto-artifact-kicker">
-                  <span>{{ autonomousKindLabel(artifact.kind) }}</span>
-                  <small v-if="artifact.confidence">{{ confidenceLabel(artifact.confidence) }}</small>
-                  <small v-if="artifact.agentExecutable">agent 可执行</small>
-                  <small>证据 {{ artifact.evidence.length }} 条</small>
-                </div>
-                <h3>{{ artifact.title }}</h3>
-                <p>{{ artifact.summary }}</p>
-                <pre>{{ artifact.body }}</pre>
-                <div v-if="rejectingAutonomousArtifactId === artifact.id" class="flow-auto-reject">
-                  <input
-                    v-model="autonomousRejectReason"
-                    type="text"
-                    placeholder="删除原因，比如：不是稳定流程 / 不适合自动化 / 误判"
-                    @keydown.enter.prevent="confirmRejectAutonomousArtifact(artifact)"
-                    @keydown.esc.prevent="cancelRejectAutonomousArtifact()"
-                  />
-                  <button type="button" @click="confirmRejectAutonomousArtifact(artifact)">
-                    <Check :size="13" />
-                    确认删除
-                  </button>
-                  <button type="button" @click="cancelRejectAutonomousArtifact()">
-                    <X :size="13" />
-                    取消
-                  </button>
-                </div>
-                <div v-else class="flow-auto-artifact-foot">
-                  <span>未删除即默认采纳</span>
-                  <button type="button" @click.stop="copyAutonomousArtifact(artifact)">
-                    <Copy :size="13" />
-                    复制
-                  </button>
-                  <button type="button" @click.stop="beginRejectAutonomousArtifact(artifact)">
-                    <Trash2 :size="13" />
-                    删除并说明原因
-                  </button>
-                </div>
-              </article>
-            </div>
-            <div v-else class="flow-empty-note">暂无自主产物。心流每天会自动整理，也可以手动点击“立即整理”。</div>
-          </section>
-
-          <div class="flow-asset-grid">
-            <article class="flow-asset-card" :class="{ 'is-focus': activeAssetFocus === 'agent' }" data-flow-asset="agent">
-              <span>外部代理</span>
-              <h2>{{ memory.agentTask?.goal || '未生成' }}</h2>
-              <p>{{ memory.agentTask?.context || '选择一条记忆或一条洞察后生成可审阅任务包。' }}</p>
-              <small v-if="memory.agentTask?.requiresReview">需要人工复核</small>
-              <div v-if="memory.agentTask" class="flow-asset-next">
-                <strong>下一步</strong>
-                <p>复制任务包，贴给 Codex 或其他代理执行。执行前需要你确认范围、权限和验收标准。</p>
-                <div class="flow-asset-mini-list">
-                  <span>{{ memory.agentTask.evidence.length }} 条证据</span>
-                  <span>{{ memory.agentTask.boundaries.length }} 条边界</span>
-                  <span>{{ memory.agentTask.acceptance.length }} 条验收</span>
-                </div>
-                <AriButton size="sm" variant="secondary" @click="copyCurrentAgentTask()">
-                  <Copy :size="14" />
-                  复制任务包
-                </AriButton>
-              </div>
-            </article>
-            <article class="flow-asset-card" :class="{ 'is-focus': activeAssetFocus === 'workflow' }" data-flow-asset="workflow">
-              <span>候选工作流</span>
-              <h2>{{ memory.workflowDraft?.title || '未生成' }}</h2>
-              <p>{{ memory.workflowDraft?.trigger || '从重复流程里生成可保存的启动器工作流草稿。' }}</p>
-              <small v-if="memory.workflowDraft">下一步：检查步骤和命令，确认无误后保存到工作流。</small>
-              <div v-if="memory.workflowDraft" class="draft-step-list">
-                <div v-for="step in memory.workflowDraft.steps" :key="step.id" class="draft-step">
-                  <span>{{ step.label }}</span>
-                  <code>{{ step.command }}</code>
-                </div>
-              </div>
-              <AriButton v-if="memory.workflowDraft" size="sm" variant="secondary" :disabled="memory.isSavingWorkflowDraft" @click="memory.saveCurrentWorkflowDraft()">
-                <Check :size="14" />
-                {{ memory.workflowDraftSaveArmed ? '确认保存' : '保存到工作流' }}
-              </AriButton>
-            </article>
-            <article class="flow-asset-card" :class="{ 'is-focus': activeAssetFocus === 'checklist' }" data-flow-asset="checklist">
-              <span>检查清单</span>
-              <h2>{{ memory.checklistDraft?.title || '未生成' }}</h2>
-              <p>{{ memory.checklistDraft?.context || '把重复排查经验整理成可审阅清单。' }}</p>
-              <small v-if="memory.checklistDraft">下一步：检查条目是否完整，确认后保存为可复用清单。</small>
-              <ol v-if="memory.checklistDraft" class="draft-checklist">
-                <li v-for="item in memory.checklistDraft.items" :key="item">{{ item }}</li>
-              </ol>
-              <AriButton v-if="memory.checklistDraft" size="sm" variant="secondary" :disabled="memory.isSavingChecklistDraft" @click="memory.saveCurrentChecklistDraft()">
-                <Check :size="14" />
-                {{ memory.checklistDraftSaveArmed ? '确认保存' : '保存为清单' }}
-              </AriButton>
-            </article>
-            <article class="flow-asset-card">
-              <span>Skill</span>
-              <h2>{{ memory.knowledgeDraftSaveResult?.ok ? memory.knowledgeDraftSaveResult.skill.id : '未保存' }}</h2>
-              <p>{{ memory.knowledgeSkillInstallResult?.message || '知识草稿保存后，可以导出或安装到 Codex Skill。' }}</p>
-              <div class="flow-page-actions">
-                <AriButton v-if="memory.knowledgeDraftSaveResult?.ok" size="sm" variant="secondary" :disabled="memory.isExportingKnowledgeSkill" @click="memory.exportCurrentKnowledgeSkill()">
-                  <Download :size="14" />
-                  {{ memory.knowledgeSkillExportArmed ? '确认导出' : '导出' }}
-                </AriButton>
-                <AriButton v-if="memory.knowledgeDraftSaveResult?.ok" size="sm" variant="secondary" :disabled="memory.isInstallingKnowledgeSkill" @click="memory.installCurrentKnowledgeSkill()">
-                  <KeyRound :size="14" />
-                  {{ memory.knowledgeSkillInstallArmed ? '确认安装' : '安装' }}
-                </AriButton>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section v-else-if="activeFlowPage === 'rules'" class="flow-page-panel flow-rules-page" aria-label="心流规则">
-          <div class="flow-page-header">
-            <div>
-              <span>RULES</span>
-              <h1>采集边界和索引</h1>
-              <p>低频维护项集中在这里：手动补记、导入导出、排除规则和语义索引。</p>
-            </div>
-            <div class="flow-page-actions">
-              <AriButton size="sm" variant="secondary" @click="memory.captureNow()">
-                <Camera :size="14" />
-                手动补记
-              </AriButton>
-              <AriButton size="sm" variant="secondary" @click="memory.exportData()">
-                <Download :size="14" />
-                导出
-              </AriButton>
-            </div>
-          </div>
-          <div class="flow-rules-grid">
-            <div class="side-panel memory-note-panel">
-              <div class="side-title">
-                <Plus :size="15" />
-                手动笔记
-              </div>
-              <input v-model="memory.noteDraft.title" class="memory-note-input" spellcheck="false" placeholder="标题" />
-              <textarea v-model="memory.noteDraft.text" class="memory-note-textarea" spellcheck="false" placeholder="记录问题、结论、待办或证据..." />
-              <input v-model="memory.noteDraft.tags" class="memory-note-input" spellcheck="false" placeholder="标签，用空格或逗号分隔" />
-              <div class="memory-check-row">
-                <label><input v-model="memory.noteDraft.favorite" type="checkbox" /> 收藏</label>
-                <label><input v-model="memory.noteDraft.sensitive" type="checkbox" /> 敏感</label>
-              </div>
-              <AriButton size="sm" variant="primary" @click="memory.addNote()">
-                <Plus :size="14" />
-                加入心流
-              </AriButton>
-            </div>
-
-            <div class="side-panel semantic-panel">
-              <div class="side-title">
-                <Database :size="15" />
-                语义索引
-              </div>
-              <strong>{{ vectorStatusLabel }}</strong>
-              <p>{{ memory.semanticStatus?.note || '本地关键词和 FTS 可用；外部 embedding 需要显式刷新。' }}</p>
-              <div class="semantic-meta-grid">
-                <span><small>Provider</small><strong>{{ vectorProviderLabel }}</strong></span>
-                <span><small>Store</small><strong>{{ vectorStoreLabel }}</strong></span>
-                <span><small>刷新</small><strong>{{ memory.semanticStatus?.lastEmbeddingAt ? formatTime(memory.semanticStatus.lastEmbeddingAt) : '未刷新' }}</strong></span>
-                <span><small>Collection</small><strong>{{ memory.semanticStatus?.vectorCollection || 'ariadne_work_memory' }}</strong></span>
-              </div>
-              <div class="search-row semantic-search-row">
-                <Search :size="15" class="text-[var(--muted)]" />
-                <input v-model="memory.semanticDraft.query" class="search-input" spellcheck="false" placeholder="语义搜索非敏感心流记忆..." @keydown.enter="memory.runSemanticSearch()" />
-              </div>
-              <div class="memory-side-actions">
-                <AriButton size="sm" variant="secondary" :disabled="memory.isRefreshingEmbedding" @click="memory.refreshEmbedding()">
-                  <RefreshCw :size="14" />
-                  {{ memory.isRefreshingEmbedding ? '刷新中' : '刷新索引' }}
-                </AriButton>
-                <AriButton size="sm" variant="primary" :disabled="memory.isSemanticSearching" @click="memory.runSemanticSearch()">
-                  <Search :size="14" />
-                  {{ memory.isSemanticSearching ? '检索中' : '语义搜索' }}
-                </AriButton>
-              </div>
-            </div>
-
-            <div class="side-panel memory-data-panel">
-              <div class="side-title">
-                <Upload :size="15" />
-                数据包
-              </div>
-              <textarea v-model="memory.importDraft.paths" class="memory-import-textarea" spellcheck="false" placeholder="粘贴文件路径，一行一个" />
-              <input v-model="memory.importDraft.tags" class="memory-note-input" spellcheck="false" placeholder="导入标签" />
-              <div class="memory-side-actions">
-                <AriButton size="sm" variant="primary" :disabled="memory.isImportingMaterials" @click="memory.importMaterials()">
-                  <Upload :size="14" />
-                  {{ memory.isImportingMaterials ? '导入中' : '导入材料' }}
-                </AriButton>
-                <AriButton size="sm" variant="ghost" @click="memory.clearUnpinned()">
-                  <Trash2 :size="14" />
-                  {{ memory.clearUnpinnedArmed ? '确认清理' : '清理未收藏' }}
-                </AriButton>
-              </div>
-              <small v-if="memory.importResult">
-                导入 {{ memory.importResult.imported }} 条，跳过 {{ memory.importResult.skipped }} 条，失败 {{ memory.importResult.failed }} 条
-              </small>
-            </div>
-
-            <div class="side-panel memory-rules-panel">
-              <div class="side-title">
-                <Shield :size="15" />
-                排除规则
-              </div>
-              <p>优先于采集、OCR、导入、导出和经验发现。</p>
-              <div class="memory-rule-summary">{{ memory.exclusionSummary }}</div>
-              <div class="memory-rule-grid">
-                <label class="memory-rule-field">
-                  <span>应用进程</span>
-                  <textarea v-model="memory.exclusionDraft.apps" class="memory-rule-textarea" spellcheck="false" placeholder="Code.exe&#10;chrome.exe" />
-                </label>
-                <label class="memory-rule-field">
-                  <span>窗口关键词</span>
-                  <textarea v-model="memory.exclusionDraft.windowKeywords" class="memory-rule-textarea" spellcheck="false" placeholder="密码&#10;隐私" />
-                </label>
-                <label class="memory-rule-field">
-                  <span>路径片段</span>
-                  <textarea v-model="memory.exclusionDraft.paths" class="memory-rule-textarea" spellcheck="false" placeholder="secrets&#10;.env" />
-                </label>
-                <label class="memory-rule-field">
-                  <span>内容正则</span>
-                  <textarea v-model="memory.exclusionDraft.contentPatterns" class="memory-rule-textarea" spellcheck="false" placeholder="token=&#10;classified" />
-                </label>
-              </div>
-              <AriButton size="sm" variant="secondary" :disabled="memory.isSavingExclusions" @click="memory.saveExclusionRules()">
-                <Shield :size="14" />
-                {{ memory.isSavingExclusions ? '保存中' : '保存排除规则' }}
-              </AriButton>
-            </div>
-          </div>
-        </section>
-
-        <div v-if="flowSettingsOpen" class="flow-settings-backdrop" @click.self="flowSettingsOpen = false">
-          <aside class="flow-settings-drawer" data-no-drag aria-label="心流设置">
-            <header class="flow-settings-header">
-              <div>
-                <span>FLOW SETTINGS</span>
-                <h2>心流设置</h2>
-                <p>采集、索引、模型和隐私边界只在这里维护，通用设置中心不再重复展示。</p>
-              </div>
-              <button type="button" class="flow-icon-button" aria-label="关闭心流设置" @click="flowSettingsOpen = false">
-                <X :size="16" />
-              </button>
-            </header>
-
-            <div v-if="settings.settings" class="flow-settings-body">
-              <section class="flow-settings-overview">
-                <div>
-                  <span>当前状态</span>
-                  <strong>{{ timeMachineLabel }} · {{ vectorStatusLabel }}</strong>
-                  <small>{{ runtimeStatusText || '本地心流配置已就绪。' }}</small>
-                </div>
-                <div class="flow-settings-overview-grid">
-                  <span>
-                    <small>采集范围</small>
-                    <strong>{{ captureScopeLabel }} / {{ multiMonitorLabel }}</strong>
-                  </span>
-                  <span>
-                    <small>模型</small>
-                    <strong>{{ vectorProviderLabel }}</strong>
-                  </span>
-                  <span>
-                    <small>向量库</small>
-                    <strong>{{ vectorStoreLabel }}</strong>
-                  </span>
-                </div>
-              </section>
-
-              <nav class="flow-settings-tabs" aria-label="心流设置分组">
-                <button
-                  v-for="tab in flowSettingsTabs"
-                  :key="tab.id"
-                  type="button"
-                  :class="{ 'is-active': flowSettingsTab === tab.id }"
-                  @click="setFlowSettingsTab(tab.id)"
-                >
-                  <strong>{{ tab.label }}</strong>
-                  <small>{{ tab.detail }}</small>
-                </button>
-              </nav>
-
-              <section v-show="flowSettingsTab === 'capture'" class="flow-settings-section">
-                <div class="flow-settings-section-head">
-                  <span>采集与沉淀</span>
-                  <small>{{ runtimeStatusText || '本地采集策略' }}</small>
-                </div>
-                <div class="flow-settings-toggle-grid">
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.enabled" type="checkbox" />
-                    <span />
-                    <strong>心流总开关</strong>
-                    <small>关闭后不采集新上下文，历史仍可搜索。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.timeMachineEnabled" type="checkbox" />
-                    <span />
-                    <strong>屏幕时间机器</strong>
-                    <small>自动沉淀屏幕上下文，受排除规则约束。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.windowSwitchCaptureEnabled" type="checkbox" />
-                    <span />
-                    <strong>窗口切换触发</strong>
-                    <small>前台窗口变化时补一帧证据。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.autoOcr" type="checkbox" />
-                    <span />
-                    <strong>自动 OCR</strong>
-                    <small>自动识别截图文字；可优先使用视觉模型，失败后回退本地 OCR。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.draftScheduleEnabled" type="checkbox" />
-                    <span />
-                    <strong>自动整理</strong>
-                    <small>定时生成日报、复盘和经验候选。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.experienceScheduleEnabled" type="checkbox" />
-                    <span />
-                    <strong>经验发现</strong>
-                    <small>后台归纳重复问题和可优化流程。</small>
-                  </label>
-                </div>
-
-                <div class="flow-settings-field-grid">
-                  <label class="flow-setting-field">
-                    <span>截图间隔秒</span>
-                    <input v-model.number="settings.settings.workMemory.autoCaptureIntervalSeconds" type="number" min="10" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>窗口冷却秒</span>
-                    <input v-model.number="settings.settings.workMemory.windowSwitchCooldownSeconds" type="number" min="3" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>整理间隔分钟</span>
-                    <input v-model.number="settings.settings.workMemory.draftScheduleIntervalMinutes" type="number" min="15" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>截图质量</span>
-                    <input v-model.number="settings.settings.workMemory.screenshotQuality" type="number" min="1" max="100" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>采集范围</span>
-                    <select v-model="settings.settings.workMemory.captureScope">
-                      <option value="all_screens">全部屏幕</option>
-                      <option value="active_window">前台窗口</option>
-                      <option value="primary_screen">主屏幕</option>
-                    </select>
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>多屏策略</span>
-                    <select v-model="settings.settings.workMemory.multiMonitor">
-                      <option value="combined">合并截图</option>
-                      <option value="per_monitor">按屏幕分条</option>
-                      <option value="primary_only">仅主屏</option>
-                    </select>
-                  </label>
-                </div>
-
-                <div class="flow-app-policy-panel">
-                  <div class="flow-settings-section-head">
-                    <span>应用采集策略</span>
-                    <small>命中应用后接管全局截图间隔，用自己的切窗延迟和驻留节奏。</small>
-                  </div>
-                  <div class="flow-app-policy-layout">
-                    <div class="flow-app-profile-list" aria-label="已配置应用采集策略">
-                      <button
-                        v-for="profile in appCaptureProfiles"
-                        :key="profile.id"
-                        type="button"
-                        :class="{ 'is-active': selectedAppCaptureProfile?.id === profile.id }"
-                        @click="selectAppCaptureProfile(profile.id)"
-                      >
-                        <span class="flow-app-avatar">{{ appAvatarText(profile.displayName || profile.processName) }}</span>
-                        <span>
-                          <strong>{{ profile.displayName || displayAppName(profile.processName) }}</strong>
-                          <small>{{ profile.processName }} · {{ profile.enabled ? '已接管' : '已暂停' }}</small>
-                        </span>
-                      </button>
-                      <p v-if="!appCaptureProfiles.length" class="flow-app-empty">
-                        还没有应用策略。先从最近应用添加一个，比如 Weixin.exe。
-                      </p>
-                    </div>
-
-                    <div v-if="selectedAppCaptureProfile" class="flow-app-profile-detail">
-                      <div class="flow-app-profile-title">
-                        <span class="flow-app-avatar is-large">{{ appAvatarText(selectedAppCaptureProfile.displayName || selectedAppCaptureProfile.processName) }}</span>
-                        <span>
-                          <strong>{{ selectedAppCaptureProfile.displayName || displayAppName(selectedAppCaptureProfile.processName) }}</strong>
-                          <small>{{ selectedAppCaptureProfile.processName }}</small>
-                        </span>
-                        <button type="button" class="flow-icon-button" aria-label="移除应用策略" @click="removeAppCaptureProfile(selectedAppCaptureProfile.id)">
-                          <Trash2 :size="15" />
-                        </button>
-                      </div>
-                      <label class="flow-setting-switch is-compact">
-                        <input v-model="selectedAppCaptureProfile.enabled" type="checkbox" />
-                        <span />
-                        <strong>启用应用策略</strong>
-                        <small>关闭后恢复全局采集节奏。</small>
-                      </label>
-                      <div class="flow-settings-field-grid is-compact">
-                        <label class="flow-setting-field">
-                          <span>切换后延迟秒</span>
-                          <input v-model.number="selectedAppCaptureProfile.windowSwitchDelaySeconds" type="number" min="0" max="3600" />
-                        </label>
-                        <label class="flow-setting-field">
-                          <span>保持期间间隔秒</span>
-                          <input v-model.number="selectedAppCaptureProfile.activeIntervalSeconds" type="number" min="10" max="86400" />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="flow-app-candidates">
-                    <button
-                      v-for="candidate in appCaptureCandidates"
-                      :key="candidate.id"
-                      type="button"
-                      @click="addAppCaptureProfile(candidate)"
-                    >
-                      <span class="flow-app-avatar">{{ appAvatarText(candidate.displayName) }}</span>
-                      <span>
-                        <strong>{{ candidate.displayName }}</strong>
-                        <small>{{ candidate.processName }} · {{ candidate.count }} 条</small>
-                      </span>
-                      <Plus :size="15" />
-                    </button>
-                    <p v-if="!appCaptureCandidates.length" class="flow-app-empty">
-                      最近应用都已配置，或还没有可用于添加的采集记录。
-                    </p>
-                  </div>
-                </div>
-
-                <div class="flow-settings-source-list">
-                  <label v-for="source in settings.memorySources" :key="source.key" class="flow-source-pill">
-                    <input
-                      type="checkbox"
-                      :checked="source.enabled"
-                      @change="settings.setMemorySource(source.key, ($event.target as HTMLInputElement).checked)"
-                    />
-                    <span>{{ source.label }}</span>
-                  </label>
-                </div>
-              </section>
-
-              <section v-show="flowSettingsTab === 'model'" class="flow-settings-section">
-                <div class="flow-settings-section-head">
-                  <span>模型与向量</span>
-                  <small>{{ vectorProviderLabel }} · {{ vectorStoreLabel }}</small>
-                </div>
-                <div class="flow-settings-toggle-grid">
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.ai.enabled" type="checkbox" />
-                    <span />
-                    <strong>OpenAI Agents SDK 问答</strong>
-                    <small>先检索本地证据，再交给 Ariadne agent sidecar 生成动态回答。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.ai.embeddingEnabled" type="checkbox" />
-                    <span />
-                    <strong>语义索引</strong>
-                    <small>用于“我今天干了什么”这类上下文问答。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.ai.ocrModelEnabled" type="checkbox" />
-                    <span />
-                    <strong>大模型 OCR</strong>
-                    <small>截图文字优先交给视觉模型；无配置或失败自动回退本地 OCR。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.ai.externalAgentEnabled" type="checkbox" />
-                    <span />
-                    <strong>外部代理任务包</strong>
-                    <small>需要沉淀 Skill 或工作流时再显式确认。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.ai.codexCollaborationEnabled" type="checkbox" />
-                    <span />
-                    <strong>Codex 协作</strong>
-                    <small>可选扩展；开启后心流问答才交给 Codex runner。</small>
-                  </label>
-                </div>
-                <div class="flow-settings-field-grid">
-                  <label class="flow-setting-field">
-                    <span>AI provider</span>
-                    <input v-model="settings.settings.ai.provider" placeholder="openai-compatible" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>AI base URL</span>
-                    <input v-model="settings.settings.ai.baseUrl" placeholder="http://127.0.0.1:4000/v1" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>AI model</span>
-                    <input v-model="settings.settings.ai.model" placeholder="glm-5.1" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>OCR provider</span>
-                    <input v-model="settings.settings.ai.ocrProvider" placeholder="openai-compatible" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>OCR base URL</span>
-                    <input v-model="settings.settings.ai.ocrBaseUrl" placeholder="留空则跟随 AI base URL" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>OCR vision model</span>
-                    <input v-model="settings.settings.ai.ocrModel" placeholder="支持图片输入的模型名" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>Embedding provider</span>
-                    <input v-model="settings.settings.ai.embeddingProvider" placeholder="openai-compatible" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>Embedding base URL</span>
-                    <input v-model="settings.settings.ai.embeddingBaseUrl" placeholder="http://127.0.0.1:4000/v1" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>Embedding model</span>
-                    <input v-model="settings.settings.ai.embeddingModel" placeholder="/model/qwen_eb" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>向量存储</span>
-                    <select v-model="settings.settings.ai.vectorStoreType">
-                      <option value="embedded">内置缓存</option>
-                      <option value="milvus">Milvus</option>
-                      <option value="disabled">关闭</option>
-                    </select>
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>向量 URI</span>
-                    <input v-model="settings.settings.ai.vectorStoreUri" placeholder="milvus://192.168.1.100:19530" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>Collection</span>
-                    <input v-model="settings.settings.ai.vectorCollection" placeholder="ariadne_work_memory" />
-                  </label>
-                </div>
-                <div class="secret-store-block flow-secret-block">
-                  <div class="flow-settings-section-head">
-                    <span>安全密钥存储</span>
-                    <small>
-                      {{ settings.secretStatus?.available ? 'Windows Credential Manager 可用' : '当前运行环境未暴露安全存储' }}
-                      · {{ settings.secretStatus?.backend || '未检测' }}
-                    </small>
-                  </div>
-                  <div class="secret-store-grid">
-                    <div
-                      v-for="record in settings.secretStatus?.records ?? []"
-                      :key="record.kind"
-                      class="secret-store-row"
-                      :data-secret-kind="record.kind"
-                      :data-secret-active-source="record.activeSource"
-                      :data-secret-stored="record.stored ? 'true' : 'false'"
-                    >
-                      <div class="secret-store-meta">
-                        <strong>{{ record.label }}</strong>
-                        <small>
-                          {{ record.stored ? '已保存' : '未保存' }}
-                          · {{ secretSourceLabel(record.activeSource) }}
-                        </small>
-                        <small class="secret-store-target">{{ record.targetName }}</small>
-                        <small v-if="record.envPresent">检测到环境变量：{{ record.envNames.join(' / ') }}</small>
-                        <small v-if="record.lastError" class="is-danger">{{ record.lastError }}</small>
-                      </div>
-                      <input
-                        v-model="settings.secretInputs[record.kind]"
-                        class="settings-input"
-                        type="password"
-                        autocomplete="off"
-                        placeholder="粘贴后保存，不写入 config.json"
-                        :aria-label="`${record.label} 输入`"
-                        :data-secret-input="record.kind"
-                      />
-                      <div class="secret-store-actions">
-                        <AriButton
-                          size="sm"
-                          variant="secondary"
-                          :disabled="!canSaveSecret(record.kind)"
-                          :data-secret-save="record.kind"
-                          @click="settings.saveSecret(record.kind)"
-                        >
-                          <Check :size="14" />
-                          保存
-                        </AriButton>
-                        <AriButton
-                          size="sm"
-                          variant="ghost"
-                          :disabled="!canClearSecret(record.stored)"
-                          :data-secret-clear="record.kind"
-                          @click="settings.clearSecret(record.kind)"
-                        >
-                          <Trash2 :size="14" />
-                          {{ settings.secretClearArmedKind === record.kind ? '确认清除' : '清除' }}
-                        </AriButton>
-                      </div>
-                    </div>
-                  </div>
-                  <p
-                    v-if="settings.secretActionResult"
-                    class="settings-note"
-                    :class="{ 'is-danger': !settings.secretActionResult.ok && !settings.secretActionResult.requiresConfirmation }"
-                    data-secret-action-result
-                  >
-                    {{ settings.secretActionResult.message }}
-                  </p>
-                </div>
-              </section>
-
-              <section v-show="flowSettingsTab === 'privacy'" class="flow-settings-section">
-                <div class="flow-settings-section-head">
-                  <span>隐私边界与存储</span>
-                  <small>排除规则已集中到“规则”页面维护。</small>
-                </div>
-                <div class="flow-settings-toggle-grid">
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.privacyMode" type="checkbox" />
-                    <span />
-                    <strong>隐私模式</strong>
-                    <small>暂停截图、OCR、embedding、AI 和导出。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.pauseOnIdle" type="checkbox" />
-                    <span />
-                    <strong>空闲暂停</strong>
-                    <small>超过阈值时停止自动采集。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.pauseOnLock" type="checkbox" />
-                    <span />
-                    <strong>锁屏暂停</strong>
-                    <small>锁屏或不可切换桌面时不采集。</small>
-                  </label>
-                  <label class="flow-setting-switch">
-                    <input v-model="settings.settings.workMemory.sensitiveRulesEnabled" type="checkbox" />
-                    <span />
-                    <strong>敏感内容规则</strong>
-                    <small>识别 token、密码、cookie 等风险内容。</small>
-                  </label>
-                </div>
-                <div class="flow-settings-field-grid">
-                  <label class="flow-setting-field">
-                    <span>空闲阈值秒</span>
-                    <input v-model.number="settings.settings.workMemory.idlePauseSeconds" type="number" min="30" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>经验发现天数</span>
-                    <input v-model.number="settings.settings.workMemory.experienceDiscoveryDays" type="number" min="1" max="365" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>记忆保留天数</span>
-                    <input v-model.number="settings.settings.workMemory.retentionDays" type="number" min="1" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>缩略图保留天数</span>
-                    <input v-model.number="settings.settings.workMemory.thumbnailRetentionDays" type="number" min="1" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>最大存储 MB</span>
-                    <input v-model.number="settings.settings.workMemory.maxStorageMb" type="number" min="128" />
-                  </label>
-                  <label class="flow-setting-field">
-                    <span>Trace</span>
-                    <select v-model="settings.settings.ai.traceMode">
-                      <option value="off">关闭</option>
-                      <option value="local">本地日志</option>
-                      <option value="internal">内部观测</option>
-                    </select>
-                  </label>
-                </div>
-              </section>
-            </div>
-            <div v-else class="flow-empty-card">
-              <strong>正在读取心流设置</strong>
-              <p>配置会从 Ariadne 本地 JSON 与安全存储读取。</p>
-            </div>
-
-            <footer class="flow-settings-footer">
-              <small>{{ settings.feedback || '心流设置保存在 Ariadne 本地配置中。' }}</small>
-              <div class="flow-page-actions">
-                <AriButton size="sm" variant="ghost" @click="flowSettingsOpen = false">关闭</AriButton>
-                <AriButton size="sm" variant="primary" :disabled="settings.isSaving || !settings.settings" @click="saveFlowSettings()">
-                  <Check :size="14" />
-                  {{ settings.isSaving ? '保存中' : '保存心流设置' }}
-                </AriButton>
-              </div>
-            </footer>
-          </aside>
-        </div>
-
-        <div v-if="detailDrawerOpen && selected" class="flow-detail-backdrop" @click.self="detailDrawerOpen = false">
-          <aside class="flow-detail-drawer" aria-label="心流证据明细">
-            <div class="flow-detail-head">
-              <div>
-                <span>{{ sourceLabel(selected) }} · {{ formatTime(selected.createdAt) }}</span>
-                <h2>{{ selected.title }}</h2>
-                <p>{{ selected.summary }}</p>
-              </div>
-              <button type="button" class="flow-icon-button" aria-label="关闭明细" @click="detailDrawerOpen = false">
-                <X :size="16" />
-              </button>
-            </div>
-
-            <div class="memory-capture-frame flow-detail-capture" :class="{ 'has-image': Boolean(memory.selectedImageUrl) }">
-              <OCRImageOverlay
-                v-if="memory.selectedImageUrl"
-                :src="memory.selectedImageUrl"
-                :width="memory.ocrResult?.width || selected.width"
-                :height="memory.ocrResult?.height || selected.height"
-                :lines="memory.ocrLines"
-                :is-line-selected="memory.isOCRLineSelected"
-                :max-height="260"
-                @toggle-line="memory.toggleOCRLine"
-              />
-              <template v-else>
-                <Sparkles :size="24" />
-                <span>{{ selected.windowTitle || 'Ariadne context' }}</span>
-              </template>
-            </div>
-
-            <div class="flow-detail-actions">
-              <AriButton size="sm" variant="secondary" :disabled="memory.isRecognizingOCR || !selected.imagePath" @click="memory.recognizeSelectedText()">
-                <FileText :size="14" />
-                {{ memory.isRecognizingOCR ? 'OCR 中' : '再次 OCR' }}
-              </AriButton>
-              <AriButton v-if="selected.ocrText" size="sm" variant="secondary" @click="memory.copyOCRText()">
-                <Copy :size="14" />
-                复制 OCR
-              </AriButton>
-              <AriButton size="sm" variant="secondary" @click="memory.buildKnowledgeDraft()">
-                <Brain :size="14" />
-                知识草稿
-              </AriButton>
-              <AriButton size="sm" variant="ghost" @click="memory.deleteSelected()">
-                <Trash2 :size="14" />
-                {{ memory.deleteArmedId === selected.id ? '确认删除' : '删除' }}
-              </AriButton>
-            </div>
-
-            <div class="meta-grid flow-detail-meta">
-              <div class="meta-item">
-                <span>来源</span>
-                <strong>{{ sourceLabel(selected) }}</strong>
-              </div>
-              <div class="meta-item">
-                <span>应用</span>
-                <strong>{{ selected.appName || '-' }}</strong>
-              </div>
-              <div class="meta-item">
-                <span>窗口</span>
-                <strong>{{ selected.windowTitle || '-' }}</strong>
-              </div>
-            </div>
-
-            <pre v-if="selected.text" class="preview-text memory-text flow-detail-text">{{ selected.text }}</pre>
-            <details v-if="selected.ocrText" class="flow-raw-ocr">
-              <summary>原始 OCR 证据</summary>
-              <pre class="preview-text memory-text flow-detail-text">{{ selected.ocrText }}</pre>
-            </details>
-
-            <div class="tag-row">
-              <span v-for="tag in selected.tags" :key="tag">
-                <Tags :size="12" />
-                {{ tag }}
-              </span>
-              <span v-if="selected.favorite">
-                <Flag :size="12" />
-                收藏
-              </span>
-            </div>
-          </aside>
-        </div>
-
-        <footer class="status-strip">
-          <span>
-            <Check :size="14" />
-            心流本地保存
-          </span>
-          <span>
-            <KeyRound :size="14" />
-            高风险动作需确认
-          </span>
-          <span>
-            <Shield :size="14" />
-            敏感内容默认不外发
-          </span>
-          <span v-if="memory.feedback" class="inline-feedback">
-            {{ memory.feedback }}
-          </span>
-        </footer>
+        <FlowCommandDock />
           </section>
         </div>
       </section>

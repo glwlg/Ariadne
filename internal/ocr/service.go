@@ -20,6 +20,9 @@ import (
 	"ariadne/internal/workmemory"
 )
 
+const localOCRProvider = "rapidocr_onnxruntime"
+const defaultOCRTimeout = 60 * time.Second
+
 //go:embed rapidocr_bridge.py
 var bridgeFS embed.FS
 
@@ -135,7 +138,7 @@ func NewService(captures CaptureProvider, clipboard ClipboardProvider, memory Wo
 		memory:    memory,
 		now:       time.Now,
 	}
-	service.runner = service.runRapidOCRBridge
+	service.runner = service.runLocalOCRBridge
 	return service
 }
 
@@ -278,7 +281,7 @@ func (s *Service) recognizeImage(path string, source string) Result {
 	if info, err := os.Stat(path); err != nil || info.IsDir() {
 		return Result{OK: false, Source: source, ImagePath: path, Error: "图片文件不存在"}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultOCRTimeout)
 	defer cancel()
 	output, status := s.runConfiguredOCR(ctx, path)
 	result := Result{
@@ -287,13 +290,13 @@ func (s *Service) recognizeImage(path string, source string) Result {
 		Lines:        cleanLines(output.Lines),
 		Source:       source,
 		ImagePath:    path,
-		Provider:     firstNonEmpty(output.Provider, status.Provider, "rapidocr_onnxruntime"),
+		Provider:     firstNonEmpty(output.Provider, status.Provider, localOCRProvider),
 		ElapsedMs:    output.ElapsedMs,
 		Error:        strings.TrimSpace(output.Error),
 		RecognizedAt: s.now().Unix(),
 	}
 	if result.OK {
-		result.Sensitive = looksSensitive(result.Text)
+		result.Sensitive = workmemory.LooksSensitiveText(result.Text)
 		if result.Text == "" {
 			result.Error = ""
 		}
@@ -319,7 +322,7 @@ func (s *Service) runConfiguredOCR(ctx context.Context, imagePath string) (bridg
 	runner := s.runner
 	s.mu.RUnlock()
 	if runner == nil {
-		runner = s.runRapidOCRBridge
+		runner = s.runLocalOCRBridge
 	}
 	if !aiOCRPolicyReady(policy) || client == nil {
 		return runner(ctx, imagePath)
@@ -363,7 +366,7 @@ func (s *Service) runConfiguredOCR(ctx context.Context, imagePath string) (bridg
 	return output, status
 }
 
-func (s *Service) runRapidOCRBridge(ctx context.Context, imagePath string) (bridgeOutput, Status) {
+func (s *Service) runLocalOCRBridge(ctx context.Context, imagePath string) (bridgeOutput, Status) {
 	status := s.detectStatus()
 	if !status.Available {
 		return bridgeOutput{OK: false, Provider: status.Provider, Error: status.LastError}, status
@@ -436,7 +439,7 @@ func aiOCRPolicyReady(policy AIOCRPolicy) bool {
 }
 
 func (s *Service) detectStatus() Status {
-	status := Status{Provider: "rapidocr_onnxruntime", Mode: "python"}
+	status := Status{Provider: localOCRProvider, Mode: "python"}
 	if env := strings.TrimSpace(os.Getenv("ARIADNE_OCR_PYTHON")); env != "" {
 		status.PythonPath = env
 		status.Available = fileExists(env)
@@ -477,7 +480,7 @@ func (s *Service) record(result Result) Result {
 		result.RecognizedAt = s.now().Unix()
 	}
 	if result.Provider == "" {
-		result.Provider = "rapidocr_onnxruntime"
+		result.Provider = localOCRProvider
 	}
 	if result.OK && result.Text == "" && result.Error == "" {
 		result.Error = "未识别到文字"
@@ -667,21 +670,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func looksSensitive(text string) bool {
-	lower := strings.ToLower(text)
-	patterns := []string{
-		"password", "passwd", "pwd=", "token", "api_key", "apikey", "secret",
-		"authorization:", "bearer ", "cookie:", "private key", "ssh-rsa", "ssh-ed25519",
-		"数据库密码", "密码", "密钥", "令牌", "验证码",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(lower, pattern) {
-			return true
-		}
-	}
-	return false
 }
 
 func RuntimeAvailable() bool {

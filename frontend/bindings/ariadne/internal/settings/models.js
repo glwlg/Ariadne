@@ -124,6 +124,13 @@ export class AISettings {
              */
             this["agentsSdkEnabled"] = false;
         }
+        if (!("agentResponsesEnabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["agentResponsesEnabled"] = false;
+        }
         if (!("traceMode" in $$source)) {
             /**
              * @member

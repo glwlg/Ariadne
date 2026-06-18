@@ -202,6 +202,20 @@ export class RetentionResult {
              */
             this["retentionDays"] = 0;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["maxStorageMb"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["storageBudgetBytes"] = undefined;
+        }
         if (!("keepPinned" in $$source)) {
             /**
              * @member
@@ -223,6 +237,13 @@ export class RetentionResult {
              */
             this["removed"] = 0;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["removedByStorage"] = undefined;
+        }
         if (!("kept" in $$source)) {
             /**
              * @member
@@ -243,6 +264,13 @@ export class RetentionResult {
              * @type {number}
              */
             this["remainingCount"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["remainingBytes"] = undefined;
         }
         if (!("appliedAt" in $$source)) {
             /**

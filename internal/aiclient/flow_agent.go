@@ -101,15 +101,7 @@ func (a *OpenAIAgentsSDKFlowAgent) AnswerFlow(ctx context.Context, job workmemor
 	if endpoint == "" {
 		endpoint = "https://api.openai.com/v1"
 	}
-	requestPayload := map[string]any{
-		"provider":     provider,
-		"baseURL":      endpoint,
-		"model":        model,
-		"systemPrompt": flowAgentSystemPrompt(),
-		"userPrompt":   flowAgentPrompt(job),
-		"skill":        flowMemorySkillContent(),
-		"toolCommand":  flowMemoryToolCommand(job),
-	}
+	requestPayload := flowAgentsSDKBridgePayload(job, provider, endpoint, model)
 	raw, err := json.Marshal(requestPayload)
 	if err != nil {
 		return workmemory.FlowAgentResult{}, err
@@ -155,6 +147,9 @@ func (a *OpenAIAgentsSDKFlowAgent) AnswerFlow(ctx context.Context, job workmemor
 	if answer == "" {
 		return workmemory.FlowAgentResult{}, errors.New("OpenAI Agents SDK 返回空内容")
 	}
+	if looksLikeUnexecutedAgentToolCall(answer) {
+		return workmemory.FlowAgentResult{}, errors.New("OpenAI Agents SDK 返回了未执行的工具调用文本，当前兼容接口未真正执行工具调用")
+	}
 	return workmemory.FlowAgentResult{
 		Answer:  answer,
 		Mode:    firstNonEmpty(strings.TrimSpace(response.Mode), "agent:openai-agents-sdk"),
@@ -178,6 +173,19 @@ func (r *FlowAgentRouter) AnswerFlow(ctx context.Context, job workmemory.FlowAge
 		return r.Codex.AnswerFlow(ctx, job)
 	default:
 		return workmemory.FlowAgentResult{}, fmt.Errorf("不支持的 flow agent runner: %s", firstNonEmpty(job.Runner, "disabled"))
+	}
+}
+
+func flowAgentsSDKBridgePayload(job workmemory.FlowAgentJob, provider string, endpoint string, model string) map[string]any {
+	return map[string]any{
+		"provider":     provider,
+		"baseURL":      endpoint,
+		"model":        model,
+		"systemPrompt": flowAgentSystemPrompt(),
+		"userPrompt":   flowAgentPrompt(job),
+		"skill":        flowMemorySkillContent(),
+		"toolCommand":  flowMemoryToolCommand(job),
+		"nativeSkills": job.NativeSkills,
 	}
 }
 
@@ -253,6 +261,9 @@ func (a *OpenAICompatibleFlowAgent) AnswerFlow(ctx context.Context, job workmemo
 	content := strings.TrimSpace(result.Choices[0].Message.Content)
 	if content == "" {
 		return workmemory.FlowAgentResult{}, errors.New("AI provider 返回空内容")
+	}
+	if looksLikeUnexecutedAgentToolCall(content) {
+		return workmemory.FlowAgentResult{}, errors.New("AI provider 返回了未执行的工具调用文本")
 	}
 	return workmemory.FlowAgentResult{
 		Answer:  content,
@@ -348,6 +359,24 @@ func flowAgentResultMessage(label string, evidenceCount int) string {
 		return label + " 已通过 Ariadne Flow Memory skill 完成动态回答。"
 	}
 	return label + " 已基于本地检索证据生成回答。"
+}
+
+func looksLikeUnexecutedAgentToolCall(answer string) bool {
+	text := strings.ToLower(strings.TrimSpace(answer))
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "<tool_call") || strings.Contains(text, "</tool_call>") {
+		return true
+	}
+	if strings.Contains(text, "<arg_key>") && strings.Contains(text, "<arg_value>") {
+		return true
+	}
+	if (strings.Contains(text, `"tool_call"`) || strings.Contains(text, `"tool_calls"`)) &&
+		(strings.Contains(text, `"arguments"`) || strings.Contains(text, `"command"`) || strings.Contains(text, `"name"`)) {
+		return true
+	}
+	return false
 }
 
 func (a *OpenAIAgentsSDKFlowAgent) apiKey() string {

@@ -289,7 +289,7 @@ function contentLabel(entry: ClipboardHistoryEntry) {
               <div class="meta-grid">
                 <div class="meta-item">
                   <span>{{ selected.type === 'image' ? '图片路径' : '配置文件' }}</span>
-                  <strong>{{ selected.type === 'image' ? selected.imagePath : clipboard.status?.path || '%APPDATA%/Ariadne/clipboard_history.json' }}</strong>
+                  <strong>{{ selected.type === 'image' ? selected.imagePath : clipboard.status?.path || '%APPDATA%/Ariadne/ariadne.sqlite' }}</strong>
                 </div>
                 <div class="meta-item">
                   <span>签名</span>

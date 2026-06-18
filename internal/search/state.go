@@ -1,13 +1,14 @@
 package search
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"ariadne/internal/appdb"
 )
 
 type UsageRecord struct {
@@ -143,7 +144,7 @@ func (s *StateStore) statusLocked() UsageStatus {
 		records = append(records, record)
 	}
 	sortUsageRecords(records)
-	return UsageStatus{Path: s.path, Count: len(records), Records: records}
+	return UsageStatus{Path: firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path), Count: len(records), Records: records}
 }
 
 func sortUsageRecords(records []UsageRecord) {
@@ -173,27 +174,16 @@ func (s *StateStore) load() {
 	if s.path == "" {
 		return
 	}
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
+	records, ok, err := loadUsageRecordsFromSQLite(s.path)
+	if err != nil || !ok {
 		return
 	}
-	var state struct {
-		Version int                    `json:"version"`
-		Records map[string]UsageRecord `json:"records"`
-	}
-	if json.Unmarshal(raw, &state) != nil || state.Records == nil {
-		return
-	}
-	for id, record := range state.Records {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		record.ResultID = id
+	for id, record := range records {
+		record = normalizeUsageRecord(id, record)
 		if isEmptyUsageRecord(record) {
 			continue
 		}
-		s.records[id] = record
+		s.records[record.ResultID] = record
 	}
 }
 
@@ -201,21 +191,16 @@ func (s *StateStore) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
+	return saveUsageRecordsToSQLite(s.path, s.records)
+}
+
+func normalizeUsageRecord(id string, record UsageRecord) UsageRecord {
+	id = strings.TrimSpace(firstNonEmpty(id, record.ResultID))
+	record.ResultID = id
+	if id == "" {
+		return UsageRecord{}
 	}
-	state := struct {
-		Version int                    `json:"version"`
-		Records map[string]UsageRecord `json:"records"`
-	}{
-		Version: 1,
-		Records: s.records,
-	}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return record
 }
 
 func usageBoost(record UsageRecord, now time.Time) float64 {
@@ -247,4 +232,13 @@ func minFloat(left float64, right float64) float64 {
 		return left
 	}
 	return right
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

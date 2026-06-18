@@ -9,7 +9,7 @@ import type {
 let fallbackChecklists: ChecklistAsset[] = []
 
 let fallbackStatus: ChecklistStatus = {
-  path: '%APPDATA%/Ariadne/checklists.json',
+  path: '%APPDATA%/Ariadne/ariadne.sqlite',
   count: 0,
   checklists: fallbackChecklists,
 }
@@ -84,7 +84,7 @@ function normalizeDraftSaveResult(result: ChecklistDraftSaveResult): ChecklistDr
 function normalizeStatus(status: ChecklistStatus): ChecklistStatus {
   const checklists = normalizeChecklists(status.checklists ?? [])
   return {
-    path: status.path || '%APPDATA%/Ariadne/checklists.json',
+    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
     count: Number(status.count ?? checklists.length),
     lastSaveError: status.lastSaveError,
     checklists,

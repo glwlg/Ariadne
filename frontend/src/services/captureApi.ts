@@ -3,7 +3,7 @@ import type { CaptureHistoryEntry, CaptureHistoryStatus } from '../types/ariadne
 let fallbackEntries: CaptureHistoryEntry[] = []
 
 let fallbackStatus: CaptureHistoryStatus = {
-  path: '%APPDATA%/Ariadne/capture_history.json',
+  path: '%APPDATA%/Ariadne/ariadne.sqlite',
   imageDir: '%APPDATA%/Ariadne/capture_images',
   thumbnailDir: '%APPDATA%/Ariadne/capture_thumbnails',
   count: 0,
@@ -155,7 +155,7 @@ function fallbackList(query: string, limit: number) {
 function normalizeStatus(status: CaptureHistoryStatus): CaptureHistoryStatus {
   const entries = normalizeEntries(status.entries ?? fallbackEntries)
   return {
-    path: status.path || '%APPDATA%/Ariadne/capture_history.json',
+    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
     imageDir: status.imageDir || '%APPDATA%/Ariadne/capture_images',
     thumbnailDir: status.thumbnailDir ?? '%APPDATA%/Ariadne/capture_thumbnails',
     count: status.count ?? entries.length,

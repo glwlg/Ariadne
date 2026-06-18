@@ -18,16 +18,16 @@ import (
 )
 
 type Output struct {
-	OK         bool                      `json:"ok"`
-	Action     string                    `json:"action"`
-	Message    string                    `json:"message,omitempty"`
-	Status     workmemory.SemanticStatus `json:"status"`
-	Memory     workmemory.Status         `json:"memory,omitempty"`
-	Refresh    any                       `json:"refresh,omitempty"`
-	Results    []MemorySummary           `json:"results,omitempty"`
-	Entry      *MemoryDetail             `json:"entry,omitempty"`
-	Note       *NoteSummary              `json:"note,omitempty"`
-	ConfigPath string                    `json:"configPath,omitempty"`
+	OK          bool                      `json:"ok"`
+	Action      string                    `json:"action"`
+	Message     string                    `json:"message,omitempty"`
+	Status      workmemory.SemanticStatus `json:"status"`
+	Memory      workmemory.Status         `json:"memory,omitempty"`
+	Refresh     any                       `json:"refresh,omitempty"`
+	Results     []MemorySummary           `json:"results,omitempty"`
+	Entry       *MemoryDetail             `json:"entry,omitempty"`
+	Note        *NoteSummary              `json:"note,omitempty"`
+	StoragePath string                    `json:"storagePath,omitempty"`
 }
 
 type MemorySummary struct {
@@ -95,7 +95,7 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 
-	service, appSettings := newWorkMemoryService(*vectorStore, *vectorURI, *collection)
+	service := newWorkMemoryService(*vectorStore, *vectorURI, *collection)
 	defer service.Stop()
 	cutoff := *since
 	if *sinceHours > 0 {
@@ -103,11 +103,11 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	filter := memoryFilter{Since: cutoff, Source: *source, App: *app}
 	result := Output{
-		OK:         true,
-		Action:     strings.TrimSpace(strings.ToLower(*action)),
-		Status:     service.SemanticStatus(),
-		Memory:     service.Status(),
-		ConfigPath: defaultConfigPath(),
+		OK:          true,
+		Action:      strings.TrimSpace(strings.ToLower(*action)),
+		Status:      service.SemanticStatus(),
+		Memory:      service.Status(),
+		StoragePath: service.Status().StoragePath,
 	}
 
 	switch result.Action {
@@ -167,11 +167,10 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if !result.OK {
 		return 1
 	}
-	_ = appSettings
 	return 0
 }
 
-func newWorkMemoryService(vectorStore string, vectorURI string, collection string) (*workmemory.Service, settings.AppSettings) {
+func newWorkMemoryService(vectorStore string, vectorURI string, collection string) *workmemory.Service {
 	settingsService := settings.NewService()
 	appSettings := settingsService.GetSettings()
 	service := workmemory.NewService()
@@ -201,7 +200,7 @@ func newWorkMemoryService(vectorStore string, vectorURI string, collection strin
 		policy.VectorCollection = strings.TrimSpace(collection)
 	}
 	service.ApplyEmbeddingPolicy(policy)
-	return service, appSettings
+	return service
 }
 
 type memoryFilter struct {
@@ -416,19 +415,6 @@ func truncate(value string, max int) string {
 		return value
 	}
 	return string(runes[:max]) + "..."
-}
-
-func defaultConfigPath() string {
-	base := os.Getenv("APPDATA")
-	if base == "" {
-		if dir, err := os.UserConfigDir(); err == nil {
-			base = dir
-		}
-	}
-	if base == "" {
-		base = "."
-	}
-	return strings.TrimSpace(base) + string(os.PathSeparator) + "Ariadne" + string(os.PathSeparator) + "config.json"
 }
 
 func ParseUnixOrHours(value string) int64 {

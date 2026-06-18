@@ -26,7 +26,7 @@ let fallbackWorkflows: WorkflowDefinition[] = [
 ]
 
 let fallbackStatus: WorkflowStatus = {
-  path: '%APPDATA%/Ariadne/workflows.json',
+  path: '%APPDATA%/Ariadne/ariadne.sqlite',
   legacyPath: '%APPDATA%/x-tools/config.json',
   count: fallbackWorkflows.length,
   legacyImported: false,
@@ -210,7 +210,7 @@ export async function runWorkflow(request: WorkflowRunRequest): Promise<Workflow
 function normalizeStatus(status: WorkflowStatus): WorkflowStatus {
   const workflows = normalizeWorkflows(status.workflows ?? [])
   return {
-    path: status.path || '%APPDATA%/Ariadne/workflows.json',
+    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
     legacyPath: status.legacyPath || '%APPDATA%/x-tools/config.json',
     count: Number(status.count ?? workflows.length),
     lastSaveError: status.lastSaveError,

@@ -1,5 +1,7 @@
 import type { OCRResult, OCRStatus } from '../types/ariadne'
 
+const LOCAL_OCR_PROVIDER = 'rapidocr_onnxruntime'
+
 async function tryOCRBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
@@ -14,7 +16,7 @@ export async function getOCRStatus(): Promise<OCRStatus> {
   if (!binding) {
     return {
       available: false,
-      provider: 'rapidocr_onnxruntime',
+      provider: LOCAL_OCR_PROVIDER,
       mode: 'unavailable',
       lastError: 'OCR 服务不可用',
     }
@@ -24,7 +26,7 @@ export async function getOCRStatus(): Promise<OCRStatus> {
   } catch {
     return {
       available: false,
-      provider: 'rapidocr_onnxruntime',
+      provider: LOCAL_OCR_PROVIDER,
       mode: 'unavailable',
       lastError: 'OCR 服务不可用',
     }
@@ -58,7 +60,7 @@ export async function recognizeWorkMemoryOCR(memoryId: string): Promise<OCRResul
 function normalizeStatus(value: Partial<OCRStatus> | null | undefined): OCRStatus {
   return {
     available: Boolean(value?.available),
-    provider: value?.provider || 'rapidocr_onnxruntime',
+    provider: value?.provider || LOCAL_OCR_PROVIDER,
     mode: value?.mode || 'python',
     pythonPath: value?.pythonPath || '',
     bridgePath: value?.bridgePath || '',
@@ -79,7 +81,7 @@ function normalizeResult(value: Partial<OCRResult> | null | undefined): OCRResul
     imagePath: value?.imagePath || '',
     width: Number(value?.width || 0),
     height: Number(value?.height || 0),
-    provider: value?.provider || 'rapidocr_onnxruntime',
+    provider: value?.provider || LOCAL_OCR_PROVIDER,
     elapsedMs: Number(value?.elapsedMs || 0),
     sensitive: Boolean(value?.sensitive),
     error: value?.error || '',
@@ -92,7 +94,7 @@ function unavailableResult(source: string): OCRResult {
   return {
     ok: false,
     source,
-    provider: 'rapidocr_onnxruntime',
+    provider: LOCAL_OCR_PROVIDER,
     sensitive: false,
     error: '开发态未连接 OCR 服务',
     recognizedAt: Math.floor(Date.now() / 1000),

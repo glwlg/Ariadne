@@ -378,6 +378,7 @@ func applyRetentionPolicies(
 ) {
 	workMemoryService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
 	captureService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
+	captureService.ApplyStoragePolicy(config.MaxStorageMB, config.KeepFavoritesForever)
 	clipboardService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
 	imageIndexService.ApplyRetentionPolicy(config.RetentionDays)
 }
@@ -393,29 +394,49 @@ func applyCaptureOverlayRuntime(service *captureoverlay.Service, config settings
 }
 
 func applyOCRAIRuntime(service *ocr.Service, config settings.AISettings) {
+	provider := firstNonEmpty(config.OCRProvider, "openai-compatible")
 	service.ApplyAIOCRPolicy(ocr.AIOCRPolicy{
 		Enabled:  config.OCRModelEnabled,
-		Provider: firstNonEmpty(config.OCRProvider, "openai-compatible"),
-		BaseURL:  firstNonEmpty(config.OCRBaseURL, os.Getenv("ARIADNE_OCR_BASE_URL"), config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
+		Provider: provider,
+		BaseURL:  ocrAIBaseURL(provider, config),
 		Model:    firstNonEmpty(config.OCRModel, os.Getenv("ARIADNE_OCR_MODEL")),
 	})
 }
 
+func ocrAIBaseURL(provider string, config settings.AISettings) string {
+	if isOllamaOCRProvider(provider) {
+		return firstNonEmpty(config.OCRBaseURL, os.Getenv("ARIADNE_OCR_BASE_URL"))
+	}
+	return firstNonEmpty(config.OCRBaseURL, os.Getenv("ARIADNE_OCR_BASE_URL"), config.BaseURL, os.Getenv("OPENAI__BASE_URL"))
+}
+
+func isOllamaOCRProvider(provider string) bool {
+	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case "ollama", "ollama-generate", "ollama_generate":
+		return true
+	default:
+		return false
+	}
+}
+
 func applyWorkMemoryRuntime(service *workmemory.Service, config settings.WorkMemorySettings) {
 	service.ApplyCapturePolicy(workmemory.CapturePolicy{
-		ExcludeApps:            config.ExcludeApps,
-		ExcludeWindowKeywords:  config.ExcludeWindowKeywords,
-		ExcludePaths:           config.ExcludePaths,
-		ExcludeContentPatterns: config.ExcludeContentPatterns,
-		AppCaptureProfiles:     workMemoryAppProfiles(config.AppCaptureProfiles),
-		AutoOCR:                config.AutoOCR,
-		CaptureScope:           config.CaptureScope,
-		MultiMonitor:           config.MultiMonitor,
-		CaptureOnWindowChange:  config.WindowSwitchCaptureEnabled,
-		WindowChangeCooldown:   config.WindowSwitchCooldownSecs,
-		PauseOnIdle:            config.PauseOnIdle,
-		IdlePauseSeconds:       config.IdlePauseSeconds,
-		PauseOnLock:            config.PauseOnLock,
+		ExcludeApps:              config.ExcludeApps,
+		ExcludeWindowKeywords:    config.ExcludeWindowKeywords,
+		ExcludePaths:             config.ExcludePaths,
+		ExcludeURLs:              config.ExcludeURLs,
+		ExcludeContentPatterns:   config.ExcludeContentPatterns,
+		SensitiveRulesEnabled:    config.SensitiveRulesEnabled,
+		SensitiveRulesConfigured: true,
+		AppCaptureProfiles:       workMemoryAppProfiles(config.AppCaptureProfiles),
+		AutoOCR:                  config.AutoOCR,
+		CaptureScope:             config.CaptureScope,
+		MultiMonitor:             config.MultiMonitor,
+		CaptureOnWindowChange:    config.WindowSwitchCaptureEnabled,
+		WindowChangeCooldown:     config.WindowSwitchCooldownSecs,
+		PauseOnIdle:              config.PauseOnIdle,
+		IdlePauseSeconds:         config.IdlePauseSeconds,
+		PauseOnLock:              config.PauseOnLock,
 	})
 	service.ApplySettings(
 		config.Enabled,
@@ -463,11 +484,12 @@ func applyWorkMemoryAIRuntime(service *workmemory.Service, config settings.AISet
 		Model:    firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL")),
 	})
 	service.ApplyFlowAgentPolicy(workmemory.FlowAgentPolicy{
-		Enabled:  flowAgentEnabled(config, memory),
-		Runner:   flowAgentRunner(config),
-		Provider: firstNonEmpty(config.Provider, "openai-compatible"),
-		BaseURL:  firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
-		Model:    flowAgentModel(config),
+		Enabled:      flowAgentEnabled(config, memory),
+		Runner:       flowAgentRunner(config),
+		Provider:     firstNonEmpty(config.Provider, "openai-compatible"),
+		BaseURL:      firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
+		Model:        flowAgentModel(config),
+		NativeSkills: config.AgentResponsesEnabled,
 	})
 	service.ApplyExperienceDiscoveryPolicy(workmemory.ExperienceDiscoveryPolicy{
 		Enabled:  config.Enabled && memory.ExperienceDiscoveryEnabled,

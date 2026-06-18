@@ -4,7 +4,6 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/contracts"
 	"ariadne/internal/imagepreview"
 )
@@ -58,15 +58,19 @@ type Status struct {
 }
 
 type RetentionResult struct {
-	OK             bool  `json:"ok"`
-	RetentionDays  int   `json:"retentionDays"`
-	KeepPinned     bool  `json:"keepPinned"`
-	CutoffAt       int64 `json:"cutoffAt,omitempty"`
-	Removed        int   `json:"removed"`
-	Kept           int   `json:"kept"`
-	KeptPinned     int   `json:"keptPinned"`
-	RemainingCount int   `json:"remainingCount"`
-	AppliedAt      int64 `json:"appliedAt"`
+	OK                 bool  `json:"ok"`
+	RetentionDays      int   `json:"retentionDays"`
+	MaxStorageMB       int   `json:"maxStorageMb,omitempty"`
+	StorageBudgetBytes int64 `json:"storageBudgetBytes,omitempty"`
+	KeepPinned         bool  `json:"keepPinned"`
+	CutoffAt           int64 `json:"cutoffAt,omitempty"`
+	Removed            int   `json:"removed"`
+	RemovedByStorage   int   `json:"removedByStorage,omitempty"`
+	Kept               int   `json:"kept"`
+	KeptPinned         int   `json:"keptPinned"`
+	RemainingCount     int   `json:"remainingCount"`
+	RemainingBytes     int64 `json:"remainingBytes,omitempty"`
+	AppliedAt          int64 `json:"appliedAt"`
 }
 
 type CaptureOptions struct {
@@ -93,6 +97,12 @@ type thumbnailBackfillResult struct {
 
 var historySaveDebounceDelay = 600 * time.Millisecond
 
+const (
+	defaultStatusEntryLimit = 500
+	maxListEntryLimit       = 5000
+	bytesPerMegabyte        = 1024 * 1024
+)
+
 type Service struct {
 	mu               sync.RWMutex
 	path             string
@@ -112,7 +122,7 @@ func NewService() *Service {
 }
 
 func NewServiceWithPaths(path string, imageDir string) *Service {
-	service := &Service{path: path, imageDir: imageDir, thumbnailDir: defaultThumbnailDir(imageDir), maxEntries: 300}
+	service := &Service{path: path, imageDir: imageDir, thumbnailDir: defaultThumbnailDir(imageDir)}
 	service.load()
 	service.ensureThumbnails()
 	return service
@@ -414,6 +424,104 @@ func (s *Service) ApplyRetentionPolicy(retentionDays int, keepPinned bool) Reten
 	return result
 }
 
+func (s *Service) ApplyStoragePolicy(maxStorageMB int, keepPinned bool) RetentionResult {
+	return s.applyStorageBudget(maxStorageMB, storageBudgetBytes(maxStorageMB), keepPinned)
+}
+
+func (s *Service) applyStorageBudget(maxStorageMB int, budgetBytes int64, keepPinned bool) RetentionResult {
+	now := time.Now()
+	result := RetentionResult{
+		OK:                 true,
+		MaxStorageMB:       maxStorageMB,
+		StorageBudgetBytes: budgetBytes,
+		KeepPinned:         keepPinned,
+		AppliedAt:          now.Unix(),
+	}
+	if budgetBytes <= 0 {
+		s.mu.RLock()
+		result.Kept = len(s.entries)
+		result.RemainingCount = len(s.entries)
+		for _, entry := range s.entries {
+			if entry.Pinned {
+				result.KeptPinned++
+			}
+			result.RemainingBytes += entryStorageBytes(entry)
+		}
+		s.mu.RUnlock()
+		return result
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entryBytes := make(map[string]int64, len(s.entries))
+	totalBytes := int64(0)
+	for _, entry := range s.entries {
+		bytes := entryStorageBytes(entry)
+		entryBytes[entry.ID] = bytes
+		totalBytes += bytes
+	}
+	if totalBytes <= budgetBytes {
+		result.Kept = len(s.entries)
+		result.RemainingCount = len(s.entries)
+		result.RemainingBytes = totalBytes
+		for _, entry := range s.entries {
+			if entry.Pinned {
+				result.KeptPinned++
+			}
+		}
+		return result
+	}
+
+	removable := make([]Entry, 0, len(s.entries))
+	for _, entry := range s.entries {
+		if keepPinned && entry.Pinned {
+			continue
+		}
+		removable = append(removable, entry)
+	}
+	sort.SliceStable(removable, func(i, j int) bool {
+		if removable[i].CreatedAt == removable[j].CreatedAt {
+			return removable[i].ID < removable[j].ID
+		}
+		return removable[i].CreatedAt < removable[j].CreatedAt
+	})
+
+	removeIDs := make(map[string]bool)
+	for _, entry := range removable {
+		if totalBytes <= budgetBytes {
+			break
+		}
+		removeIDs[entry.ID] = true
+		totalBytes -= entryBytes[entry.ID]
+		if totalBytes < 0 {
+			totalBytes = 0
+		}
+		result.Removed++
+		result.RemovedByStorage++
+		s.removeStoredEntry(entry)
+	}
+	if len(removeIDs) > 0 {
+		next := make([]Entry, 0, len(s.entries)-len(removeIDs))
+		for _, entry := range s.entries {
+			if removeIDs[entry.ID] {
+				continue
+			}
+			next = append(next, entry)
+		}
+		s.entries = next
+		s.saveLockedWithStatus()
+	}
+	result.Kept = len(s.entries)
+	result.RemainingCount = len(s.entries)
+	result.RemainingBytes = totalBytes
+	for _, entry := range s.entries {
+		if entry.Pinned {
+			result.KeptPinned++
+		}
+	}
+	return result
+}
+
 func (s *Service) ImageDataURL(id string) string {
 	return s.imageDataURL(id, false)
 }
@@ -482,8 +590,11 @@ func captureQuery(query string) string {
 }
 
 func (s *Service) listLocked(query string, limit int) []Entry {
-	if limit <= 0 || limit > 500 {
-		limit = s.maxEntries
+	if limit <= 0 {
+		limit = defaultStatusEntryLimit
+	}
+	if limit > maxListEntryLimit {
+		limit = maxListEntryLimit
 	}
 	normalized := strings.ToLower(strings.TrimSpace(query))
 	items := make([]Entry, 0, len(s.entries))
@@ -505,7 +616,7 @@ func (s *Service) statusLocked(includeEntries bool) Status {
 	virtualizedImageDir, virtualizedImageCount, virtualizedImageBytes := findVirtualizedDir(s.imageDir, os.Getenv("APPDATA"), localAppData)
 	thumbnailCount, thumbnailBytes := countFilesInDir(s.thumbnailDir)
 	status := Status{
-		Path:                  s.path,
+		Path:                  firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path),
 		ImageDir:              s.imageDir,
 		ThumbnailDir:          s.thumbnailDir,
 		Count:                 len(s.entries),
@@ -529,7 +640,7 @@ func (s *Service) statusLocked(includeEntries bool) Status {
 		}
 	}
 	if includeEntries {
-		status.Entries = s.listLocked("", s.maxEntries)
+		status.Entries = s.listLocked("", defaultStatusEntryLimit)
 	}
 	return status
 }
@@ -538,18 +649,11 @@ func (s *Service) load() {
 	if s.path == "" {
 		return
 	}
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
+	entries, ok, err := loadEntriesFromSQLite(s.path)
+	if err != nil || !ok {
 		return
 	}
-	var state struct {
-		Version int     `json:"version"`
-		Entries []Entry `json:"entries"`
-	}
-	if json.Unmarshal(raw, &state) != nil {
-		return
-	}
-	for _, entry := range state.Entries {
+	for _, entry := range entries {
 		entry = normalizeEntry(entry)
 		if entry.ID != "" && entry.ImagePath != "" {
 			s.entries = append(s.entries, entry)
@@ -599,21 +703,7 @@ func (s *Service) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	state := struct {
-		Version int     `json:"version"`
-		Entries []Entry `json:"entries"`
-	}{
-		Version: 1,
-		Entries: s.entries,
-	}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return saveEntriesToSQLite(s.path, s.entries)
 }
 
 func shouldSaveCaptureHistoryAsync(source string) bool {
@@ -622,6 +712,9 @@ func shouldSaveCaptureHistoryAsync(source string) bool {
 }
 
 func (s *Service) trimLocked() {
+	if s.maxEntries <= 0 {
+		return
+	}
 	for len(s.entries) > s.maxEntries {
 		remove := len(s.entries) - 1
 		for i := len(s.entries) - 1; i >= 0; i-- {
@@ -1017,6 +1110,15 @@ func boolLabel(value bool) string {
 	return "否"
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func formatBytes(value int64) string {
 	if value <= 0 {
 		return "0 B"
@@ -1062,6 +1164,38 @@ func countFilesInDir(root string) (int, int64) {
 		bytes += info.Size()
 	}
 	return count, bytes
+}
+
+func storageBudgetBytes(maxStorageMB int) int64 {
+	if maxStorageMB <= 0 {
+		return 0
+	}
+	return int64(maxStorageMB) * bytesPerMegabyte
+}
+
+func entryStorageBytes(entry Entry) int64 {
+	total := fileSize(entry.ImagePath) + fileSize(entry.ThumbnailPath)
+	if total > 0 {
+		return total
+	}
+	if entry.Bytes > 0 {
+		total += entry.Bytes
+	}
+	if entry.ThumbnailBytes > 0 {
+		total += entry.ThumbnailBytes
+	}
+	return total
+}
+
+func fileSize(path string) int64 {
+	if path == "" {
+		return 0
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return 0
+	}
+	return info.Size()
 }
 
 func fileExists(path string) bool {

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/contracts"
 	"ariadne/internal/workmemory"
 )
@@ -493,7 +494,7 @@ func (s *Service) find(id string) (Workflow, bool) {
 
 func (s *Service) statusLocked() Status {
 	return Status{
-		Path:           s.path,
+		Path:           firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path),
 		LegacyPath:     s.legacyPath,
 		Count:          len(s.workflows),
 		LastSaveError:  s.lastSaveError,
@@ -508,17 +509,13 @@ func (s *Service) load() {
 		return
 	}
 
-	raw, err := os.ReadFile(s.path)
-	if err == nil {
-		var state struct {
-			Version    int        `json:"version"`
-			Workflows  []Workflow `json:"workflows"`
-			RemovedIDs []string   `json:"removedIds,omitempty"`
+	if state, ok, err := loadWorkflowStateFromSQLite(s.path); err == nil && ok {
+		removedIDs := make([]string, 0, len(state.Removed))
+		for id := range state.Removed {
+			removedIDs = append(removedIDs, id)
 		}
-		if json.Unmarshal(raw, &state) == nil {
-			s.applyState(state.Workflows, state.RemovedIDs)
-			return
-		}
+		s.applyState(state.Workflows, removedIDs)
+		return
 	}
 
 	if legacy, imported := importLegacyWorkflows(s.legacyPath); imported {
@@ -566,28 +563,7 @@ func (s *Service) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	removedIDs := make([]string, 0, len(s.removed))
-	for id := range s.removed {
-		removedIDs = append(removedIDs, id)
-	}
-	sort.Strings(removedIDs)
-	state := struct {
-		Version    int        `json:"version"`
-		Workflows  []Workflow `json:"workflows"`
-		RemovedIDs []string   `json:"removedIds,omitempty"`
-	}{
-		Version:    1,
-		Workflows:  cloneWorkflows(s.workflows),
-		RemovedIDs: removedIDs,
-	}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, raw, 0o600)
+	return saveWorkflowStateToSQLite(s.path, workflowState{Workflows: cloneWorkflows(s.workflows), Removed: s.removed})
 }
 
 func defaultWorkflows() []Workflow {
@@ -1147,4 +1123,13 @@ func defaultLegacyPath() string {
 		return ""
 	}
 	return filepath.Join(appData, "x-tools", "config.json")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -215,7 +215,7 @@ function formatTime(seconds?: number) {
 
             <div class="side-panel">
               <Database :size="16" />
-              <strong>{{ workflows.status?.path || '%APPDATA%/Ariadne/workflows.json' }}</strong>
+              <strong>{{ workflows.status?.path || '%APPDATA%/Ariadne/ariadne.sqlite' }}</strong>
               <small>旧配置：{{ workflows.status?.legacyPath || '%APPDATA%/x-tools/config.json' }}</small>
             </div>
 

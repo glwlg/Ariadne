@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ariadne/internal/appdb"
 )
 
 const (
@@ -312,14 +314,8 @@ func (s *Service) fetchURL(rawURL string) (string, error) {
 func (s *Service) load() {
 	loaded := []Profile{}
 	if s.configPath != "" {
-		if raw, err := os.ReadFile(s.configPath); err == nil {
-			var state struct {
-				Version  int       `json:"version"`
-				Profiles []Profile `json:"profiles"`
-			}
-			if json.Unmarshal(raw, &state) == nil {
-				loaded = normalizeProfiles(state.Profiles)
-			}
+		if profiles, ok, err := loadProfilesFromSQLite(s.configPath); err == nil && ok {
+			loaded = normalizeProfiles(profiles)
 		}
 	}
 	if len(loaded) == 0 {
@@ -385,9 +381,10 @@ func (s *Service) statusLocked() Status {
 		systemReadable = true
 		systemBytes = info.Size()
 	}
-	virtualizedPath, virtualizedExists, virtualizedBytes := findVirtualizedFile(s.configPath, os.Getenv("APPDATA"), os.Getenv("LOCALAPPDATA"))
+	storagePath := firstNonEmpty(appdb.DatabasePathForPath(s.configPath), s.configPath)
+	virtualizedPath, virtualizedExists, virtualizedBytes := findVirtualizedFile(storagePath, os.Getenv("APPDATA"), os.Getenv("LOCALAPPDATA"))
 	status := Status{
-		ConfigPath:        s.configPath,
+		ConfigPath:        storagePath,
 		HostsPath:         s.hostsPath,
 		LegacyPath:        s.legacyPath,
 		Count:             len(s.profiles),
@@ -422,9 +419,6 @@ func (s *Service) saveLocked() error {
 	if s.configPath == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.configPath), 0o755); err != nil {
-		return err
-	}
 	persisted := []Profile{}
 	for _, profile := range s.profiles {
 		if profile.System {
@@ -432,15 +426,7 @@ func (s *Service) saveLocked() error {
 		}
 		persisted = append(persisted, normalizeProfile(profile))
 	}
-	state := struct {
-		Version  int       `json:"version"`
-		Profiles []Profile `json:"profiles"`
-	}{Version: 1, Profiles: persisted}
-	raw, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.configPath, raw, 0o600)
+	return saveProfilesToSQLite(s.configPath, persisted)
 }
 
 func (s *Service) refreshSystemProfileLocked() {
@@ -807,6 +793,15 @@ func defaultHostsPath() string {
 		return filepath.Join(os.Getenv("WINDIR"), "System32", "drivers", "etc", "hosts")
 	}
 	return "/etc/hosts"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func writeHostsContent(path string, content string) error {

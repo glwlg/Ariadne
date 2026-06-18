@@ -12,7 +12,7 @@ let fallbackProfiles: HostsProfile[] = [
 ]
 
 let fallbackStatus: HostsStatus = {
-  configPath: '%APPDATA%/Ariadne/hosts_profiles.json',
+  configPath: '%APPDATA%/Ariadne/ariadne.sqlite',
   hostsPath: 'C:/Windows/System32/drivers/etc/hosts',
   legacyPath: '~/.x-tools/hosts_profiles.json',
   count: 1,
@@ -144,7 +144,7 @@ export async function applyEnabledHostsProfiles(confirmed: boolean): Promise<Hos
 function normalizeStatus(status: HostsStatus): HostsStatus {
   const profiles = normalizeProfiles(status.profiles ?? fallbackProfiles)
   return {
-    configPath: status.configPath || '%APPDATA%/Ariadne/hosts_profiles.json',
+    configPath: status.configPath || '%APPDATA%/Ariadne/ariadne.sqlite',
     hostsPath: status.hostsPath || 'C:/Windows/System32/drivers/etc/hosts',
     legacyPath: status.legacyPath || '~/.x-tools/hosts_profiles.json',
     count: status.count ?? profiles.length,

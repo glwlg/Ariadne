@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"ariadne/internal/appdb"
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
 	"ariadne/internal/contracts"
@@ -489,6 +490,52 @@ func TestTimeMachineWindowSessionAppendsActiveFramesToOneEntry(t *testing.T) {
 	}
 }
 
+func TestWindowChangeTriggersReviewForEndedPendingSession(t *testing.T) {
+	capturer := &fakeCapturer{}
+	service := NewServiceWithPath("", capturer)
+	clearEntriesForTest(service)
+	service.interval = time.Second
+	service.ApplyCapturePolicy(CapturePolicy{
+		CaptureOnWindowChange: true,
+		WindowChangeCooldown:  3,
+		PauseOnIdle:           false,
+		PauseOnLock:           false,
+	})
+	now := time.Unix(1800000100, 0)
+	service.now = func() time.Time { return now }
+	current := windowContext{title: "Ariadne - 心流", app: "ariadne.exe"}
+	service.context = func() windowContext { return current }
+	service.mu.Lock()
+	service.status.TimeMachineEnabled = true
+	service.mu.Unlock()
+
+	service.captureIfWindowChanged()
+	now = now.Add(3 * time.Second)
+	service.captureIfWindowChanged()
+	if capturer.calls != 1 {
+		t.Fatalf("expected first stable window capture, got %d", capturer.calls)
+	}
+	firstID := service.Status().LastCaptureID
+	first := entryByIDForTest(service.Timeline(), firstID)
+	if first.QualityStatus != qualityStatusPending {
+		t.Fatalf("active session should stay pending before window switch, got %#v", first)
+	}
+
+	now = now.Add(time.Second)
+	current = windowContext{title: "Terminal - go test", app: "WindowsTerminal.exe"}
+	service.captureIfWindowChanged()
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		first = entryByIDForTest(service.Timeline(), firstID)
+		if first.QualityStatus == qualityStatusChecked {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("ended pending session should be reviewed after window switch, got %#v", first)
+}
+
 func TestReviewPendingCapturesCollapsesDuplicateFramesAndChecksEntry(t *testing.T) {
 	service := NewServiceWithPath("", nil)
 	clearEntriesForTest(service)
@@ -864,6 +911,44 @@ func TestAutoOCRProcessorRunsAfterCaptureWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestPendingOCRIsUsedForQualityBeforeFormalWriteback(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	pending := service.addEntry(Entry{
+		ID:            "memory-pending-precheck",
+		Source:        "time_machine",
+		ContentType:   "screenshot",
+		Title:         "待质检截图",
+		Summary:       "等待质检",
+		Text:          "等待质检",
+		ImagePath:     "pending.png",
+		QualityStatus: qualityStatusPending,
+		CreatedAt:     1800000400,
+	})
+
+	updated := service.ApplyOCRText(pending.ID, "zqxprecheckneedle", "test-precheck")
+	if updated.QualityOCRText != "zqxprecheckneedle" || updated.QualityOCRStatus != "done:test-precheck" || updated.OCRText != "" || updated.OCRStatus != "" {
+		t.Fatalf("pending OCR should stay in quality fields, got %#v", updated)
+	}
+	if updated.QualityStatus != qualityStatusPending {
+		t.Fatalf("pending OCR should not approve quality, got %#v", updated)
+	}
+	if len(service.Search("zqxprecheckneedle")) != 0 {
+		t.Fatal("quality OCR text should not be searchable before review")
+	}
+
+	review := service.ReviewPendingCaptures()
+	final := entryByIDForTest(service.Timeline(), pending.ID)
+	if review.Checked != 1 || review.OCRPromoted != 1 {
+		t.Fatalf("expected review to promote precheck OCR, got %#v", review)
+	}
+	if final.QualityStatus != qualityStatusChecked || final.OCRText != "zqxprecheckneedle" || final.OCRStatus != "done:test-precheck" {
+		t.Fatalf("expected quality OCR to become formal OCR after review, got %#v", final)
+	}
+	if len(service.Search("zqxprecheckneedle")) == 0 {
+		t.Fatal("formal OCR text should be searchable after review")
+	}
+}
+
 func TestAutoOCRProcessorDoesNotRunWhenDisabled(t *testing.T) {
 	service := NewServiceWithPath("", &fakeCapturer{})
 	service.ApplyCapturePolicy(CapturePolicy{AutoOCR: false, PauseOnIdle: false, PauseOnLock: false})
@@ -1074,9 +1159,9 @@ func TestAskFlowUsesFlowAgentRunnerWhenConfigured(t *testing.T) {
 	clearEntriesForTest(service)
 	now := time.Date(2026, 6, 15, 22, 0, 0, 0, time.Local)
 	service.now = func() time.Time { return now }
-	runner := &fakeFlowAgentRunner{result: FlowAgentResult{Answer: "这是 Codex agent 生成的动态回答。\n\n依据：flow-agent-a", Mode: "agent:codex"}}
+	runner := &fakeFlowAgentRunner{result: FlowAgentResult{Answer: "这是 OpenAI Agents SDK 生成的动态回答。\n\n依据：flow-agent-a", Mode: "agent:openai-agents-sdk-shell-skill"}}
 	RegisterFlowAgentRunner(service, runner)
-	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "codex"})
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "openai-agent", Provider: "openai-compatible", Model: "test-model", NativeSkills: true})
 	service.addEntry(Entry{
 		ID:        "flow-agent-a",
 		Source:    "manual_note",
@@ -1106,7 +1191,7 @@ func TestAskFlowUsesFlowAgentRunnerWhenConfigured(t *testing.T) {
 
 	answer := service.AskFlow(FlowAskRequest{Question: "我今天干了些什么？"})
 
-	if !answer.UsedAI || answer.Mode != "agent:codex" || !strings.Contains(answer.Answer, "动态回答") {
+	if !answer.UsedAI || answer.Mode != "agent:openai-agents-sdk-shell-skill" || !strings.Contains(answer.Answer, "动态回答") {
 		t.Fatalf("expected agent answer, got %#v", answer)
 	}
 	if runner.calls != 1 || runner.lastJob.Question == "" || runner.lastJob.LocalAnswer == "" {
@@ -1114,6 +1199,9 @@ func TestAskFlowUsesFlowAgentRunnerWhenConfigured(t *testing.T) {
 	}
 	if len(runner.lastJob.Evidence) != 0 || !strings.Contains(runner.lastJob.LocalAnswer, "Flow Memory skill") {
 		t.Fatalf("agent runner should query evidence through the Flow Memory skill instead of Go preselection: %#v", runner.lastJob)
+	}
+	if !runner.lastJob.NativeSkills {
+		t.Fatalf("agent runner should receive native Responses skill preference: %#v", runner.lastJob)
 	}
 }
 
@@ -1695,6 +1783,68 @@ func TestAddNoteClassifiesSensitiveContentAndSearches(t *testing.T) {
 	}
 }
 
+func TestSensitiveDetectionRequiresCredentialShape(t *testing.T) {
+	normalTexts := []string{
+		"登录页显示密码输入框和获取验证码按钮。",
+		"OAuth token 配置说明，不包含任何真实 token 值。",
+		"这张截图在讲 cookie、secret 和 API key 的概念。",
+		"验证码: 点击获取，token: 配置说明。",
+	}
+	for _, text := range normalTexts {
+		if LooksSensitiveText(text) {
+			t.Fatalf("plain sensitive keywords should not mark text sensitive: %q", text)
+		}
+	}
+
+	secretTexts := []string{
+		"password=super-secret-value",
+		`{"token":"abcd1234token"}`,
+		"Authorization: Bearer abcdefghijklmnop",
+		"验证码: 123456",
+		"-----BEGIN PRIVATE KEY-----",
+	}
+	for _, text := range secretTexts {
+		if !LooksSensitiveText(text) {
+			t.Fatalf("credential-shaped text should be sensitive: %q", text)
+		}
+	}
+}
+
+func TestSensitiveRulesDoNotFlagPlainKeywordScreenshots(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+
+	entry := service.AddNote(NoteRequest{
+		Title: "登录页面说明",
+		Text:  "截图里有密码输入框、验证码登录、token 配置说明，但没有真实凭据值。",
+	})
+
+	if entry.Sensitive || containsString(entry.Tags, "敏感") {
+		t.Fatalf("plain security words should not isolate a normal screenshot note: %#v", entry)
+	}
+}
+
+func TestSensitiveRulesCanBeDisabledForAutomaticClassification(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	service.ApplyCapturePolicy(CapturePolicy{SensitiveRulesEnabled: false, SensitiveRulesConfigured: true})
+
+	entry := service.AddNote(NoteRequest{
+		Title: "调试头",
+		Text:  "Authorization: Bearer abcdefghijklmnop",
+	})
+	if entry.Sensitive {
+		t.Fatalf("disabled sensitive rules should not auto-mark content: %#v", entry)
+	}
+
+	manual := service.AddNote(NoteRequest{
+		Title:     "手动敏感",
+		Text:      "普通内容",
+		Sensitive: true,
+	})
+	if !manual.Sensitive || !containsString(manual.Tags, "敏感") {
+		t.Fatalf("manual sensitive flag should still be respected: %#v", manual)
+	}
+}
+
 func TestAddNoteEnrichesJSONContentTypeAndTags(t *testing.T) {
 	service := NewServiceWithPath("", nil)
 
@@ -1862,6 +2012,30 @@ func TestApplyOCRTextBuildsCleanTimelineText(t *testing.T) {
 	}
 	if !containsString(updated.Tags, "OCR整理") {
 		t.Fatalf("expected OCR cleanup tag, got %#v", updated.Tags)
+	}
+}
+
+func TestApplyOCRTextDoesNotMarkPlainSensitiveWords(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	entry := service.addEntry(Entry{
+		ID:          "memory-ocr-plain-security-words",
+		Source:      "work_memory_time_machine",
+		ContentType: "screenshot",
+		Title:       "登录设置",
+		Summary:     "截图尚未识别",
+		Text:        "image evidence",
+		ImagePath:   "P:\\captures\\login.png",
+		Tags:        []string{"截图"},
+		CreatedAt:   time.Unix(1770003000, 0).Unix(),
+	})
+
+	updated := service.ApplyOCRText(entry.ID, "登录页包含密码输入框、验证码登录、token 配置说明，但没有任何真实凭据值。", "test-ocr")
+
+	if updated.Sensitive || containsString(updated.Tags, "敏感") {
+		t.Fatalf("plain sensitive wording should not isolate OCR entry: %#v", updated)
+	}
+	if len(service.Search("验证码登录")) == 0 {
+		t.Fatal("normal OCR text should remain searchable")
 	}
 }
 
@@ -2180,8 +2354,8 @@ func TestRefreshEmbeddingIndexPersistsNonSensitiveVectors(t *testing.T) {
 	if result.Status.EmbeddingIndexed != 1 || !result.Status.External || !strings.Contains(result.Status.Provider, "external_embedding") {
 		t.Fatalf("semantic status should report external embedding cache: %#v", result.Status)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(path), "work_memory_vectors.json")); err != nil {
-		t.Fatalf("expected embedded vector cache file: %v", err)
+	if _, err := os.Stat(appdb.DatabasePathForPath(filepath.Join(filepath.Dir(path), "work_memory_vectors.json"))); err != nil {
+		t.Fatalf("expected embedded vector cache database: %v", err)
 	}
 
 	search := service.SemanticSearchExternal("database refused")
@@ -2284,13 +2458,14 @@ func TestMilvusVectorStoreUsesRESTAdapter(t *testing.T) {
 	if strings.Contains(deleteFilter, secret.ID) || !strings.Contains(deleteFilter, "ariadne_") {
 		t.Fatalf("delete filter should be namespace-scoped and not mention entry ids, got %q", deleteFilter)
 	}
-	metadataPath := filepath.Join(filepath.Dir(path), "work_memory_vectors.json")
-	rawMetadata, err := os.ReadFile(metadataPath)
-	if err != nil {
-		t.Fatalf("Milvus refresh should persist metadata without local vectors: %v", err)
+	metadata, ok, err := loadEmbeddingStateFromSQLite(filepath.Join(filepath.Dir(path), "work_memory_vectors.json"))
+	if err != nil || !ok {
+		t.Fatalf("Milvus refresh should persist metadata without local vectors, ok=%v err=%v", ok, err)
 	}
-	if strings.Contains(string(rawMetadata), `"Vector":`) || strings.Contains(string(rawMetadata), `"vector":`) {
-		t.Fatalf("Milvus metadata should not persist local vector values: %s", string(rawMetadata))
+	for _, record := range metadata.Records {
+		if len(record.Vector) > 0 {
+			t.Fatalf("Milvus metadata should not persist local vector values: %#v", metadata)
+		}
 	}
 	reloaded := NewServiceWithPath(path, nil)
 	defer reloaded.Stop()
