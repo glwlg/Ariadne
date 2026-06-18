@@ -1,21 +1,22 @@
 <script setup lang="ts">
-import AriadneLauncher from './components/launcher/AriadneLauncher.vue'
-import CaptureOverlayWindow from './components/capture/CaptureOverlayWindow.vue'
-import CaptureHistoryCenter from './components/capture/CaptureHistoryCenter.vue'
-import ClipboardCenter from './components/clipboard/ClipboardCenter.vue'
-import HostsCenter from './components/hosts/HostsCenter.vue'
-import JsonCompareCenter from './components/jsoncompare/JsonCompareCenter.vue'
-import NetworkMonitorCenter from './components/network/NetworkMonitorCenter.vue'
-import NetworkMiniWindow from './components/network/NetworkMiniWindow.vue'
-import PinnedImageWindow from './components/pinned/PinnedImageWindow.vue'
-import SettingsCenter from './components/settings/SettingsCenter.vue'
-import WorkMemoryCenter from './components/workmemory/WorkMemoryCenter.vue'
-import WorkflowCenter from './components/workflows/WorkflowCenter.vue'
 import { installSystemThemeListener, syncThemeFromSettings } from './lib/theme'
 import { applyMainWindowPolicy, enableTaskbarToggle } from './services/toolWindowsApi'
 import { useAppShellStore, type AppToolView } from './stores/appShell'
 import { Window } from '@wailsio/runtime'
-import { onMounted, onUnmounted } from 'vue'
+import { defineAsyncComponent, onMounted, onUnmounted } from 'vue'
+
+const AriadneLauncher = defineAsyncComponent(() => import('./components/launcher/AriadneLauncher.vue'))
+const CaptureOverlayWindow = defineAsyncComponent(() => import('./components/capture/CaptureOverlayWindow.vue'))
+const CaptureHistoryCenter = defineAsyncComponent(() => import('./components/capture/CaptureHistoryCenter.vue'))
+const ClipboardCenter = defineAsyncComponent(() => import('./components/clipboard/ClipboardCenter.vue'))
+const HostsCenter = defineAsyncComponent(() => import('./components/hosts/HostsCenter.vue'))
+const JsonCompareCenter = defineAsyncComponent(() => import('./components/jsoncompare/JsonCompareCenter.vue'))
+const NetworkMonitorCenter = defineAsyncComponent(() => import('./components/network/NetworkMonitorCenter.vue'))
+const NetworkMiniWindow = defineAsyncComponent(() => import('./components/network/NetworkMiniWindow.vue'))
+const PinnedImageWindow = defineAsyncComponent(() => import('./components/pinned/PinnedImageWindow.vue'))
+const SettingsCenter = defineAsyncComponent(() => import('./components/settings/SettingsCenter.vue'))
+const WorkMemoryCenter = defineAsyncComponent(() => import('./components/workmemory/WorkMemoryCenter.vue'))
+const WorkflowCenter = defineAsyncComponent(() => import('./components/workflows/WorkflowCenter.vue'))
 
 const appShell = useAppShellStore()
 const routeParams = new URLSearchParams(window.location.search)

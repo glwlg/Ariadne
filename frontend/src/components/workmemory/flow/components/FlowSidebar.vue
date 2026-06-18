@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { ArrowLeft, Settings } from '@lucide/vue'
 import { toRefs } from 'vue'
+import AriadneMark from '../../../ui/AriadneMark.vue'
 import { useWorkMemoryFlowContext } from '../context'
 
 const ctx = useWorkMemoryFlowContext()
 const {
   activeFlowPage,
-  appShell,
+  flowSidebarCollapsed,
   flowPages,
   openFlowPage,
   openFlowSettings,
+  toggleFlowSidebar,
 } = toRefs(ctx)
 </script>
 
@@ -17,7 +19,7 @@ const {
   <aside class="flow-sidebar" aria-label="心流导航">
     <div class="flow-sidebar-brand">
       <div class="flow-logo-mark" aria-hidden="true">
-        <img src="/favicon.svg" alt="" />
+        <AriadneMark />
       </div>
       <div>
         <small>Ariadne</small>
@@ -52,9 +54,15 @@ const {
         <Settings :size="22" />
         <span>设置</span>
       </button>
-      <button type="button" class="flow-side-nav-item" @click="appShell.openLauncher()">
+      <button
+        type="button"
+        class="flow-side-nav-item flow-sidebar-collapse-button"
+        :aria-pressed="flowSidebarCollapsed"
+        :title="flowSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+        @click="toggleFlowSidebar()"
+      >
         <ArrowLeft :size="22" />
-        <span>收起</span>
+        <span>{{ flowSidebarCollapsed ? '展开' : '收起' }}</span>
       </button>
     </div>
   </aside>

@@ -1,6 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { Clipboard } from '@wailsio/runtime'
+import { Clipboard, Events } from '@wailsio/runtime'
 import { getCaptureImageDataURL } from '../services/captureApi'
 import {
   addWorkMemoryNote,
@@ -19,6 +19,8 @@ import {
   generateRetrospectiveDraft,
   generateWorkflowDraft,
   getAutonomousArtifacts,
+  getWorkMemoryFlowConversations,
+  getWorkMemoryFlowMessages,
   getScheduledDraftStatus,
   getSemanticStatus,
   getWorkMemoryHealth,
@@ -26,6 +28,8 @@ import {
   getWorkMemoryTimeline,
   importWorkMemoryMaterials,
   askWorkMemoryFlow,
+  askWorkMemoryFlowConversation,
+  createWorkMemoryFlowConversation,
   polishWorkMemoryDraft,
   refreshEmbeddingIndex,
   rejectAutonomousArtifact as rejectAutonomousArtifactApi,
@@ -68,6 +72,8 @@ import type {
   WorkMemoryEntry,
   WorkMemoryExportRequest,
   WorkMemoryExportResult,
+  WorkMemoryFlowConversation,
+  WorkMemoryFlowMessage,
   WorkMemoryFlowAskResponse,
   WorkMemoryHealthSummary,
   WorkMemoryImportMaterialResult,
@@ -78,6 +84,7 @@ import type {
 } from '../types/ariadne'
 
 export const useWorkMemoryStore = defineStore('work-memory', () => {
+  const workMemoryChangedEvent = 'ariadne:work-memory-changed'
   const status = ref<WorkMemoryStatus>({
     enabled: true,
     timeMachineEnabled: false,
@@ -112,6 +119,9 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const embeddingRefreshResult = ref<WorkMemoryEmbeddingRefreshResult | null>(null)
   const semanticSearchResult = ref<WorkMemorySemanticSearchResult | null>(null)
   const flowAskResult = ref<WorkMemoryFlowAskResponse | null>(null)
+  const flowConversations = ref<WorkMemoryFlowConversation[]>([])
+  const flowMessages = ref<WorkMemoryFlowMessage[]>([])
+  const activeFlowConversationId = ref('')
   const dailyDraftPolishResult = ref<WorkMemoryDraftPolishResult | null>(null)
   const knowledgeDraftSaveResult = ref<SkillDraftSaveResult | null>(null)
   const knowledgeSkillExportResult = ref<SkillExportResult | null>(null)
@@ -179,6 +189,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const isRefreshingEmbedding = ref(false)
   const isSemanticSearching = ref(false)
   const isAskingFlow = ref(false)
+  const isLoadingFlowConversation = ref(false)
   const isDiscoveringExperienceAI = ref(false)
   const isDeletingEntries = ref(false)
   const isBatchRecognizingOCR = ref(false)
@@ -190,6 +201,10 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const batchOcrProgressTotal = ref(0)
   const batchOcrProgressStage = ref('')
   let experienceProgressTimer: number | null = null
+  let liveUpdateStop: (() => void) | null = null
+  let liveUpdateTimer: number | null = null
+  let liveRefreshInFlight = false
+  let liveRefreshQueued = false
   const knowledgeDraftSaveArmed = ref(false)
   const knowledgeSkillExportArmed = ref(false)
   const knowledgeSkillInstallArmed = ref(false)
@@ -205,6 +220,10 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
 
   const selectedEntry = computed(() => {
     return entries.value.find((entry) => entry.id === selectedId.value) ?? entries.value[0] ?? null
+  })
+
+  const activeFlowConversation = computed(() => {
+    return flowConversations.value.find((conversation) => conversation.id === activeFlowConversationId.value) ?? flowConversations.value[0] ?? null
   })
 
   const retrospectiveSelectedIdSet = computed(() => new Set(retrospectiveSelectedIds.value))
@@ -226,7 +245,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
 
   const retrospectiveTargetLabel = computed(() => {
     if (retrospectiveSelectionCount.value) {
-      return `复盘证据 ${retrospectiveSelectionCount.value} 条`
+      return `复盘留痕 ${retrospectiveSelectionCount.value} 条`
     }
     return selectedEntry.value ? '当前详情记忆' : '未选择记忆'
   })
@@ -286,13 +305,14 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   async function load() {
     isLoading.value = true
     try {
-      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth] = await Promise.all([
+      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth, nextFlowConversations] = await Promise.all([
         getWorkMemoryStatus(),
         getWorkMemoryTimeline(),
         getScheduledDraftStatus(),
         getSemanticStatus(),
         getAutonomousArtifacts(),
         getWorkMemoryHealth(),
+        getWorkMemoryFlowConversations(),
       ])
       status.value = nextStatus
       entries.value = nextEntries
@@ -300,6 +320,13 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       semanticStatus.value = nextSemanticStatus
       autonomousArtifacts.value = nextAutonomousArtifacts
       health.value = nextHealth
+      flowConversations.value = nextFlowConversations
+      if (!activeFlowConversationId.value && nextFlowConversations.length) {
+        activeFlowConversationId.value = nextFlowConversations[0].id
+        flowMessages.value = await getWorkMemoryFlowMessages(activeFlowConversationId.value)
+      } else if (activeFlowConversationId.value) {
+        flowMessages.value = await getWorkMemoryFlowMessages(activeFlowConversationId.value)
+      }
       pruneRetrospectiveSelection()
       if (!selectedId.value || !entries.value.some((entry) => entry.id === selectedId.value)) {
         selectedId.value = entries.value[0]?.id ?? ''
@@ -311,9 +338,133 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     }
   }
 
+  function installLiveUpdates() {
+    if (liveUpdateStop) {
+      return liveUpdateStop
+    }
+
+    const handleChanged = () => {
+      queueLiveRefresh()
+    }
+    window.addEventListener(workMemoryChangedEvent, handleChanged)
+
+    let uninstallWailsEvent = () => {}
+    try {
+      uninstallWailsEvent = Events.On(workMemoryChangedEvent, handleChanged)
+    } catch {
+      uninstallWailsEvent = () => {}
+    }
+
+    liveUpdateStop = () => {
+      uninstallWailsEvent()
+      window.removeEventListener(workMemoryChangedEvent, handleChanged)
+      if (liveUpdateTimer !== null) {
+        window.clearTimeout(liveUpdateTimer)
+        liveUpdateTimer = null
+      }
+      liveUpdateStop = null
+    }
+    return liveUpdateStop
+  }
+
+  function queueLiveRefresh(delay = 180) {
+    if (liveUpdateTimer !== null) {
+      window.clearTimeout(liveUpdateTimer)
+    }
+    liveUpdateTimer = window.setTimeout(() => {
+      liveUpdateTimer = null
+      void refreshLiveData()
+    }, delay)
+  }
+
+  async function refreshLiveData() {
+    if (liveRefreshInFlight) {
+      liveRefreshQueued = true
+      return
+    }
+    liveRefreshInFlight = true
+    try {
+      const previousSelectedId = selectedId.value
+      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth, nextFlowConversations] = await Promise.all([
+        getWorkMemoryStatus(),
+        getWorkMemoryTimeline(),
+        getScheduledDraftStatus(),
+        getSemanticStatus(),
+        getAutonomousArtifacts(),
+        getWorkMemoryHealth(),
+        getWorkMemoryFlowConversations(),
+      ])
+      status.value = nextStatus
+      entries.value = nextEntries
+      scheduledDraftStatus.value = nextScheduledDrafts
+      semanticStatus.value = nextSemanticStatus
+      autonomousArtifacts.value = nextAutonomousArtifacts
+      health.value = nextHealth
+      flowConversations.value = nextFlowConversations
+      if (activeFlowConversationId.value && nextFlowConversations.some((conversation) => conversation.id === activeFlowConversationId.value)) {
+        flowMessages.value = await getWorkMemoryFlowMessages(activeFlowConversationId.value)
+      } else if (nextFlowConversations.length) {
+        activeFlowConversationId.value = nextFlowConversations[0].id
+        flowMessages.value = await getWorkMemoryFlowMessages(activeFlowConversationId.value)
+      } else {
+        activeFlowConversationId.value = ''
+        flowMessages.value = []
+      }
+      pruneRetrospectiveSelection()
+      const selectedStillExists = Boolean(previousSelectedId && entries.value.some((entry) => entry.id === previousSelectedId))
+      if (selectedStillExists) {
+        selectedId.value = previousSelectedId
+      } else if (!selectedId.value || !entries.value.some((entry) => entry.id === selectedId.value)) {
+        selectedId.value = entries.value[0]?.id ?? ''
+      }
+      await loadSelectedImage()
+      await refreshSearch()
+    } finally {
+      liveRefreshInFlight = false
+      if (liveRefreshQueued) {
+        liveRefreshQueued = false
+        queueLiveRefresh(80)
+      }
+    }
+  }
+
   async function setQuery(value: string) {
     query.value = value
     searchResults.value = value.trim() ? await searchWorkMemory(value) : []
+  }
+
+  async function loadFlowConversations() {
+    const conversations = await getWorkMemoryFlowConversations()
+    flowConversations.value = conversations
+    if (activeFlowConversationId.value && conversations.some((conversation) => conversation.id === activeFlowConversationId.value)) {
+      flowMessages.value = await getWorkMemoryFlowMessages(activeFlowConversationId.value)
+      return
+    }
+    activeFlowConversationId.value = conversations[0]?.id ?? ''
+    flowMessages.value = activeFlowConversationId.value ? await getWorkMemoryFlowMessages(activeFlowConversationId.value) : []
+  }
+
+  async function selectFlowConversation(id: string) {
+    const normalized = id.trim()
+    if (!normalized || normalized === activeFlowConversationId.value) {
+      return
+    }
+    isLoadingFlowConversation.value = true
+    try {
+      activeFlowConversationId.value = normalized
+      flowMessages.value = await getWorkMemoryFlowMessages(normalized)
+    } finally {
+      isLoadingFlowConversation.value = false
+    }
+  }
+
+  async function startFlowConversation(title = '') {
+    const conversation = await createWorkMemoryFlowConversation(title)
+    flowConversations.value = [conversation, ...flowConversations.value.filter((item) => item.id !== conversation.id)]
+    activeFlowConversationId.value = conversation.id
+    flowMessages.value = []
+    flowAskResult.value = null
+    return conversation
   }
 
   async function askFlow(question: string, limit = 8) {
@@ -324,8 +475,12 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     }
     isAskingFlow.value = true
     try {
-      const result = await askWorkMemoryFlow({ question: normalized, limit })
+      const turn = await askWorkMemoryFlowConversation({ conversationId: activeFlowConversationId.value, question: normalized, limit })
+      const result = turn.response
       flowAskResult.value = result
+      activeFlowConversationId.value = turn.conversation.id
+      flowConversations.value = [turn.conversation, ...flowConversations.value.filter((item) => item.id !== turn.conversation.id)]
+      flowMessages.value = turn.messages
       if (result.evidence.length) {
         const evidenceIds = new Set(result.evidence.map((item) => item.id))
         searchResults.value = entries.value
@@ -334,7 +489,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
             id: entry.id,
             type: 'memory',
             title: entry.title,
-            subtitle: `心流证据 · ${entry.appName || entry.source}`,
+            subtitle: `心流留痕 · ${entry.appName || entry.source}`,
             detail: entry.summary,
             icon: 'memory',
             tags: entry.tags,
@@ -369,7 +524,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
         ok: false,
         question: normalized,
         title: normalized || '心流回答',
-        answer: '心流问答暂时不可用。你可以稍后重试，或先切到时间线查看原始证据。',
+        answer: '心流问答暂时不可用。你可以稍后重试，或先切到时间线查看原始留痕。',
         intent: 'search',
         mode: 'error',
         evidence: [],
@@ -410,7 +565,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     }
     const entry = entries.value.find((item) => item.id === id)
     if (entry?.sensitive) {
-      showFeedback('敏感记忆不会加入复盘证据')
+      showFeedback('敏感记忆不会加入复盘留痕')
       return
     }
     const selected = retrospectiveSelectedIdSet.value
@@ -419,7 +574,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       return
     }
     if (retrospectiveSelectionCount.value >= 12) {
-      showFeedback('一次复盘最多选择 12 条证据')
+      showFeedback('一次复盘最多选择 12 条留痕')
       return
     }
     retrospectiveSelectedIds.value = [...retrospectiveSelectedIds.value, id]
@@ -646,7 +801,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       if (result.experienceReport?.id) {
         experienceReport.value = result.experienceReport
       }
-      showFeedback(result.lastError || `定期草稿已运行 · ${result.lastEntryCount} 条证据`)
+      showFeedback(result.lastError || `定期草稿已运行 · ${result.lastEntryCount} 条留痕`)
     } catch {
       showFeedback('定期草稿运行失败')
     } finally {
@@ -699,7 +854,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     try {
       const draft = await generateRetrospectiveDraft(entryIds)
       retrospectiveDraft.value = draft
-      showFeedback(`复盘草稿已生成 · ${draft.evidence.length} 条证据`)
+      showFeedback(`复盘草稿已生成 · ${draft.evidence.length} 条留痕`)
     } catch {
       showFeedback('复盘草稿生成失败')
     }
@@ -883,7 +1038,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       return
     }
     isDiscoveringExperienceAI.value = true
-    startExperienceProgress('准备非敏感证据')
+    startExperienceProgress('准备非敏感留痕')
     try {
       experienceDiscoveryStage.value = 'AI 正在归纳线索'
       const result = await discoverExperiencesAI({ periodDays, external: true, confirmed: true })
@@ -1057,7 +1212,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       return
     }
     if (!entry.imagePath) {
-      showFeedback('当前记忆没有图片证据')
+      showFeedback('当前记忆没有图片留痕')
       return
     }
     isRecognizingOCR.value = true
@@ -1640,6 +1795,10 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     embeddingRefreshResult,
     semanticSearchResult,
     flowAskResult,
+    flowConversations,
+    flowMessages,
+    activeFlowConversationId,
+    activeFlowConversation,
     knowledgeDraftSaveResult,
     knowledgeSkillExportResult,
     knowledgeSkillInstallResult,
@@ -1686,6 +1845,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     isRefreshingEmbedding,
     isSemanticSearching,
     isAskingFlow,
+    isLoadingFlowConversation,
     isDiscoveringExperienceAI,
     isDeletingEntries,
     isBatchRecognizingOCR,
@@ -1704,7 +1864,11 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     workflowDraftSaveArmed,
     checklistDraftSaveArmed,
     load,
+    installLiveUpdates,
     setQuery,
+    loadFlowConversations,
+    selectFlowConversation,
+    startFlowConversation,
     askFlow,
     select,
     isRetrospectiveSelected,

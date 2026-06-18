@@ -183,6 +183,103 @@ func TestTimeMachineMergesDuplicateScreenSignatures(t *testing.T) {
 	}
 }
 
+func TestTimeMachineDoesNotMergeDuplicateScreenAcrossTimelineDays(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	yesterday := time.Date(2026, 6, 17, 23, 58, 0, 0, time.Local).Unix()
+	today := time.Date(2026, 6, 18, 10, 56, 0, 0, time.Local).Unix()
+
+	first := service.addEntry(Entry{
+		ID:             "memory-time_machine-browser-yesterday",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "浏览器任务页",
+		AppName:        "msedge.exe",
+		WindowTitle:    "数字化管理系统",
+		CaptureID:      "capture-yesterday",
+		ImagePath:      "browser-yesterday.png",
+		ImageSignature: "same-browser-screen",
+		CreatedAt:      yesterday,
+	})
+	second := service.addEntry(Entry{
+		ID:             "memory-time_machine-browser-today",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "浏览器任务页",
+		AppName:        "msedge.exe",
+		WindowTitle:    "数字化管理系统",
+		CaptureID:      "capture-today",
+		ImagePath:      "browser-today.png",
+		ImageSignature: "same-browser-screen",
+		CreatedAt:      today,
+	})
+
+	if first.ID == "" || second.ID == "" || second.ID == first.ID {
+		t.Fatalf("same screen on a new day must stay visible on that day, first=%#v second=%#v", first, second)
+	}
+	if status := service.Status(); status.EntryCount != 2 || status.LastSkippedReason == "重复画面已合并" {
+		t.Fatalf("cross-day duplicate should not be merged, got %#v", status)
+	}
+}
+
+func TestTimeMachineDoesNotMergeDuplicateScreenAcrossWindows(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	now := time.Date(2026, 6, 18, 10, 56, 0, 0, time.Local).Unix()
+
+	wechat := service.addEntry(Entry{
+		ID:             "memory-time_machine-wechat",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "微信",
+		AppName:        "Weixin.exe",
+		WindowTitle:    "微信",
+		CaptureID:      "capture-wechat",
+		ImagePath:      "wechat.png",
+		ImageSignature: "same-rendered-screen",
+		CreatedAt:      now,
+	})
+	browser := service.addEntry(Entry{
+		ID:             "memory-time_machine-browser",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "浏览器",
+		AppName:        "msedge.exe",
+		WindowTitle:    "数字化管理系统",
+		CaptureID:      "capture-browser",
+		ImagePath:      "browser.png",
+		ImageSignature: "same-rendered-screen",
+		CreatedAt:      now + 60,
+	})
+
+	if wechat.ID == "" || browser.ID == "" || browser.ID == wechat.ID {
+		t.Fatalf("different windows must stay as separate timeline evidence, wechat=%#v browser=%#v", wechat, browser)
+	}
+	if status := service.Status(); status.EntryCount != 2 || status.LastSkippedReason == "重复画面已合并" {
+		t.Fatalf("cross-window duplicate should not be merged, got %#v", status)
+	}
+}
+
+func TestTimeMachineCaptureKeepsPreCaptureWindowContext(t *testing.T) {
+	current := windowContext{title: "数字化管理系统", app: "msedge.exe"}
+	capturer := &hookedCapturer{
+		entry: testCaptureEntry("browser", "browser.png", "browser-screen", 1280, 720, time.Date(2026, 6, 18, 10, 56, 0, 0, time.Local).Unix()),
+		onCapture: func() {
+			current = windowContext{title: "微信", app: "Weixin.exe"}
+		},
+	}
+	service := NewServiceWithPath("", capturer)
+	clearEntriesForTest(service)
+	service.context = func() windowContext { return current }
+	service.ApplyCapturePolicy(CapturePolicy{PauseOnIdle: false, PauseOnLock: false})
+
+	entry := service.CaptureTimeMachineNow()
+
+	if entry.AppName != "msedge.exe" || entry.WindowTitle != "数字化管理系统" {
+		t.Fatalf("capture should use pre-capture foreground context, got %#v", entry)
+	}
+}
+
 func TestTimeMachineMergesSimilarScreenFingerprints(t *testing.T) {
 	dir := t.TempDir()
 	screenA := filepath.Join(dir, "screen-a.png")
@@ -255,6 +352,157 @@ func TestTimeMachineDoesNotMergeDifferentScreenFingerprints(t *testing.T) {
 	status := service.Status()
 	if status.EntryCount != 2 || status.LastSkippedReason == "相似画面已合并" {
 		t.Fatalf("different captures should not be marked as similar merge, got %#v", status)
+	}
+}
+
+func TestTimeMachineMergeKeepsCollapsedFrames(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	baseAt := time.Date(2026, 6, 18, 9, 0, 0, 0, time.Local).Unix()
+
+	first := service.addEntry(Entry{
+		ID:             "memory-time_machine-weixin-first",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "微信会话",
+		AppName:        "Weixin.exe",
+		WindowTitle:    "微信",
+		CaptureID:      "capture-weixin-first",
+		ImagePath:      "weixin-first.png",
+		ImageSignature: "same-weixin-screen",
+		Width:          1280,
+		Height:         720,
+		CreatedAt:      baseAt,
+	})
+	second := service.addEntry(Entry{
+		ID:             "memory-time_machine-weixin-second",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "微信会话",
+		AppName:        "Weixin.exe",
+		WindowTitle:    "微信",
+		CaptureID:      "capture-weixin-second",
+		ImagePath:      "weixin-second.png",
+		ImageSignature: "same-weixin-screen",
+		Width:          1280,
+		Height:         720,
+		CreatedAt:      baseAt + 5*60,
+	})
+
+	if first.ID == "" || second.ID != first.ID {
+		t.Fatalf("recent same-window duplicate should collapse into the first entry, first=%#v second=%#v", first, second)
+	}
+	if second.FrameCount != 2 || len(second.Frames) != 2 {
+		t.Fatalf("collapsed captures should remain available as frames, got %#v", second)
+	}
+	if second.Frames[0].CaptureID != "capture-weixin-first" || second.Frames[1].CaptureID != "capture-weixin-second" {
+		t.Fatalf("unexpected collapsed frame order: %#v", second.Frames)
+	}
+	if second.CaptureID != "capture-weixin-second" {
+		t.Fatalf("collapsed entry should display the newest frame, got %#v", second)
+	}
+}
+
+func TestTimeMachineDoesNotMergeSameWindowAfterSimilarityWindow(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	baseAt := time.Date(2026, 6, 18, 9, 0, 0, 0, time.Local).Unix()
+
+	first := service.addEntry(Entry{
+		ID:             "memory-time_machine-browser-first",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "浏览器任务页",
+		AppName:        "msedge.exe",
+		WindowTitle:    "数字化管理系统",
+		CaptureID:      "capture-browser-first",
+		ImagePath:      "browser-first.png",
+		ImageSignature: "same-browser-screen",
+		Width:          1280,
+		Height:         720,
+		CreatedAt:      baseAt,
+	})
+	second := service.addEntry(Entry{
+		ID:             "memory-time_machine-browser-second",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "浏览器任务页",
+		AppName:        "msedge.exe",
+		WindowTitle:    "数字化管理系统",
+		CaptureID:      "capture-browser-second",
+		ImagePath:      "browser-second.png",
+		ImageSignature: "same-browser-screen",
+		Width:          1280,
+		Height:         720,
+		CreatedAt:      baseAt + int64(timeMachineSimilarityMergeWindow.Seconds()) + 1,
+	})
+
+	if first.ID == "" || second.ID == "" || second.ID == first.ID {
+		t.Fatalf("same window after merge window should stay visible as a new entry, first=%#v second=%#v", first, second)
+	}
+	if status := service.Status(); status.EntryCount != 2 || status.LastSkippedReason == "重复画面已合并" {
+		t.Fatalf("expired duplicate should not be reported as collapsed, got %#v", status)
+	}
+}
+
+func TestTimeMachineWindowSessionKeepsChangedScreensAsNewEntries(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	baseAt := time.Date(2026, 6, 18, 9, 0, 0, 0, time.Local).Unix()
+	context := windowContext{title: "数字化管理系统", app: "msedge.exe"}
+	service.mu.Lock()
+	service.currentWindowSessionSignature = windowSignature(context)
+	service.currentWindowSessionStartedAt = baseAt
+	service.mu.Unlock()
+
+	first := service.addEntry(Entry{
+		ID:             "memory-time_machine-browser-list",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "浏览器列表页",
+		AppName:        context.app,
+		WindowTitle:    context.title,
+		CaptureID:      "capture-browser-list",
+		ImagePath:      "browser-list.png",
+		ImageSignature: "browser-list-screen",
+		Width:          1280,
+		Height:         720,
+		CreatedAt:      baseAt,
+	})
+	second := service.addEntry(Entry{
+		ID:             "memory-time_machine-browser-detail",
+		Source:         "time_machine",
+		ContentType:    "screenshot",
+		Title:          "浏览器详情页",
+		AppName:        context.app,
+		WindowTitle:    context.title,
+		CaptureID:      "capture-browser-detail",
+		ImagePath:      "browser-detail.png",
+		ImageSignature: "browser-detail-screen",
+		Width:          1280,
+		Height:         720,
+		CreatedAt:      baseAt + 30,
+	})
+
+	if first.ID == "" || second.ID == "" || second.ID == first.ID {
+		t.Fatalf("changed screen in the same window session should create a new entry, first=%#v second=%#v", first, second)
+	}
+	if status := service.Status(); status.EntryCount != 2 {
+		t.Fatalf("changed session screens should both stay in timeline, got %#v", status)
+	}
+}
+
+func TestDefaultWindowCaptureProfileUsesConfiguredProbeInterval(t *testing.T) {
+	profile, ok := windowCaptureProfileForContext(
+		windowContext{title: "数字化管理系统", app: "msedge.exe"},
+		CapturePolicy{CaptureOnWindowChange: true, WindowChangeCooldown: 3},
+		120,
+	)
+	if !ok {
+		t.Fatal("expected default window capture profile")
+	}
+	if profile.ActiveIntervalSeconds != 120 {
+		t.Fatalf("default window profile should keep configured probe interval, got %#v", profile)
 	}
 }
 
@@ -1261,6 +1509,49 @@ func TestAskFlowContactQuestionRanksNamedContactEvidence(t *testing.T) {
 	}
 	if strings.Contains(answer.Answer, "今天已经沉淀") {
 		t.Fatalf("contact question should not be answered as today summary: %s", answer.Answer)
+	}
+}
+
+func TestAskFlowConversationPersistsConversationAndMessages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work_memory.json")
+	service := NewServiceWithPath(path, nil)
+	defer service.Stop()
+	clearEntriesForTest(service)
+	now := time.Date(2026, 6, 18, 13, 30, 0, 0, time.Local)
+	service.now = func() time.Time { return now }
+	service.addEntry(Entry{
+		ID:        "flow-conversation-memory",
+		Source:    "manual_note",
+		Title:     "会话记录持久化",
+		Summary:   "心流问答需要写入会话和消息表。",
+		Text:      "用户的问题和心流回答都应该在中间对话框恢复。",
+		AppName:   "Code.exe",
+		CreatedAt: now.Add(-10 * time.Minute).Unix(),
+	})
+
+	result := service.AskFlowConversation(FlowConversationAskRequest{Question: "心流会话怎么持久化？"})
+	if !result.OK || result.Conversation.ID == "" || len(result.Messages) != 2 {
+		t.Fatalf("expected persisted conversation turn, got %#v", result)
+	}
+	if result.Messages[0].Role != "user" || result.Messages[0].Text != "心流会话怎么持久化？" {
+		t.Fatalf("first message should be the user question: %#v", result.Messages[0])
+	}
+	if result.Messages[1].Role != "assistant" || result.Messages[1].Result == nil || result.Messages[1].Result.Question != "心流会话怎么持久化？" {
+		t.Fatalf("second message should keep assistant answer and structured result: %#v", result.Messages[1])
+	}
+
+	reloaded := NewServiceWithPath(path, nil)
+	defer reloaded.Stop()
+	conversations := reloaded.FlowConversations()
+	if len(conversations) != 1 || conversations[0].ID != result.Conversation.ID || conversations[0].MessageCount != 2 {
+		t.Fatalf("expected one reloaded conversation with two messages, got %#v", conversations)
+	}
+	messages := reloaded.FlowMessages(result.Conversation.ID)
+	if len(messages) != 2 || messages[0].Role != "user" || messages[1].Role != "assistant" || messages[1].Result == nil {
+		t.Fatalf("expected reloaded user and assistant messages, got %#v", messages)
+	}
+	if messages[1].Result.Question != "心流会话怎么持久化？" || !strings.Contains(messages[1].Text, "非敏感") {
+		t.Fatalf("assistant message should restore result payload and answer text, got %#v", messages[1])
 	}
 }
 
@@ -2538,6 +2829,43 @@ func TestDeleteAndClearUnpinnedKeepFavorites(t *testing.T) {
 	}
 }
 
+func TestChangeObserverPublishesEntryLifecycle(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+
+	events := make(chan ChangeEvent, 8)
+	RegisterChangeObserver(service, func(event ChangeEvent) {
+		events <- event
+	})
+
+	entry := service.AddNote(NoteRequest{Title: "实时刷新", Text: "时间线应该实时出现新内容"})
+	if entry.ID == "" {
+		t.Fatal("expected note entry")
+	}
+	created := waitChangeEventForTest(t, events, "entry_upserted", entry.ID)
+	if created.EntryCount != 1 || created.Source != "manual_note" {
+		t.Fatalf("unexpected create event: %#v", created)
+	}
+
+	updated := service.ApplyOCRText(entry.ID, "ocr live update needle", "test-ocr")
+	if updated.OCRText == "" {
+		t.Fatalf("expected OCR update: %#v", updated)
+	}
+	changed := waitChangeEventForTest(t, events, "entry_updated", entry.ID)
+	if changed.EntryCount != 1 {
+		t.Fatalf("unexpected update event: %#v", changed)
+	}
+
+	status := service.Delete(entry.ID)
+	if status.EntryCount != 0 {
+		t.Fatalf("expected deleted entry count: %#v", status)
+	}
+	deleted := waitChangeEventForTest(t, events, "entry_deleted", entry.ID)
+	if deleted.EntryCount != 0 {
+		t.Fatalf("unexpected delete event: %#v", deleted)
+	}
+}
+
 func TestRetentionPolicyRemovesOldEntriesButKeepsFavorites(t *testing.T) {
 	service := NewServiceWithPath("", nil)
 	now := time.Unix(1772000000, 0)
@@ -3152,6 +3480,33 @@ func (f *sequenceCapturer) CaptureScreen(source string) capturehistory.Status {
 	return capturehistory.Status{Entries: []capturehistory.Entry{entry}}
 }
 
+type hookedCapturer struct {
+	calls     int
+	sources   []string
+	options   []capturehistory.CaptureOptions
+	entry     capturehistory.Entry
+	onCapture func()
+}
+
+func (f *hookedCapturer) CaptureScreenWithOptions(source string, options capturehistory.CaptureOptions) capturehistory.Status {
+	f.options = append(f.options, options)
+	return f.CaptureScreen(source)
+}
+
+func (f *hookedCapturer) CaptureScreen(source string) capturehistory.Status {
+	f.calls++
+	f.sources = append(f.sources, source)
+	if f.onCapture != nil {
+		f.onCapture()
+	}
+	entry := f.entry
+	entry.Source = source
+	if entry.ID == "" {
+		entry.ID = "capture-" + source
+	}
+	return capturehistory.Status{Entries: []capturehistory.Entry{entry}}
+}
+
 func testCaptureEntry(id string, imagePath string, signature string, width int, height int, createdAt int64) capturehistory.Entry {
 	return capturehistory.Entry{
 		ID:        "capture-" + id,
@@ -3335,6 +3690,21 @@ func entryByIDForTest(entries []Entry, id string) Entry {
 func clearEntriesForTest(service *Service) {
 	for _, entry := range service.Timeline() {
 		service.Delete(entry.ID)
+	}
+}
+
+func waitChangeEventForTest(t *testing.T, events <-chan ChangeEvent, kind string, entryID string) ChangeEvent {
+	t.Helper()
+	deadline := time.After(700 * time.Millisecond)
+	for {
+		select {
+		case event := <-events:
+			if event.Kind == kind && (entryID == "" || event.EntryID == entryID) {
+				return event
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for change event kind=%s entry=%s", kind, entryID)
+		}
 	}
 }
 

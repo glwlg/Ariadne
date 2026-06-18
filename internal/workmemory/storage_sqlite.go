@@ -1,6 +1,7 @@
 package workmemory
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"time"
@@ -229,6 +230,26 @@ CREATE TABLE IF NOT EXISTS work_memory_embedding_meta(
   int_value INTEGER NOT NULL DEFAULT 0,
   text_value TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS work_memory_flow_conversations(
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_work_memory_flow_conversations_updated_at ON work_memory_flow_conversations(updated_at DESC);
+CREATE TABLE IF NOT EXISTS work_memory_flow_messages(
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT '',
+  question TEXT NOT NULL DEFAULT '',
+  result_json TEXT NOT NULL DEFAULT '',
+  error INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY(conversation_id) REFERENCES work_memory_flow_conversations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_work_memory_flow_messages_conversation_created ON work_memory_flow_messages(conversation_id, created_at ASC);
 `)
 }
 
@@ -336,6 +357,217 @@ func hasWorkMemoryRows(conn *sqlite.Conn) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func listFlowConversationsFromSQLite(path string) ([]FlowConversation, error) {
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if err := ensureWorkMemorySchema(conn); err != nil {
+		return nil, err
+	}
+	conversations := []FlowConversation{}
+	err = sqlitex.Execute(conn, `SELECT
+  c.id,
+  c.title,
+  c.created_at,
+  c.updated_at,
+  (SELECT count(*) FROM work_memory_flow_messages m WHERE m.conversation_id = c.id),
+  COALESCE((SELECT m.text FROM work_memory_flow_messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), '')
+FROM work_memory_flow_conversations c
+WHERE c.archived = 0
+ORDER BY c.updated_at DESC, c.created_at DESC`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			conversations = append(conversations, FlowConversation{
+				ID:           stmt.ColumnText(0),
+				Title:        stmt.ColumnText(1),
+				CreatedAt:    stmt.ColumnInt64(2),
+				UpdatedAt:    stmt.ColumnInt64(3),
+				MessageCount: stmt.ColumnInt(4),
+				LastMessage:  stmt.ColumnText(5),
+			})
+			return nil
+		},
+	})
+	return conversations, err
+}
+
+func readFlowConversationFromSQLite(path string, id string) (FlowConversation, bool, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return FlowConversation{}, false, nil
+	}
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return FlowConversation{}, false, err
+	}
+	defer conn.Close()
+	if err := ensureWorkMemorySchema(conn); err != nil {
+		return FlowConversation{}, false, err
+	}
+	conversation := FlowConversation{}
+	ok := false
+	err = sqlitex.Execute(conn, `SELECT
+  c.id,
+  c.title,
+  c.created_at,
+  c.updated_at,
+  (SELECT count(*) FROM work_memory_flow_messages m WHERE m.conversation_id = c.id),
+  COALESCE((SELECT m.text FROM work_memory_flow_messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1), '')
+FROM work_memory_flow_conversations c
+WHERE c.id = ?1 AND c.archived = 0`, &sqlitex.ExecOptions{
+		Args: []any{id},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			conversation = FlowConversation{
+				ID:           stmt.ColumnText(0),
+				Title:        stmt.ColumnText(1),
+				CreatedAt:    stmt.ColumnInt64(2),
+				UpdatedAt:    stmt.ColumnInt64(3),
+				MessageCount: stmt.ColumnInt(4),
+				LastMessage:  stmt.ColumnText(5),
+			}
+			ok = true
+			return nil
+		},
+	})
+	return conversation, ok, err
+}
+
+func listFlowMessagesFromSQLite(path string, conversationID string) ([]FlowMessage, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return []FlowMessage{}, nil
+	}
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if err := ensureWorkMemorySchema(conn); err != nil {
+		return nil, err
+	}
+	messages := []FlowMessage{}
+	err = sqlitex.Execute(conn, `SELECT id, conversation_id, role, text, question, result_json, error, created_at
+FROM work_memory_flow_messages
+WHERE conversation_id = ?1
+ORDER BY created_at ASC, id ASC`, &sqlitex.ExecOptions{
+		Args: []any{conversationID},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			message := FlowMessage{
+				ID:             stmt.ColumnText(0),
+				ConversationID: stmt.ColumnText(1),
+				Role:           stmt.ColumnText(2),
+				Text:           stmt.ColumnText(3),
+				Question:       stmt.ColumnText(4),
+				Error:          appdb.IntBool(stmt.ColumnInt(6)),
+				CreatedAt:      stmt.ColumnInt64(7),
+			}
+			if raw := strings.TrimSpace(stmt.ColumnText(5)); raw != "" {
+				var result FlowAskResponse
+				if err := json.Unmarshal([]byte(raw), &result); err == nil {
+					message.Result = &result
+				}
+			}
+			messages = append(messages, message)
+			return nil
+		},
+	})
+	return messages, err
+}
+
+func createFlowConversationInSQLite(path string, conversation FlowConversation) (FlowConversation, error) {
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return FlowConversation{}, err
+	}
+	defer conn.Close()
+	if err := ensureWorkMemorySchema(conn); err != nil {
+		return FlowConversation{}, err
+	}
+	conversation = normalizeFlowConversation(conversation)
+	if conversation.ID == "" {
+		return FlowConversation{}, nil
+	}
+	err = appdb.Immediate(conn, func() error {
+		return sqlitex.Execute(conn, `INSERT INTO work_memory_flow_conversations(id, title, created_at, updated_at, archived)
+VALUES (?1, ?2, ?3, ?4, 0)
+ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at, archived = 0`, &sqlitex.ExecOptions{
+			Args: []any{conversation.ID, conversation.Title, conversation.CreatedAt, conversation.UpdatedAt},
+		})
+	})
+	if err != nil {
+		return FlowConversation{}, err
+	}
+	saved, ok, err := readFlowConversationFromSQLite(path, conversation.ID)
+	if err != nil || !ok {
+		return conversation, err
+	}
+	return saved, nil
+}
+
+func appendFlowConversationTurnToSQLite(path string, conversation FlowConversation, userMessage FlowMessage, assistantMessage FlowMessage) (FlowConversation, []FlowMessage, error) {
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return FlowConversation{}, nil, err
+	}
+	defer conn.Close()
+	if err := ensureWorkMemorySchema(conn); err != nil {
+		return FlowConversation{}, nil, err
+	}
+	conversation = normalizeFlowConversation(conversation)
+	userMessage = normalizeFlowMessage(userMessage)
+	assistantMessage = normalizeFlowMessage(assistantMessage)
+	if conversation.ID == "" {
+		return FlowConversation{}, nil, nil
+	}
+	if userMessage.ConversationID == "" {
+		userMessage.ConversationID = conversation.ID
+	}
+	if assistantMessage.ConversationID == "" {
+		assistantMessage.ConversationID = conversation.ID
+	}
+	err = appdb.Immediate(conn, func() error {
+		if err := sqlitex.Execute(conn, `INSERT INTO work_memory_flow_conversations(id, title, created_at, updated_at, archived)
+VALUES (?1, ?2, ?3, ?4, 0)
+ON CONFLICT(id) DO UPDATE SET title = CASE WHEN work_memory_flow_conversations.title = '' THEN excluded.title ELSE work_memory_flow_conversations.title END, updated_at = excluded.updated_at, archived = 0`, &sqlitex.ExecOptions{
+			Args: []any{conversation.ID, conversation.Title, conversation.CreatedAt, conversation.UpdatedAt},
+		}); err != nil {
+			return err
+		}
+		if err := insertFlowMessage(conn, userMessage); err != nil {
+			return err
+		}
+		return insertFlowMessage(conn, assistantMessage)
+	})
+	if err != nil {
+		return FlowConversation{}, nil, err
+	}
+	saved, ok, err := readFlowConversationFromSQLite(path, conversation.ID)
+	if err != nil || !ok {
+		return conversation, nil, err
+	}
+	messages, err := listFlowMessagesFromSQLite(path, conversation.ID)
+	return saved, messages, err
+}
+
+func insertFlowMessage(conn *sqlite.Conn, message FlowMessage) error {
+	if message.ID == "" || message.ConversationID == "" || message.Role == "" {
+		return nil
+	}
+	resultJSON := ""
+	if message.Result != nil {
+		raw, err := json.Marshal(message.Result)
+		if err != nil {
+			return err
+		}
+		resultJSON = string(raw)
+	}
+	return sqlitex.Execute(conn, `INSERT INTO work_memory_flow_messages(id, conversation_id, role, text, question, result_json, error, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`, &sqlitex.ExecOptions{
+		Args: []any{message.ID, message.ConversationID, message.Role, message.Text, message.Question, resultJSON, appdb.BoolInt(message.Error), message.CreatedAt},
+	})
 }
 
 func insertMemoryEntry(conn *sqlite.Conn, entry Entry) error {

@@ -2,11 +2,14 @@
 import {
   ArrowUpRight,
   Check,
+  CircleSlash2,
   Copy,
   Eraser,
   Grid3X3,
   Hash,
+  Highlighter,
   Minus,
+  MousePointer2,
   Pencil,
   Pin,
   QrCode,
@@ -14,6 +17,7 @@ import {
   RotateCcw,
   Save,
   Square,
+  Trash2,
   Type,
   X,
 } from '@lucide/vue'
@@ -41,6 +45,7 @@ const props = defineProps<{
 
 type AnnotationTool = CaptureOverlayAnnotationOperation['kind']
 type Point = { x: number; y: number }
+type TextEditorState = { x: number; y: number; width: number; text: string; index?: number }
 type VisualSelectionRect = { left: number; top: number; width: number; height: number; displayWidth: number; displayHeight: number }
 type ResizeAnchor = 'tl' | 't' | 'tr' | 'r' | 'br' | 'b' | 'bl' | 'l'
 
@@ -77,10 +82,11 @@ const annotationOperations = ref<CaptureOverlayAnnotationOperation[]>([])
 const redoAnnotationOperations = ref<CaptureOverlayAnnotationOperation[]>([])
 const draftAnnotation = ref<CaptureOverlayAnnotationOperation | null>(null)
 const selectedAnnotationIndex = ref<number | null>(null)
+const hoveredAnnotationIndex = ref<number | null>(null)
 const movingAnnotationPointerId = ref<number | null>(null)
 const movingAnnotationOrigin = ref<{ point: Point; operations: CaptureOverlayAnnotationOperation[]; moved: boolean } | null>(null)
-const textEditor = ref<{ x: number; y: number; text: string; index?: number } | null>(null)
-const textInputRef = ref<HTMLInputElement | null>(null)
+const textEditor = ref<TextEditorState | null>(null)
+const textInputRef = ref<HTMLTextAreaElement | null>(null)
 const currentMousePoint = ref<Point>({ x: 0, y: 0 })
 const colorFormat = ref<'rgb' | 'hex'>('rgb')
 let sampleCanvas: HTMLCanvasElement | null = null
@@ -128,10 +134,11 @@ const toolbarStyle = computed(() => {
   const rect = selection.value
   if (!rect) return {}
   const viewport = overlayViewport()
-  const top = Math.min(viewport.height - 42, rect.top + rect.height + 10)
+  const toolbarHeight = 74
+  const top = Math.min(viewport.height - toolbarHeight - 12, rect.top + rect.height + 10)
   const toolbarWidth = Math.min(960, viewport.width - 24)
-  const left = Math.max(12, Math.min(viewport.width - toolbarWidth - 12, rect.left))
-  return { left: `${left}px`, top: `${Math.max(12, top)}px` }
+  const right = Math.max(12, viewport.width - (rect.left + rect.width))
+  return { right: `${right}px`, top: `${Math.max(12, top)}px`, maxWidth: `${toolbarWidth}px` }
 })
 
 const selectionViewBox = computed(() => {
@@ -144,6 +151,10 @@ const annotationPreviewOperations = computed(() => {
   if (draftAnnotation.value) operations.push(draftAnnotation.value)
   return operations
 })
+
+const mosaicPreviewItems = computed(() => annotationPreviewOperations.value
+  .map((operation, index) => ({ operation, index }))
+  .filter(({ operation }) => operation.kind === 'mosaic' && !operation.points?.length && Number(operation.width ?? 0) > 0 && Number(operation.height ?? 0) > 0))
 
 const pointerColor = computed(() => samplePointerColor())
 
@@ -268,6 +279,7 @@ function beginResizeSelection(anchor: ResizeAnchor, event: PointerEvent) {
     annotationOperations.value = []
     redoAnnotationOperations.value = []
     selectedAnnotationIndex.value = null
+    hoveredAnnotationIndex.value = null
     showFeedback('调整选区后已清空标注')
   }
   resizeAnchor.value = anchor
@@ -430,6 +442,7 @@ function resetSelection() {
   redoAnnotationOperations.value = []
   draftAnnotation.value = null
   selectedAnnotationIndex.value = null
+  hoveredAnnotationIndex.value = null
   movingAnnotationPointerId.value = null
   movingAnnotationOrigin.value = null
   textEditor.value = null
@@ -475,6 +488,8 @@ function handleKeyDown(event: KeyboardEvent) {
     toggleAnnotationTool('arrow')
   } else if (event.key.toLowerCase() === 'b') {
     toggleAnnotationTool('pen')
+  } else if (event.key.toLowerCase() === 'h') {
+    toggleAnnotationTool('highlight')
   } else if (event.key.toLowerCase() === 'm') {
     toggleAnnotationTool('mosaic')
   } else if (event.key.toLowerCase() === 't') {
@@ -503,6 +518,7 @@ function toggleAnnotationTool(tool: AnnotationTool) {
   }
   if (textEditor.value) commitTextAnnotation()
   selectedAnnotationIndex.value = null
+  hoveredAnnotationIndex.value = null
   movingAnnotationPointerId.value = null
   movingAnnotationOrigin.value = null
   editTool.value = tool
@@ -571,6 +587,7 @@ function endAnnotation(event: PointerEvent) {
   annotationOperations.value = [...annotationOperations.value, operation]
   redoAnnotationOperations.value = []
   selectedAnnotationIndex.value = annotationOperations.value.length - 1
+  editMode.value = false
 }
 
 function cancelAnnotationPointer(event: PointerEvent) {
@@ -587,7 +604,7 @@ function createAnnotation(start: { x: number; y: number }, end: { x: number; y: 
   const endY = Math.round(end.y)
   const color = annotationColor.value
   const strokeWidth = annotationThickness.value
-  if (editTool.value === 'pen' || editTool.value === 'mosaic' || editTool.value === 'eraser') {
+  if (isPathTool(editTool.value)) {
     return {
       kind: editTool.value,
       x,
@@ -608,6 +625,9 @@ function createAnnotation(start: { x: number; y: number }, end: { x: number; y: 
   const top = Math.min(y, endY)
   const width = Math.abs(endX - x)
   const height = Math.abs(endY - y)
+  if (editTool.value === 'mosaic') {
+    return { kind: 'mosaic', x: left, y: top, width, height, pixelSize: Math.max(8, strokeWidth * 4) }
+  }
   return { kind: 'rect', x: left, y: top, width, height, color, strokeWidth }
 }
 
@@ -615,7 +635,7 @@ function isUsefulAnnotation(operation: CaptureOverlayAnnotationOperation) {
   if (operation.kind === 'arrow' || operation.kind === 'line') {
     return Math.abs((operation.endX ?? operation.x) - operation.x) + Math.abs((operation.endY ?? operation.y) - operation.y) >= 8
   }
-  if (operation.kind === 'pen' || operation.kind === 'mosaic' || operation.kind === 'eraser') {
+  if (operation.kind === 'pen' || operation.kind === 'highlight' || operation.kind === 'eraser') {
     return pathLength(operation.points ?? []) >= 8
   }
   if (operation.kind === 'text') return Boolean(operation.text?.trim())
@@ -630,6 +650,7 @@ function clearAnnotations() {
   annotationStart.value = null
   annotationPointerId.value = null
   selectedAnnotationIndex.value = null
+  hoveredAnnotationIndex.value = null
   movingAnnotationPointerId.value = null
   movingAnnotationOrigin.value = null
   showFeedback('已清空标注')
@@ -642,6 +663,7 @@ function undoAnnotation() {
   annotationOperations.value = nextOperations
   redoAnnotationOperations.value = [undone, ...redoAnnotationOperations.value]
   selectedAnnotationIndex.value = null
+  hoveredAnnotationIndex.value = null
   showFeedback(annotationOperations.value.length ? '已撤销上一条标注' : '已清空标注')
 }
 
@@ -660,13 +682,14 @@ function deleteSelectedAnnotation() {
   annotationOperations.value = annotationOperations.value.filter((_, operationIndex) => operationIndex !== index)
   redoAnnotationOperations.value = []
   selectedAnnotationIndex.value = null
+  hoveredAnnotationIndex.value = null
   movingAnnotationPointerId.value = null
   movingAnnotationOrigin.value = null
   showFeedback('已删除选中标注')
 }
 
 function isPathTool(tool: AnnotationTool) {
-  return tool === 'pen' || tool === 'mosaic' || tool === 'eraser'
+  return tool === 'pen' || tool === 'highlight' || tool === 'eraser'
 }
 
 function appendPointToOperation(operation: CaptureOverlayAnnotationOperation, point: Point): CaptureOverlayAnnotationOperation {
@@ -692,12 +715,14 @@ function addNumberAnnotation(point: Point) {
   annotationOperations.value = [...annotationOperations.value, operation]
   redoAnnotationOperations.value = []
   selectedAnnotationIndex.value = annotationOperations.value.length - 1
+  editMode.value = false
   showFeedback(`序号 ${operation.number}`)
 }
 
 function startTextEditor(point: Point) {
   if (textEditor.value) commitTextAnnotation()
-  textEditor.value = { x: Math.round(point.x), y: Math.round(point.y), text: '' }
+  const x = Math.round(point.x)
+  textEditor.value = { x, y: Math.round(point.y), width: textWrapWidth(x), text: '' }
   void nextTick(() => textInputRef.value?.focus())
 }
 
@@ -709,6 +734,7 @@ function startExistingTextEditor(index: number) {
   textEditor.value = {
     x: Math.round(operation.x),
     y: Math.round(operation.y),
+    width: Math.round(operation.width ?? textWrapWidth(operation.x)),
     text: operation.text ?? '',
     index,
   }
@@ -735,6 +761,7 @@ function commitTextAnnotation() {
       kind: 'text',
       x: editor.x,
       y: editor.y,
+      width: editor.width,
       text,
       color: previous.color || annotationColor.value,
       strokeWidth: previous.strokeWidth ?? annotationThickness.value,
@@ -743,6 +770,7 @@ function commitTextAnnotation() {
     annotationOperations.value = nextOperations
     redoAnnotationOperations.value = []
     selectedAnnotationIndex.value = editor.index
+    editMode.value = false
     return
   }
   if (!text) return
@@ -750,6 +778,7 @@ function commitTextAnnotation() {
     kind: 'text',
     x: editor.x,
     y: editor.y,
+    width: editor.width,
     text,
     color: annotationColor.value,
     strokeWidth: annotationThickness.value,
@@ -758,6 +787,7 @@ function commitTextAnnotation() {
   annotationOperations.value = [...annotationOperations.value, operation]
   redoAnnotationOperations.value = []
   selectedAnnotationIndex.value = annotationOperations.value.length - 1
+  editMode.value = false
 }
 
 function beginMoveAnnotation(event: PointerEvent) {
@@ -768,6 +798,7 @@ function beginMoveAnnotation(event: PointerEvent) {
   const index = findAnnotationAtPoint(point)
   if (index === null) {
     selectedAnnotationIndex.value = null
+    hoveredAnnotationIndex.value = null
     return
   }
   if (event.detail >= 2 && annotationOperations.value[index]?.kind === 'text') {
@@ -777,6 +808,7 @@ function beginMoveAnnotation(event: PointerEvent) {
   }
   event.preventDefault()
   selectedAnnotationIndex.value = index
+  hoveredAnnotationIndex.value = index
   movingAnnotationPointerId.value = event.pointerId
   movingAnnotationOrigin.value = {
     point,
@@ -803,7 +835,10 @@ function moveSelectedAnnotation(event: PointerEvent) {
   const origin = movingAnnotationOrigin.value
   const pointerId = movingAnnotationPointerId.value
   const index = selectedAnnotationIndex.value
-  if (!origin || pointerId !== event.pointerId || index === null) return
+  if (!origin || pointerId !== event.pointerId || index === null) {
+    updateAnnotationHover(event)
+    return
+  }
   const point = boundedAnnotationPoint(event)
   const deltaX = point.x - origin.point.x
   const deltaY = point.y - origin.point.y
@@ -825,6 +860,7 @@ function endMoveAnnotation(event: PointerEvent) {
   const moved = movingAnnotationOrigin.value?.moved
   movingAnnotationPointerId.value = null
   movingAnnotationOrigin.value = null
+  updateAnnotationHover(event)
   redoAnnotationOperations.value = []
   if (moved) showFeedback('已移动标注')
 }
@@ -833,6 +869,20 @@ function cancelMoveAnnotation(event: PointerEvent) {
   if (movingAnnotationPointerId.value !== event.pointerId) return
   movingAnnotationPointerId.value = null
   movingAnnotationOrigin.value = null
+  hoveredAnnotationIndex.value = null
+}
+
+function updateAnnotationHover(event: MouseEvent | PointerEvent) {
+  if (!canMoveAnnotations.value || movingAnnotationPointerId.value !== null) {
+    hoveredAnnotationIndex.value = null
+    return
+  }
+  hoveredAnnotationIndex.value = findAnnotationAtPoint(boundedAnnotationPoint(event))
+}
+
+function clearAnnotationHover() {
+  if (movingAnnotationPointerId.value !== null) return
+  hoveredAnnotationIndex.value = null
 }
 
 function translateAnnotationOperation(operation: CaptureOverlayAnnotationOperation, deltaX: number, deltaY: number): CaptureOverlayAnnotationOperation {
@@ -855,29 +905,58 @@ function findAnnotationAtPoint(point: Point) {
 
 function annotationContainsPoint(operation: CaptureOverlayAnnotationOperation, point: Point) {
   const stroke = Math.max(6, operationStrokeWidth(operation) * 2)
-  if (operation.kind === 'rect' || (operation.kind === 'mosaic' && !operation.points?.length)) {
-    const left = Math.min(operation.x, operation.x + Number(operation.width ?? 0)) - stroke
-    const right = Math.max(operation.x, operation.x + Number(operation.width ?? 0)) + stroke
-    const top = Math.min(operation.y, operation.y + Number(operation.height ?? 0)) - stroke
-    const bottom = Math.max(operation.y, operation.y + Number(operation.height ?? 0)) + stroke
-    return point.x >= left && point.x <= right && point.y >= top && point.y <= bottom
+  if (operation.kind === 'rect') {
+    return rectangleStrokeContainsPoint(operation, point, stroke)
+  }
+  if (operation.kind === 'mosaic' && !operation.points?.length) {
+    return rectangleFillContainsPoint(operation, point, stroke)
   }
   if (operation.kind === 'line' || operation.kind === 'arrow') {
     return distanceToSegment(point, { x: operation.x, y: operation.y }, { x: operation.endX ?? operation.x, y: operation.endY ?? operation.y }) <= stroke
   }
-  if (operation.kind === 'pen' || operation.kind === 'mosaic' || operation.kind === 'eraser') {
+  if (operation.kind === 'pen' || operation.kind === 'highlight' || operation.kind === 'eraser' || (operation.kind === 'mosaic' && operation.points?.length)) {
     const points = operation.points ?? [{ x: operation.x, y: operation.y }]
     return distanceToPolyline(point, points) <= Math.max(stroke, operation.kind === 'mosaic' ? Number(operation.pixelSize ?? 16) : 0)
   }
   if (operation.kind === 'text') {
-    const fontSize = operationFontSize(operation)
-    const width = Math.max(24, (operation.text ?? '').length * fontSize * 0.62)
-    return point.x >= operation.x - 4 && point.x <= operation.x + width + 4 && point.y >= operation.y - 4 && point.y <= operation.y + fontSize * 1.3 + 4
+    const bounds = textAnnotationBounds(operation)
+    return point.x >= operation.x - 4 && point.x <= operation.x + bounds.width + 4 && point.y >= operation.y - 4 && point.y <= operation.y + bounds.height + 4
   }
   if (operation.kind === 'number') {
     return distanceBetween(point, { x: operation.x, y: operation.y }) <= Math.max(14, operationFontSize(operation)) + stroke
   }
   return false
+}
+
+function rectangleStrokeContainsPoint(operation: CaptureOverlayAnnotationOperation, point: Point, tolerance: number) {
+  const bounds = annotationRectangleBounds(operation)
+  const insideOuter = point.x >= bounds.left - tolerance
+    && point.x <= bounds.right + tolerance
+    && point.y >= bounds.top - tolerance
+    && point.y <= bounds.bottom + tolerance
+  if (!insideOuter) return false
+  const insideInner = point.x > bounds.left + tolerance
+    && point.x < bounds.right - tolerance
+    && point.y > bounds.top + tolerance
+    && point.y < bounds.bottom - tolerance
+  return !insideInner
+}
+
+function rectangleFillContainsPoint(operation: CaptureOverlayAnnotationOperation, point: Point, tolerance: number) {
+  const bounds = annotationRectangleBounds(operation)
+  return point.x >= bounds.left - tolerance
+    && point.x <= bounds.right + tolerance
+    && point.y >= bounds.top - tolerance
+    && point.y <= bounds.bottom + tolerance
+}
+
+function annotationRectangleBounds(operation: CaptureOverlayAnnotationOperation) {
+  return {
+    left: Math.min(operation.x, operation.x + Number(operation.width ?? 0)),
+    right: Math.max(operation.x, operation.x + Number(operation.width ?? 0)),
+    top: Math.min(operation.y, operation.y + Number(operation.height ?? 0)),
+    bottom: Math.max(operation.y, operation.y + Number(operation.height ?? 0)),
+  }
 }
 
 function distanceToPolyline(point: Point, points: Point[]) {
@@ -930,6 +1009,7 @@ function annotationToolLabel(tool: AnnotationTool) {
   if (tool === 'line') return '直线标注'
   if (tool === 'arrow') return '箭头标注'
   if (tool === 'pen') return '画笔'
+  if (tool === 'highlight') return '荧光笔'
   if (tool === 'mosaic') return '马赛克'
   if (tool === 'text') return '文字'
   if (tool === 'number') return '序号'
@@ -1056,6 +1136,10 @@ function drawCanvasOperation(context: CanvasRenderingContext2D, baseCanvas: HTML
     drawCanvasArrow(context, operation.x, operation.y, operation.endX ?? operation.x, operation.endY ?? operation.y, strokeWidth)
   } else if (operation.kind === 'pen') {
     drawCanvasPath(context, operation.points ?? [{ x: operation.x, y: operation.y }])
+  } else if (operation.kind === 'highlight') {
+    context.globalAlpha = 0.42
+    context.lineWidth = Math.max(10, strokeWidth * 4)
+    drawCanvasPath(context, operation.points ?? [{ x: operation.x, y: operation.y }])
   } else if (operation.kind === 'mosaic') {
     applyCanvasMosaic(context, operation)
   } else if (operation.kind === 'eraser') {
@@ -1178,7 +1262,11 @@ function drawCanvasText(context: CanvasRenderingContext2D, operation: CaptureOve
   const fontSize = Math.max(12, Number(operation.fontSize ?? 20))
   context.font = `${fontSize}px "Microsoft YaHei", "Segoe UI", sans-serif`
   context.textBaseline = 'top'
-  context.fillText(operation.text ?? '', operation.x, operation.y)
+  const lines = wrapTextToLines(operation.text ?? '', operationTextMaxWidth(operation), fontSize, (value) => context.measureText(value).width)
+  const lineHeight = textLineHeight(operation)
+  lines.forEach((line, index) => {
+    context.fillText(line, operation.x, operation.y + index * lineHeight)
+  })
 }
 
 function drawCanvasNumber(context: CanvasRenderingContext2D, operation: CaptureOverlayAnnotationOperation) {
@@ -1284,6 +1372,105 @@ function operationStrokeWidth(operation: CaptureOverlayAnnotationOperation) {
 
 function operationFontSize(operation: CaptureOverlayAnnotationOperation) {
   return Math.max(12, Number(operation.fontSize ?? 20))
+}
+
+function textWrapWidth(x: number) {
+  const rect = selection.value
+  if (!rect) return 260
+  const available = Math.max(32, rect.width - x - 8)
+  return Math.round(Math.min(360, available))
+}
+
+function operationTextMaxWidth(operation: CaptureOverlayAnnotationOperation) {
+  const explicitWidth = Number(operation.width ?? 0)
+  if (explicitWidth > 0) return Math.max(48, explicitWidth)
+  return textWrapWidth(operation.x)
+}
+
+function textLineHeight(operation: CaptureOverlayAnnotationOperation) {
+  return Math.round(operationFontSize(operation) * 1.25)
+}
+
+function wrappedTextLines(operation: CaptureOverlayAnnotationOperation) {
+  return wrapTextToLines(operation.text ?? '', operationTextMaxWidth(operation), operationFontSize(operation))
+}
+
+function textAnnotationBounds(operation: CaptureOverlayAnnotationOperation) {
+  const lines = wrappedTextLines(operation)
+  const fontSize = operationFontSize(operation)
+  const width = Math.min(
+    operationTextMaxWidth(operation),
+    Math.max(24, ...lines.map((line) => estimatedTextWidth(line, fontSize))),
+  )
+  return {
+    width,
+    height: Math.max(textLineHeight(operation), lines.length * textLineHeight(operation)),
+  }
+}
+
+function textEditorStyle(editor: TextEditorState) {
+  const fontSize = Math.max(16, 12 + annotationThickness.value * 3)
+  return {
+    left: `${editor.x}px`,
+    top: `${editor.y}px`,
+    width: `${editor.width}px`,
+    color: annotationColor.value,
+    fontSize: `${fontSize}px`,
+    lineHeight: `${Math.round(fontSize * 1.25)}px`,
+  }
+}
+
+function mosaicPreviewStyle(operation: CaptureOverlayAnnotationOperation) {
+  return {
+    left: `${Math.round(operation.x)}px`,
+    top: `${Math.round(operation.y)}px`,
+    width: `${Math.max(1, Math.round(operation.width ?? 1))}px`,
+    height: `${Math.max(1, Math.round(operation.height ?? 1))}px`,
+  }
+}
+
+function mosaicPreviewImageStyle(operation: CaptureOverlayAnnotationOperation) {
+  const rect = selection.value
+  const pixelSize = Math.max(4, Number(operation.pixelSize ?? annotationThickness.value * 4))
+  if (!rect) return {}
+  const imageBounds = overlayImageBoundsInSurface()
+  const sourceX = rect.left - imageBounds.left + Number(operation.x ?? 0)
+  const sourceY = rect.top - imageBounds.top + Number(operation.y ?? 0)
+  return {
+    left: `${-sourceX}px`,
+    top: `${-sourceY}px`,
+    width: `${Math.max(1, imageBounds.width / pixelSize)}px`,
+    height: `${Math.max(1, imageBounds.height / pixelSize)}px`,
+    transform: `scale(${pixelSize})`,
+  }
+}
+
+function wrapTextToLines(text: string, maxWidth: number, fontSize: number, measure: (value: string) => number = (value) => estimatedTextWidth(value, fontSize)) {
+  const paragraphs = text.replace(/\r\n?/g, '\n').split('\n')
+  const lines: string[] = []
+  for (const paragraph of paragraphs) {
+    if (!paragraph) {
+      lines.push('')
+      continue
+    }
+    let line = ''
+    for (const char of Array.from(paragraph)) {
+      if (!line && !char.trim()) continue
+      const candidate = `${line}${char}`
+      if (line && measure(candidate) > maxWidth) {
+        lines.push(line.trimEnd())
+        line = char.trim() ? char : ''
+      } else {
+        line = candidate
+      }
+    }
+    if (line) lines.push(line.trimEnd())
+  }
+  return lines.length ? lines : ['']
+}
+
+function estimatedTextWidth(value: string, fontSize: number) {
+  return Array.from(value).reduce((width, char) => width + (char.charCodeAt(0) <= 0xff ? fontSize * 0.58 : fontSize), 0)
 }
 
 function defaultCaptureFilename() {
@@ -1428,6 +1615,22 @@ function clampNumber(value: number, min: number, max: number) {
         {{ Math.round(selection.width) }} x {{ Math.round(selection.height) }}
         <template v-if="annotationOperations.length"> · {{ annotationOperations.length }} 标注</template>
       </span>
+      <div v-if="mosaicPreviewItems.length && session?.imageUrl" class="capture-mosaic-preview-layer" aria-hidden="true">
+        <div
+          v-for="{ operation, index } in mosaicPreviewItems"
+          :key="`mosaic-preview-${index}`"
+          :class="['capture-mosaic-preview', { 'is-selected': selectedAnnotationIndex === index }]"
+          :style="mosaicPreviewStyle(operation)"
+        >
+          <img
+            class="capture-mosaic-preview-image"
+            :src="session.imageUrl"
+            alt=""
+            draggable="false"
+            :style="mosaicPreviewImageStyle(operation)"
+          />
+        </div>
+      </div>
       <svg
         v-if="annotationPreviewOperations.length"
         class="capture-annotation-layer"
@@ -1435,10 +1638,6 @@ function clampNumber(value: number, min: number, max: number) {
         preserveAspectRatio="none"
       >
         <defs>
-          <pattern id="capture-mosaic-preview" width="12" height="12" patternUnits="userSpaceOnUse">
-            <rect width="12" height="12" fill="rgba(15, 118, 110, 0.22)" />
-            <path d="M 0 6 H 12 M 6 0 V 12" stroke="rgba(15, 118, 110, 0.44)" stroke-width="1" />
-          </pattern>
           <marker id="capture-arrow-head" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
             <path d="M 0 0 L 8 4 L 0 8 z" fill="#dc2626" />
           </marker>
@@ -1482,18 +1681,17 @@ function clampNumber(value: number, min: number, max: number) {
             :stroke-width="operationStrokeWidth(operation)"
           />
           <polyline
+            v-else-if="operation.kind === 'highlight'"
+            :class="['capture-annotation-highlight', { 'is-selected': selectedAnnotationIndex === index }]"
+            :points="svgPoints(operation.points)"
+            :stroke="operationColor(operation)"
+            :stroke-width="Math.max(10, operationStrokeWidth(operation) * 4)"
+          />
+          <polyline
             v-else-if="operation.kind === 'mosaic' && operation.points?.length"
             :class="['capture-annotation-mosaic-path', { 'is-selected': selectedAnnotationIndex === index }]"
             :points="svgPoints(operation.points)"
             :stroke-width="Math.max(10, operationStrokeWidth(operation) * 4)"
-          />
-          <rect
-            v-else-if="operation.kind === 'mosaic'"
-            :class="['capture-annotation-mosaic', { 'is-selected': selectedAnnotationIndex === index }]"
-            :x="operation.x"
-            :y="operation.y"
-            :width="operation.width"
-            :height="operation.height"
           />
           <polyline
             v-else-if="operation.kind === 'eraser'"
@@ -1508,8 +1706,16 @@ function clampNumber(value: number, min: number, max: number) {
             :y="operation.y"
             :fill="operationColor(operation)"
             :font-size="operationFontSize(operation)"
+            dominant-baseline="text-before-edge"
           >
-            {{ operation.text }}
+            <tspan
+              v-for="(line, lineIndex) in wrappedTextLines(operation)"
+              :key="`${index}-line-${lineIndex}`"
+              :x="operation.x"
+              :dy="lineIndex === 0 ? 0 : textLineHeight(operation)"
+            >
+              {{ line }}
+            </tspan>
           </text>
           <g v-else-if="operation.kind === 'number'" :class="['capture-annotation-number', { 'is-selected': selectedAnnotationIndex === index }]">
             <circle
@@ -1551,14 +1757,17 @@ function clampNumber(value: number, min: number, max: number) {
       <button
         v-if="canMoveAnnotations"
         class="capture-annotation-interaction-canvas"
+        :class="{ 'is-hovering-annotation': hoveredAnnotationIndex !== null, 'is-moving-annotation': movingAnnotationPointerId !== null }"
         type="button"
         title="选择并拖动已有标注，双击文字可编辑"
         aria-label="选择并拖动已有标注"
+        @pointerenter.stop="updateAnnotationHover"
         @pointerdown.stop="beginMoveAnnotation"
         @pointermove.stop="moveSelectedAnnotation"
         @pointerup.stop="endMoveAnnotation"
         @pointercancel.stop="endMoveAnnotation"
         @lostpointercapture.stop="cancelMoveAnnotation"
+        @pointerleave.stop="clearAnnotationHover"
         @dblclick.stop.prevent="editTextAnnotationAtPoint"
       />
       <button
@@ -1573,165 +1782,179 @@ function clampNumber(value: number, min: number, max: number) {
         @pointercancel.stop="endAnnotation"
         @lostpointercapture.stop="cancelAnnotationPointer"
       />
-      <input
+      <textarea
         v-if="textEditor"
         ref="textInputRef"
         v-model="textEditor.text"
         class="capture-text-editor"
-        :style="{ left: `${textEditor.x}px`, top: `${textEditor.y}px`, color: annotationColor, fontSize: `${Math.max(16, 12 + annotationThickness * 3)}px` }"
-        type="text"
+        :style="textEditorStyle(textEditor)"
+        rows="2"
         @pointerdown.stop
-        @keydown.enter.prevent.stop="commitTextAnnotation"
+        @keydown.enter.exact.prevent.stop="commitTextAnnotation"
         @keydown.escape.prevent.stop="textEditor = null"
         @blur="commitTextAnnotation"
       />
     </div>
 
     <div v-if="canShowToolbar" class="capture-overlay-toolbar" :style="toolbarStyle" @pointerdown.stop>
-      <button type="button" :disabled="isBusy" title="识别二维码" @click="runSelectionAction('qr')">
-        <QrCode :size="14" />
-        二维码
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': editMode && editTool === 'rect' }"
-        :disabled="isBusy"
-        title="矩形标注"
-        @click="toggleAnnotationTool('rect')"
-      >
-        <Square :size="14" />
-        矩形
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': editMode && editTool === 'arrow' }"
-        :disabled="isBusy"
-        title="箭头标注"
-        @click="toggleAnnotationTool('arrow')"
-      >
-        <ArrowUpRight :size="14" />
-        箭头
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': editMode && editTool === 'line' }"
-        :disabled="isBusy"
-        title="直线"
-        @click="toggleAnnotationTool('line')"
-      >
-        <Minus :size="14" />
-        直线
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': editMode && editTool === 'pen' }"
-        :disabled="isBusy"
-        title="画笔"
-        @click="toggleAnnotationTool('pen')"
-      >
-        <Pencil :size="14" />
-        画笔
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': editMode && editTool === 'mosaic' }"
-        :disabled="isBusy"
-        title="马赛克"
-        @click="toggleAnnotationTool('mosaic')"
-      >
-        <Grid3X3 :size="14" />
-        马赛克
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': editMode && editTool === 'text' }"
-        :disabled="isBusy"
-        title="文字"
-        @click="toggleAnnotationTool('text')"
-      >
-        <Type :size="14" />
-        文字
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': editMode && editTool === 'number' }"
-        :disabled="isBusy"
-        title="序号"
-        @click="toggleAnnotationTool('number')"
-      >
-        <Hash :size="14" />
-        序号
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': editMode && editTool === 'eraser' }"
-        :disabled="isBusy"
-        title="橡皮擦"
-        @click="toggleAnnotationTool('eraser')"
-      >
-        <Eraser :size="14" />
-        橡皮
-      </button>
-      <button
-        type="button"
-        :class="{ 'is-active': !editMode && selectedAnnotationIndex !== null }"
-        :disabled="isBusy || !annotationOperations.length"
-        title="选择/移动已有标注"
-        @click="activateAnnotationSelect"
-      >
-        选择
-      </button>
-      <button type="button" :disabled="isBusy" title="保存到截图历史" @click="runSelectionAction('capture')">
-        <Check :size="14" />
-        保存
-      </button>
-      <button type="button" :disabled="isBusy" title="另存为" @click="runSaveAsAction">
-        <Save :size="14" />
-        另存
-      </button>
-      <button type="button" :disabled="isBusy" title="复制到剪贴板 (Enter)" @click="runSelectionAction('copy')">
-        <Copy :size="14" />
-        复制
-      </button>
-      <button type="button" :disabled="isBusy" title="贴图 (P)" @click="runSelectionAction('pin')">
-        <Pin :size="14" />
-        贴图
-      </button>
-      <button type="button" :disabled="isBusy || !annotationOperations.length" title="撤销标注" @click="undoAnnotation">
-        <RotateCcw :size="14" />
-      </button>
-      <button type="button" :disabled="isBusy || !redoAnnotationOperations.length" title="重做标注" @click="redoAnnotation">
-        <Redo2 :size="14" />
-      </button>
-      <button type="button" :disabled="isBusy || !annotationOperations.length" title="清空标注" @click="clearAnnotations">
-        清空
-      </button>
-      <button type="button" :disabled="isBusy || selectedAnnotationIndex === null" title="删除选中标注" @click="deleteSelectedAnnotation">
-        删除
-      </button>
-      <button type="button" :disabled="isBusy" title="重新选择" @click="resetSelection">
-        <X :size="14" />
-      </button>
-      <div class="capture-color-strip" role="group" aria-label="标注颜色">
-        <button
-          v-for="color in colorPalette"
-          :key="color"
-          class="capture-color-swatch"
-          :class="{ 'is-active': annotationColor === color }"
-          type="button"
-          :title="color"
-          :style="{ '--swatch-color': color }"
-          @click="annotationColor = color"
-        />
+      <div class="capture-overlay-toolbar-row is-primary">
+        <div class="capture-overlay-tool-group">
+          <button type="button" :disabled="isBusy" title="识别二维码" aria-label="识别二维码" @click="runSelectionAction('qr')">
+            <QrCode :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'rect' }"
+            :disabled="isBusy"
+            title="矩形标注"
+            aria-label="矩形标注"
+            @click="toggleAnnotationTool('rect')"
+          >
+            <Square :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'arrow' }"
+            :disabled="isBusy"
+            title="箭头标注"
+            aria-label="箭头标注"
+            @click="toggleAnnotationTool('arrow')"
+          >
+            <ArrowUpRight :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'line' }"
+            :disabled="isBusy"
+            title="直线"
+            aria-label="直线"
+            @click="toggleAnnotationTool('line')"
+          >
+            <Minus :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'pen' }"
+            :disabled="isBusy"
+            title="画笔"
+            aria-label="画笔"
+            @click="toggleAnnotationTool('pen')"
+          >
+            <Pencil :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'highlight' }"
+            :disabled="isBusy"
+            title="荧光笔"
+            aria-label="荧光笔"
+            @click="toggleAnnotationTool('highlight')"
+          >
+            <Highlighter :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'mosaic' }"
+            :disabled="isBusy"
+            title="马赛克"
+            aria-label="马赛克"
+            @click="toggleAnnotationTool('mosaic')"
+          >
+            <Grid3X3 :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'text' }"
+            :disabled="isBusy"
+            title="文字"
+            aria-label="文字"
+            @click="toggleAnnotationTool('text')"
+          >
+            <Type :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'number' }"
+            :disabled="isBusy"
+            title="序号"
+            aria-label="序号"
+            @click="toggleAnnotationTool('number')"
+          >
+            <Hash :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': editMode && editTool === 'eraser' }"
+            :disabled="isBusy"
+            title="橡皮擦"
+            aria-label="橡皮擦"
+            @click="toggleAnnotationTool('eraser')"
+          >
+            <Eraser :size="14" />
+          </button>
+          <button
+            type="button"
+            :class="{ 'is-active': !editMode && selectedAnnotationIndex !== null }"
+            :disabled="isBusy || !annotationOperations.length"
+            title="选择/移动已有标注"
+            aria-label="选择/移动已有标注"
+            @click="activateAnnotationSelect"
+          >
+            <MousePointer2 :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy" title="保存到截图历史" aria-label="保存到截图历史" @click="runSelectionAction('capture')">
+            <Check :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy" title="另存为" aria-label="另存为" @click="runSaveAsAction">
+            <Save :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy || !annotationOperations.length" title="撤销标注" aria-label="撤销标注" @click="undoAnnotation">
+            <RotateCcw :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy || !redoAnnotationOperations.length" title="重做标注" aria-label="重做标注" @click="redoAnnotation">
+            <Redo2 :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy || !annotationOperations.length" title="清空标注" aria-label="清空标注" @click="clearAnnotations">
+            <CircleSlash2 :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy || selectedAnnotationIndex === null" title="删除选中标注" aria-label="删除选中标注" @click="deleteSelectedAnnotation">
+            <Trash2 :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy" title="重新选择" aria-label="重新选择" @click="resetSelection">
+            <X :size="14" />
+          </button>
+        </div>
+        <div class="capture-overlay-action-group">
+          <button type="button" :disabled="isBusy" title="复制到剪贴板 (Enter)" aria-label="复制到剪贴板" @click="runSelectionAction('copy')">
+            <Copy :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy" title="贴图 (P)" aria-label="贴图" @click="runSelectionAction('pin')">
+            <Pin :size="14" />
+          </button>
+        </div>
       </div>
-      <label class="capture-thickness-control" title="鼠标滚轮也可调节粗细">
-        <span>粗细</span>
-        <input v-model.number="annotationThickness" type="range" min="1" max="24" step="1" />
-        <strong>{{ annotationThickness }}</strong>
-      </label>
+      <div class="capture-overlay-toolbar-row is-secondary">
+        <div class="capture-color-strip" role="group" aria-label="标注颜色">
+          <button
+            v-for="color in colorPalette"
+            :key="color"
+            class="capture-color-swatch"
+            :class="{ 'is-active': annotationColor === color }"
+            type="button"
+            :title="color"
+            :style="{ '--swatch-color': color }"
+            @click="annotationColor = color"
+          />
+        </div>
+        <label class="capture-thickness-control" title="鼠标滚轮也可调节粗细">
+          <span>粗细</span>
+          <input v-model.number="annotationThickness" type="range" min="1" max="24" step="1" />
+          <strong>{{ annotationThickness }}</strong>
+        </label>
+      </div>
     </div>
 
-    <button class="capture-overlay-close" type="button" title="退出" @click.stop="closeWindow(true)">
+    <button class="capture-overlay-close" type="button" title="退出" aria-label="退出" @click.stop="closeWindow(true)">
       <X :size="16" />
     </button>
 
@@ -1743,8 +1966,10 @@ function clampNumber(value: number, min: number, max: number) {
       <span>贴图</span>
       <kbd>Q</kbd>
       <span>扫码</span>
-      <kbd>R/A/M</kbd>
-      <span>标注</span>
+      <kbd>R/A/L</kbd>
+      <span>框/箭头/线</span>
+      <kbd>B/H/M</kbd>
+      <span>画笔/荧光/马赛克</span>
       <kbd>T/N/E</kbd>
       <span>文字/序号/橡皮</span>
       <kbd>V</kbd>

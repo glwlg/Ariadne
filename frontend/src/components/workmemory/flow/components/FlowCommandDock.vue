@@ -23,7 +23,6 @@ const {
   memory,
   recentEvidence,
   runAutonomousFlow,
-  runGlobalFlowSearch,
   runTimelineBatchOCR,
   selectedInsight,
   timelineBatchOcrEntries,
@@ -46,12 +45,11 @@ const activePageLabel = computed(() => {
   <footer class="flow-command-dock" data-no-drag>
     <div class="flow-command-scope">
       <span>{{ activePageLabel }}</span>
-      <strong>{{ todayEntries.length }} 条上下文 · {{ recentEvidence.length }} 条证据</strong>
+      <strong>{{ todayEntries.length }} 条上下文 · {{ recentEvidence.length }} 条留痕</strong>
     </div>
     <template v-if="activeFlowPage === 'flow'">
       <button type="button" class="is-primary" :disabled="flowBusy || memory.isAskingFlow || !flowQuestion.trim()" @click="askFlow()">Ask</button>
       <button type="button" @click="memory.buildDailyDraft()">Summarize</button>
-      <button type="button" @click="runGlobalFlowSearch()">Search</button>
       <button type="button" @click="buildCurrentMemoryTaskPackage()">Handoff</button>
       <button type="button" :disabled="memory.isRunningAutonomousFlow" @click="runAutonomousFlow()">Optimize</button>
     </template>

@@ -75,6 +75,7 @@ function toggleLine(index: number) {
         :aria-label="`选择 OCR 第 ${index + 1} 行：${line.text}`"
         :aria-pressed="isLineSelected(index)"
         @pointerdown.stop.prevent="toggleLine(index)"
+        @click.stop
         @keydown.enter.stop.prevent="toggleLine(index)"
         @keydown.space.stop.prevent="toggleLine(index)"
       />

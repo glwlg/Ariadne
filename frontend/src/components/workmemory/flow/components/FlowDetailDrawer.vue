@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Brain, Copy, FileText, Flag, ImageOff, Sparkles, Tags, Trash2, X } from '@lucide/vue'
-import { toRefs } from 'vue'
+import { ref, toRefs, watch } from 'vue'
 import AriButton from '../../../ui/AriButton.vue'
 import OCRImageOverlay from '../../../ocr/OCRImageOverlay.vue'
 import { useWorkMemoryFlowContext } from '../context'
@@ -13,11 +13,26 @@ const {
   selected,
   sourceLabel,
 } = toRefs(ctx)
+
+const imageLightboxOpen = ref(false)
+
+function openImageLightbox() {
+  if (!memory.value.selectedImageUrl) return
+  imageLightboxOpen.value = true
+}
+
+watch(detailDrawerOpen, (open) => {
+  if (!open) imageLightboxOpen.value = false
+})
+
+watch(selected, () => {
+  imageLightboxOpen.value = false
+})
 </script>
 
 <template>
   <div v-if="detailDrawerOpen && selected" class="flow-detail-backdrop" @click.self="detailDrawerOpen = false">
-    <aside class="flow-detail-drawer" aria-label="心流证据明细">
+    <aside class="flow-detail-drawer" aria-label="心流留痕明细">
       <div class="flow-detail-head">
         <div>
           <span>{{ sourceLabel(selected) }} · {{ formatTime(selected.createdAt) }}</span>
@@ -29,7 +44,16 @@ const {
         </button>
       </div>
 
-      <div class="memory-capture-frame flow-detail-capture" :class="{ 'has-image': Boolean(memory.selectedImageUrl) }">
+      <div
+        class="memory-capture-frame flow-detail-capture"
+        :class="{ 'has-image': Boolean(memory.selectedImageUrl), 'is-zoomable': Boolean(memory.selectedImageUrl) }"
+        :role="memory.selectedImageUrl ? 'button' : undefined"
+        :tabindex="memory.selectedImageUrl ? 0 : undefined"
+        :aria-label="memory.selectedImageUrl ? '放大查看截图' : undefined"
+        @click="openImageLightbox"
+        @keydown.enter.prevent="openImageLightbox"
+        @keydown.space.prevent="openImageLightbox"
+      >
         <OCRImageOverlay
           v-if="memory.selectedImageUrl"
           :src="memory.selectedImageUrl"
@@ -83,7 +107,7 @@ const {
 
       <pre v-if="selected.text" class="preview-text memory-text flow-detail-text">{{ selected.text }}</pre>
       <details v-if="selected.ocrText" class="flow-raw-ocr">
-        <summary>原始 OCR 证据</summary>
+        <summary>原始 OCR 留痕</summary>
         <pre class="preview-text memory-text flow-detail-text">{{ selected.ocrText }}</pre>
       </details>
 
@@ -98,5 +122,11 @@ const {
         </span>
       </div>
     </aside>
+    <div v-if="imageLightboxOpen && memory.selectedImageUrl" class="flow-image-lightbox" @click.self="imageLightboxOpen = false">
+      <button type="button" class="flow-icon-button flow-image-lightbox-close" aria-label="关闭大图" @click="imageLightboxOpen = false">
+        <X :size="18" />
+      </button>
+      <img :src="memory.selectedImageUrl" :alt="selected.title" @click.stop />
+    </div>
   </div>
 </template>

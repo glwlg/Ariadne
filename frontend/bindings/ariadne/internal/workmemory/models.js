@@ -2545,6 +2545,267 @@ export class FlowAskResponse {
     }
 }
 
+export class FlowConversation {
+    /**
+     * Creates a new FlowConversation instance.
+     * @param {Partial<FlowConversation>} [$$source = {}] - The source object to create the FlowConversation.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["updatedAt"] = 0;
+        }
+        if (!("messageCount" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["messageCount"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastMessage"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowConversation instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowConversation}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowConversation(/** @type {Partial<FlowConversation>} */($$parsedSource));
+    }
+}
+
+export class FlowConversationAskRequest {
+    /**
+     * Creates a new FlowConversationAskRequest instance.
+     * @param {Partial<FlowConversationAskRequest>} [$$source = {}] - The source object to create the FlowConversationAskRequest.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["conversationId"] = undefined;
+        }
+        if (!("question" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["question"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["limit"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["since"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowConversationAskRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowConversationAskRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowConversationAskRequest(/** @type {Partial<FlowConversationAskRequest>} */($$parsedSource));
+    }
+}
+
+export class FlowConversationAskResult {
+    /**
+     * Creates a new FlowConversationAskResult instance.
+     * @param {Partial<FlowConversationAskResult>} [$$source = {}] - The source object to create the FlowConversationAskResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["message"] = undefined;
+        }
+        if (!("conversation" in $$source)) {
+            /**
+             * @member
+             * @type {FlowConversation}
+             */
+            this["conversation"] = (new FlowConversation());
+        }
+        if (!("messages" in $$source)) {
+            /**
+             * @member
+             * @type {FlowMessage[]}
+             */
+            this["messages"] = [];
+        }
+        if (!("response" in $$source)) {
+            /**
+             * @member
+             * @type {FlowAskResponse}
+             */
+            this["response"] = (new FlowAskResponse());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowConversationAskResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowConversationAskResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType17;
+        const $$createField3_0 = $$createType19;
+        const $$createField4_0 = $$createType20;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("conversation" in $$parsedSource) {
+            $$parsedSource["conversation"] = $$createField2_0($$parsedSource["conversation"]);
+        }
+        if ("messages" in $$parsedSource) {
+            $$parsedSource["messages"] = $$createField3_0($$parsedSource["messages"]);
+        }
+        if ("response" in $$parsedSource) {
+            $$parsedSource["response"] = $$createField4_0($$parsedSource["response"]);
+        }
+        return new FlowConversationAskResult(/** @type {Partial<FlowConversationAskResult>} */($$parsedSource));
+    }
+}
+
+export class FlowMessage {
+    /**
+     * Creates a new FlowMessage instance.
+     * @param {Partial<FlowMessage>} [$$source = {}] - The source object to create the FlowMessage.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("conversationId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["conversationId"] = "";
+        }
+        if (!("role" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["role"] = "";
+        }
+        if (!("text" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["text"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["question"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {FlowAskResponse | null | undefined}
+             */
+            this["result"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["error"] = undefined;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowMessage instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowMessage}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType21;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("result" in $$parsedSource) {
+            $$parsedSource["result"] = $$createField5_0($$parsedSource["result"]);
+        }
+        return new FlowMessage(/** @type {Partial<FlowMessage>} */($$parsedSource));
+    }
+}
+
 export class HealthAppStat {
     /**
      * Creates a new HealthAppStat instance.
@@ -2890,8 +3151,8 @@ export class HealthSummary {
      * @returns {HealthSummary}
      */
     static createFrom($$source = {}) {
-        const $$createField24_0 = $$createType18;
-        const $$createField25_0 = $$createType20;
+        const $$createField24_0 = $$createType23;
+        const $$createField25_0 = $$createType25;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("appStats" in $$parsedSource) {
             $$parsedSource["appStats"] = $$createField24_0($$parsedSource["appStats"]);
@@ -3102,8 +3363,8 @@ export class ImportMaterialResult {
      * @returns {ImportMaterialResult}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType22;
-        const $$createField6_0 = $$createType24;
+        const $$createField5_0 = $$createType27;
+        const $$createField6_0 = $$createType29;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("entries" in $$parsedSource) {
             $$parsedSource["entries"] = $$createField5_0($$parsedSource["entries"]);
@@ -3616,7 +3877,7 @@ export class SemanticSearchResult {
      * @returns {SemanticSearchResult}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType26;
+        const $$createField3_0 = $$createType31;
         const $$createField4_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("results" in $$parsedSource) {
@@ -4111,7 +4372,7 @@ export class WorkflowDraft {
      * @returns {WorkflowDraft}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType28;
+        const $$createField4_0 = $$createType33;
         const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
@@ -4191,15 +4452,20 @@ const $$createType13 = $Create.Array($$createType12);
 const $$createType14 = ExportFilter.createFrom;
 const $$createType15 = FlowAskEvidence.createFrom;
 const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = HealthAppStat.createFrom;
-const $$createType18 = $Create.Array($$createType17);
-const $$createType19 = HealthRecentEvent.createFrom;
-const $$createType20 = $Create.Array($$createType19);
-const $$createType21 = Entry.createFrom;
-const $$createType22 = $Create.Array($$createType21);
-const $$createType23 = ImportMaterialItemResult.createFrom;
-const $$createType24 = $Create.Array($$createType23);
-const $$createType25 = contracts$0.SearchResult.createFrom;
-const $$createType26 = $Create.Array($$createType25);
-const $$createType27 = WorkflowDraftStep.createFrom;
-const $$createType28 = $Create.Array($$createType27);
+const $$createType17 = FlowConversation.createFrom;
+const $$createType18 = FlowMessage.createFrom;
+const $$createType19 = $Create.Array($$createType18);
+const $$createType20 = FlowAskResponse.createFrom;
+const $$createType21 = $Create.Nullable($$createType20);
+const $$createType22 = HealthAppStat.createFrom;
+const $$createType23 = $Create.Array($$createType22);
+const $$createType24 = HealthRecentEvent.createFrom;
+const $$createType25 = $Create.Array($$createType24);
+const $$createType26 = Entry.createFrom;
+const $$createType27 = $Create.Array($$createType26);
+const $$createType28 = ImportMaterialItemResult.createFrom;
+const $$createType29 = $Create.Array($$createType28);
+const $$createType30 = contracts$0.SearchResult.createFrom;
+const $$createType31 = $Create.Array($$createType30);
+const $$createType32 = WorkflowDraftStep.createFrom;
+const $$createType33 = $Create.Array($$createType32);

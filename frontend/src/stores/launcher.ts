@@ -364,9 +364,7 @@ export const useLauncherStore = defineStore('launcher', () => {
     }
     results.value = response.results
     elapsedMs.value = response.elapsedMs
-    if (!results.value.some((result) => result.id === selectedId.value)) {
-      selectedId.value = results.value[0]?.id ?? ''
-    }
+    selectedId.value = results.value[0]?.id ?? ''
   }
 
   function setQuery(value: string) {

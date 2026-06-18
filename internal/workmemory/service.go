@@ -28,11 +28,12 @@ import (
 )
 
 const (
-	defaultAutoCaptureInterval = 30 * time.Second
-	defaultMaxEntries          = 1000
-	similarImageHashMaxBits    = 6
-	qualityStatusPending       = "pending"
-	qualityStatusChecked       = "checked"
+	defaultAutoCaptureInterval       = 60 * time.Second
+	defaultMaxEntries                = 1000
+	similarImageHashMaxBits          = 3
+	timeMachineSimilarityMergeWindow = 10 * time.Minute
+	qualityStatusPending             = "pending"
+	qualityStatusChecked             = "checked"
 )
 
 var windowSwitchPollInterval = time.Second
@@ -262,6 +263,41 @@ type FlowAskResponse struct {
 	UsedAI             bool              `json:"usedAi"`
 	Message            string            `json:"message,omitempty"`
 	CreatedAt          int64             `json:"createdAt"`
+}
+
+type FlowConversation struct {
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+	MessageCount int    `json:"messageCount"`
+	LastMessage  string `json:"lastMessage,omitempty"`
+}
+
+type FlowMessage struct {
+	ID             string           `json:"id"`
+	ConversationID string           `json:"conversationId"`
+	Role           string           `json:"role"`
+	Text           string           `json:"text"`
+	Question       string           `json:"question,omitempty"`
+	Result         *FlowAskResponse `json:"result,omitempty"`
+	Error          bool             `json:"error,omitempty"`
+	CreatedAt      int64            `json:"createdAt"`
+}
+
+type FlowConversationAskRequest struct {
+	ConversationID string `json:"conversationId,omitempty"`
+	Question       string `json:"question"`
+	Limit          int    `json:"limit,omitempty"`
+	Since          int64  `json:"since,omitempty"`
+}
+
+type FlowConversationAskResult struct {
+	OK           bool             `json:"ok"`
+	Message      string           `json:"message,omitempty"`
+	Conversation FlowConversation `json:"conversation"`
+	Messages     []FlowMessage    `json:"messages"`
+	Response     FlowAskResponse  `json:"response"`
 }
 
 type FlowAgentPolicy struct {
@@ -763,6 +799,15 @@ func (fn activityProviderFunc) Snapshot(now time.Time) activitySnapshot {
 }
 
 type AutoOCRProcessor func(Entry) Entry
+type ChangeObserver func(ChangeEvent)
+
+type ChangeEvent struct {
+	Kind       string `json:"kind"`
+	EntryID    string `json:"entryId,omitempty"`
+	Source     string `json:"source,omitempty"`
+	EntryCount int    `json:"entryCount"`
+	CreatedAt  int64  `json:"createdAt"`
+}
 
 type embeddingRecord struct {
 	EntryID   string
@@ -783,6 +828,7 @@ type embeddingStateFile struct {
 
 type Service struct {
 	mu                            sync.RWMutex
+	changeMu                      sync.RWMutex
 	path                          string
 	status                        Status
 	entries                       []Entry
@@ -833,6 +879,7 @@ type Service struct {
 	currentWindowSessionStartedAt int64
 	qualityReviewRunning          bool
 	saveError                     string
+	changeObservers               []ChangeObserver
 }
 
 func NewService(capturers ...ScreenCapturer) *Service {
@@ -910,6 +957,76 @@ func RegisterAutoOCRProcessor(service *Service, processor AutoOCRProcessor) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	service.autoOCR = processor
+}
+
+func RegisterChangeObserver(service *Service, observer ChangeObserver) {
+	if service == nil || observer == nil {
+		return
+	}
+	service.changeMu.Lock()
+	defer service.changeMu.Unlock()
+	service.changeObservers = append(service.changeObservers, observer)
+}
+
+func (s *Service) changeEventForEntryLocked(kind string, entry Entry) ChangeEvent {
+	return ChangeEvent{
+		Kind:       strings.TrimSpace(kind),
+		EntryID:    strings.TrimSpace(entry.ID),
+		Source:     strings.TrimSpace(entry.Source),
+		EntryCount: len(s.entries),
+		CreatedAt:  firstPositiveInt64(entry.LastMergedAt, entry.CreatedAt, s.now().Unix()),
+	}
+}
+
+func (s *Service) notifyEntryChanged(kind string, entry Entry) {
+	if strings.TrimSpace(entry.ID) == "" {
+		return
+	}
+	s.mu.RLock()
+	event := s.changeEventForEntryLocked(kind, entry)
+	s.mu.RUnlock()
+	s.notifyChangeObservers(event)
+}
+
+func (s *Service) notifyStatusChanged(kind string) {
+	s.mu.RLock()
+	event := ChangeEvent{
+		Kind:       strings.TrimSpace(kind),
+		EntryCount: len(s.entries),
+		CreatedAt:  s.now().Unix(),
+	}
+	s.mu.RUnlock()
+	s.notifyChangeObservers(event)
+}
+
+func (s *Service) notifyChangeObservers(event ChangeEvent) {
+	if strings.TrimSpace(event.Kind) == "" {
+		return
+	}
+	if event.CreatedAt <= 0 {
+		event.CreatedAt = s.now().Unix()
+	}
+	s.changeMu.RLock()
+	observers := append([]ChangeObserver(nil), s.changeObservers...)
+	s.changeMu.RUnlock()
+	for _, observer := range observers {
+		observer := observer
+		go func() {
+			defer func() {
+				_ = recover()
+			}()
+			observer(event)
+		}()
+	}
+}
+
+func firstPositiveInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func RegisterOCRSummarizer(service *Service, summarizer OCRSummarizer) {
@@ -1703,6 +1820,145 @@ func (s *Service) AskFlow(request FlowAskRequest) FlowAskResponse {
 	return completeFlowAnswerWithAgent(base, selected, privacyMode, flowAgentPolicy, flowAgentRunner, now)
 }
 
+func (s *Service) FlowConversations() []FlowConversation {
+	if s.path == "" {
+		return []FlowConversation{}
+	}
+	conversations, err := listFlowConversationsFromSQLite(s.path)
+	if err != nil {
+		s.mu.Lock()
+		s.saveError = err.Error()
+		s.mu.Unlock()
+		return []FlowConversation{}
+	}
+	return conversations
+}
+
+func (s *Service) FlowMessages(conversationID string) []FlowMessage {
+	if s.path == "" {
+		return []FlowMessage{}
+	}
+	messages, err := listFlowMessagesFromSQLite(s.path, conversationID)
+	if err != nil {
+		s.mu.Lock()
+		s.saveError = err.Error()
+		s.mu.Unlock()
+		return []FlowMessage{}
+	}
+	return messages
+}
+
+func (s *Service) CreateFlowConversation(title string) FlowConversation {
+	if s.path == "" {
+		now := s.now().Unix()
+		return FlowConversation{
+			ID:        flowConversationID(s.now(), title),
+			Title:     flowConversationTitle(title),
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+	now := s.now()
+	conversation := FlowConversation{
+		ID:        flowConversationID(now, title),
+		Title:     flowConversationTitle(title),
+		CreatedAt: now.Unix(),
+		UpdatedAt: now.Unix(),
+	}
+	saved, err := createFlowConversationInSQLite(s.path, conversation)
+	if err != nil {
+		s.mu.Lock()
+		s.saveError = err.Error()
+		s.mu.Unlock()
+		return conversation
+	}
+	return saved
+}
+
+func (s *Service) AskFlowConversation(request FlowConversationAskRequest) FlowConversationAskResult {
+	question := strings.TrimSpace(request.Question)
+	if question == "" {
+		return FlowConversationAskResult{OK: false, Message: "请输入问题"}
+	}
+	now := s.now()
+	conversationID := strings.TrimSpace(request.ConversationID)
+	var conversation FlowConversation
+	if conversationID != "" && s.path != "" {
+		if existing, ok, err := readFlowConversationFromSQLite(s.path, conversationID); err == nil && ok {
+			conversation = existing
+		}
+	}
+	if conversation.ID == "" {
+		conversation = FlowConversation{
+			ID:        flowConversationID(now, question),
+			Title:     flowConversationTitle(question),
+			CreatedAt: now.Unix(),
+			UpdatedAt: now.Unix(),
+		}
+	}
+	response := s.AskFlow(FlowAskRequest{Question: question, Limit: request.Limit, Since: request.Since})
+	answer := strings.TrimSpace(firstNonEmpty(response.Answer, response.Message))
+	if answer == "" {
+		if response.OK {
+			answer = "没有整理出稳定结论。"
+		} else {
+			answer = "心流问答暂时不可用。"
+		}
+	}
+	answerAt := response.CreatedAt
+	if answerAt <= 0 {
+		answerAt = s.now().Unix()
+	}
+	conversation.UpdatedAt = answerAt
+	messageIDTime := time.Now()
+	userMessage := FlowMessage{
+		ID:             flowMessageID(messageIDTime, conversation.ID, "user", question),
+		ConversationID: conversation.ID,
+		Role:           "user",
+		Text:           question,
+		CreatedAt:      now.Unix(),
+	}
+	assistantMessage := FlowMessage{
+		ID:             flowMessageID(messageIDTime.Add(time.Nanosecond), conversation.ID, "assistant", question+"\n"+answer),
+		ConversationID: conversation.ID,
+		Role:           "assistant",
+		Text:           answer,
+		Question:       question,
+		Result:         &response,
+		Error:          !response.OK,
+		CreatedAt:      answerAt,
+	}
+	if s.path == "" {
+		return FlowConversationAskResult{
+			OK:           response.OK,
+			Message:      response.Message,
+			Conversation: conversation,
+			Messages:     []FlowMessage{userMessage, assistantMessage},
+			Response:     response,
+		}
+	}
+	savedConversation, messages, err := appendFlowConversationTurnToSQLite(s.path, conversation, userMessage, assistantMessage)
+	if err != nil {
+		s.mu.Lock()
+		s.saveError = err.Error()
+		s.mu.Unlock()
+		return FlowConversationAskResult{
+			OK:           false,
+			Message:      err.Error(),
+			Conversation: conversation,
+			Messages:     []FlowMessage{userMessage, assistantMessage},
+			Response:     response,
+		}
+	}
+	return FlowConversationAskResult{
+		OK:           response.OK,
+		Message:      response.Message,
+		Conversation: savedConversation,
+		Messages:     messages,
+		Response:     response,
+	}
+}
+
 func (s *Service) AddNote(request NoteRequest) Entry {
 	text := strings.TrimSpace(request.Text)
 	if text == "" {
@@ -1839,6 +2095,7 @@ func (s *Service) RememberCaptureHistoryEntry(entry capturehistory.Entry) Entry 
 		"截图历史新增图片已进入工作记忆。",
 		entry,
 		policy,
+		s.currentContext(),
 	)
 	memory.ID = "memory-capture-" + shortHash(identity)
 	memory.Tags = append([]string{"截图历史", "主动沉淀", dimension}, entry.Tags...)
@@ -2306,6 +2563,7 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 			updated := s.applyQualityOCRTextLocked(i, text, provider)
 			s.saveLockedWithStatus()
 			s.mu.Unlock()
+			s.notifyEntryChanged("entry_updated", updated)
 			return updated
 		}
 		if strings.HasPrefix(provider, "failed:") {
@@ -2313,6 +2571,7 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 			s.saveLockedWithStatus()
 			updated := s.entries[i]
 			s.mu.Unlock()
+			s.notifyEntryChanged("entry_updated", updated)
 			return updated
 		}
 		if strings.HasPrefix(provider, "blocked_") {
@@ -2320,6 +2579,7 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 			s.saveLockedWithStatus()
 			updated := s.entries[i]
 			s.mu.Unlock()
+			s.notifyEntryChanged("entry_updated", updated)
 			return updated
 		}
 		if excluded, reason := urlExcluded(text, s.policy); excluded {
@@ -2327,6 +2587,7 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 			s.saveLockedWithStatus()
 			updated := s.entries[i]
 			s.mu.Unlock()
+			s.notifyEntryChanged("entry_updated", updated)
 			return updated
 		}
 		if excluded, reason := contentExcluded(text, s.policy); excluded {
@@ -2334,6 +2595,7 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 			s.saveLockedWithStatus()
 			updated := s.entries[i]
 			s.mu.Unlock()
+			s.notifyEntryChanged("entry_updated", updated)
 			return updated
 		}
 		s.entries[i].OCRText = text
@@ -2342,6 +2604,7 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 			s.saveLockedWithStatus()
 			updated := s.entries[i]
 			s.mu.Unlock()
+			s.notifyEntryChanged("entry_updated", updated)
 			return updated
 		}
 		s.entries[i].OCRStatus = "done"
@@ -2362,6 +2625,7 @@ func (s *Service) ApplyOCRText(id string, text string, provider string) Entry {
 		privacyMode := s.status.PrivacyMode
 		s.saveLockedWithStatus()
 		s.mu.Unlock()
+		s.notifyEntryChanged("entry_updated", updated)
 
 		if shouldRunOCRAISummary(updated, summaryPolicy, summarizer, privacyMode) {
 			if summarized := s.applyOCRAISummary(updated, text, summarizer, summaryPolicy); summarized.ID != "" {
@@ -2452,7 +2716,6 @@ func (s *Service) applyOCRAISummary(entry Entry, ocrText string, summarizer OCRS
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for i := range s.entries {
 		if s.entries[i].ID != entry.ID || s.entries[i].OCRText != ocrText || s.entries[i].Sensitive {
 			continue
@@ -2460,8 +2723,12 @@ func (s *Service) applyOCRAISummary(entry Entry, ocrText string, summarizer OCRS
 		applyOCRSummaryResult(&s.entries[i], result, true)
 		s.entries[i] = enrichEntry(s.entries[i])
 		s.saveLockedWithStatus()
-		return s.entries[i]
+		updated := s.entries[i]
+		s.mu.Unlock()
+		s.notifyEntryChanged("entry_updated", updated)
+		return updated
 	}
+	s.mu.Unlock()
 	return Entry{}
 }
 
@@ -3248,35 +3515,51 @@ func (s *Service) runScheduledDrafts(force bool) ScheduledDraftStatus {
 func (s *Service) Delete(id string) Status {
 	id = strings.TrimSpace(id)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if id == "" {
-		return s.statusSnapshotLocked()
+		status := s.statusSnapshotLocked()
+		s.mu.Unlock()
+		return status
 	}
+	removed := false
 	next := s.entries[:0]
 	for _, entry := range s.entries {
 		if entry.ID != id {
 			next = append(next, entry)
+		} else {
+			removed = true
 		}
 	}
 	s.entries = next
 	s.refreshEntryCountLocked()
 	s.saveLockedWithStatus()
-	return s.statusSnapshotLocked()
+	status := s.statusSnapshotLocked()
+	s.mu.Unlock()
+	if removed {
+		s.notifyChangeObservers(ChangeEvent{Kind: "entry_deleted", EntryID: id, EntryCount: status.EntryCount, CreatedAt: s.now().Unix()})
+	}
+	return status
 }
 
 func (s *Service) ClearUnpinned() Status {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	removed := 0
 	next := s.entries[:0]
 	for _, entry := range s.entries {
 		if entry.Favorite {
 			next = append(next, entry)
+		} else {
+			removed++
 		}
 	}
 	s.entries = next
 	s.refreshEntryCountLocked()
 	s.saveLockedWithStatus()
-	return s.statusSnapshotLocked()
+	status := s.statusSnapshotLocked()
+	s.mu.Unlock()
+	if removed > 0 {
+		s.notifyChangeObservers(ChangeEvent{Kind: "entries_cleared", EntryCount: status.EntryCount, CreatedAt: s.now().Unix()})
+	}
+	return status
 }
 
 func (s *Service) ApplyRetentionPolicy(retentionDays int, keepFavorites bool) RetentionResult {
@@ -3294,7 +3577,6 @@ func (s *Service) ApplyRetentionPolicy(retentionDays int, keepFavorites bool) Re
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	next := s.entries[:0]
 	for _, entry := range s.entries {
 		if keepFavorites && entry.Favorite {
@@ -3316,6 +3598,12 @@ func (s *Service) ApplyRetentionPolicy(retentionDays int, keepFavorites bool) Re
 		s.saveLockedWithStatus()
 	}
 	result.RemainingCount = len(s.entries)
+	status := s.statusSnapshotLocked()
+	removed := result.Removed
+	s.mu.Unlock()
+	if removed > 0 {
+		s.notifyChangeObservers(ChangeEvent{Kind: "retention_applied", EntryCount: status.EntryCount, CreatedAt: result.AppliedAt})
+	}
 	return result
 }
 
@@ -3459,6 +3747,9 @@ func (s *Service) ReviewPendingCaptures() QualityReviewResult {
 	}
 	result.Message = fmt.Sprintf("自动质检完成 · 检查 %d 条，折叠 %d 条，移除 %d 帧", result.Checked, result.CollapsedEntries, result.RemovedFrames)
 	s.mu.Unlock()
+	if result.Checked > 0 || result.CollapsedEntries > 0 {
+		s.notifyStatusChanged("entries_quality_updated")
+	}
 
 	for _, entry := range entriesToPromote {
 		if promoted := s.promoteQualityOCR(entry); promoted.ID != "" {
@@ -3520,7 +3811,7 @@ func (s *Service) captureScreen(source string, title string, summary string) Ent
 	}
 
 	if capturer == nil {
-		entry := s.addEntry(s.syntheticEntry(source, title, summary, policy))
+		entry := s.addEntry(s.syntheticEntry(source, title, summary, policy, context))
 		if entryQualityPending(entry) {
 			return entry
 		}
@@ -3552,7 +3843,7 @@ func (s *Service) captureScreen(source string, title string, summary string) Ent
 		s.mu.Unlock()
 		return Entry{}
 	}
-	entry := s.addEntry(s.entryFromCapture(source, title, summary, captureEntry, policy))
+	entry := s.addEntry(s.entryFromCapture(source, title, summary, captureEntry, policy, context))
 	if entryQualityPending(entry) {
 		return entry
 	}
@@ -3568,10 +3859,12 @@ func (s *Service) addEntry(entry Entry) Entry {
 	defer s.mu.Unlock()
 
 	if appended, ok := s.appendTimeMachineSessionFrameLocked(entry); ok {
+		s.notifyChangeObservers(s.changeEventForEntryLocked("entry_updated", appended))
 		return appended
 	}
 
 	if merged := s.mergeDuplicateTimeMachineEntryLocked(entry); merged.ID != "" {
+		s.notifyChangeObservers(s.changeEventForEntryLocked("entry_updated", merged))
 		return merged
 	}
 
@@ -3601,6 +3894,7 @@ func (s *Service) addEntry(entry Entry) Entry {
 	}
 	s.refreshEntryCountLocked()
 	s.saveLockedWithStatus()
+	s.notifyChangeObservers(s.changeEventForEntryLocked("entry_upserted", entry))
 	return entry
 }
 
@@ -3620,12 +3914,10 @@ func (s *Service) appendTimeMachineSessionFrameLocked(entry Entry) (Entry, bool)
 		if existing.Source != "time_machine" {
 			return Entry{}, false
 		}
-		if len(existing.Frames) == 0 {
-			existing.Frames = []CaptureFrame{captureFrameFromEntry(*existing)}
+		if !sameTimeMachineMergeScope(*existing, entry) || !timeMachineEntryVisuallySimilar(*existing, entry) {
+			return Entry{}, false
 		}
-		frame := captureFrameFromEntry(entry)
-		existing.Frames = append(existing.Frames, frame)
-		applyFrameToEntry(existing, frame)
+		appendTimeMachineFrame(existing, entry)
 		existing.FrameCount = len(existing.Frames)
 		existing.LastMergedAt = entry.CreatedAt
 		existing.QualityStatus = qualityStatusPending
@@ -3653,8 +3945,11 @@ func (s *Service) mergeDuplicateTimeMachineEntryLocked(entry Entry) Entry {
 		if existing.Source != "time_machine" {
 			continue
 		}
+		if !sameTimeMachineMergeScope(*existing, entry) {
+			continue
+		}
 		switch {
-		case entry.ImageSignature != "" && existing.ImageSignature != "" && existing.ImageSignature == entry.ImageSignature:
+		case exactTimeMachineImageMatch(*existing, entry):
 			return s.mergeTimeMachineEntryLocked(existing, entry, "重复画面已合并", "重复画面合并", "重复画面")
 		case similarImageFingerprint(*existing, entry):
 			return s.mergeTimeMachineEntryLocked(existing, entry, "相似画面已合并", "相似画面合并", "相似画面")
@@ -3663,7 +3958,59 @@ func (s *Service) mergeDuplicateTimeMachineEntryLocked(entry Entry) Entry {
 	return Entry{}
 }
 
+func sameTimeMachineMergeScope(existing Entry, incoming Entry) bool {
+	if existing.Source != "time_machine" || incoming.Source != "time_machine" {
+		return false
+	}
+	if !sameTimelineLocalDay(existing.CreatedAt, incoming.CreatedAt) {
+		return false
+	}
+	if !withinTimeMachineSimilarityMergeWindow(existing, incoming) {
+		return false
+	}
+	existingSignature := windowSignature(windowContext{title: existing.WindowTitle, app: existing.AppName})
+	incomingSignature := windowSignature(windowContext{title: incoming.WindowTitle, app: incoming.AppName})
+	return existingSignature != "" && existingSignature == incomingSignature
+}
+
+func withinTimeMachineSimilarityMergeWindow(existing Entry, incoming Entry) bool {
+	if incoming.CreatedAt <= 0 {
+		return false
+	}
+	anchor := timeMachineMergeAnchor(existing)
+	if anchor <= 0 {
+		return false
+	}
+	if incoming.CreatedAt < anchor {
+		return false
+	}
+	return incoming.CreatedAt-anchor <= int64(timeMachineSimilarityMergeWindow.Seconds())
+}
+
+func timeMachineMergeAnchor(entry Entry) int64 {
+	anchor := entry.CreatedAt
+	if entry.LastMergedAt > anchor {
+		anchor = entry.LastMergedAt
+	}
+	for _, frame := range entry.Frames {
+		if frame.CreatedAt > anchor {
+			anchor = frame.CreatedAt
+		}
+	}
+	return anchor
+}
+
+func sameTimelineLocalDay(left int64, right int64) bool {
+	if left <= 0 || right <= 0 {
+		return false
+	}
+	leftTime := time.Unix(left, 0).In(time.Local)
+	rightTime := time.Unix(right, 0).In(time.Local)
+	return leftTime.Year() == rightTime.Year() && leftTime.YearDay() == rightTime.YearDay()
+}
+
 func (s *Service) mergeTimeMachineEntryLocked(existing *Entry, incoming Entry, reason string, tag string, summaryMarker string) Entry {
+	appendTimeMachineFrame(existing, incoming)
 	existing.MergedCount++
 	existing.LastMergedAt = incoming.CreatedAt
 	existing.QualityStatus = qualityStatusPending
@@ -3681,6 +4028,45 @@ func (s *Service) mergeTimeMachineEntryLocked(existing *Entry, incoming Entry, r
 	s.refreshEntryCountLocked()
 	s.saveLockedWithStatus()
 	return *existing
+}
+
+func timeMachineEntryVisuallySimilar(existing Entry, incoming Entry) bool {
+	return exactTimeMachineImageMatch(existing, incoming) || similarImageFingerprint(existing, incoming)
+}
+
+func exactTimeMachineImageMatch(existing Entry, incoming Entry) bool {
+	return strings.TrimSpace(existing.ImageSignature) != "" &&
+		strings.TrimSpace(existing.ImageSignature) == strings.TrimSpace(incoming.ImageSignature)
+}
+
+func appendTimeMachineFrame(existing *Entry, incoming Entry) bool {
+	if existing == nil {
+		return false
+	}
+	if len(existing.Frames) == 0 {
+		existing.Frames = []CaptureFrame{captureFrameFromEntry(*existing)}
+	}
+	frame := captureFrameFromEntry(incoming)
+	if timeMachineFrameExists(existing.Frames, frame) {
+		return false
+	}
+	existing.Frames = append(existing.Frames, frame)
+	applyFrameToEntry(existing, frame)
+	existing.FrameCount = len(existing.Frames)
+	return true
+}
+
+func timeMachineFrameExists(frames []CaptureFrame, candidate CaptureFrame) bool {
+	candidateID := strings.TrimSpace(candidate.CaptureID)
+	if candidateID == "" {
+		return false
+	}
+	for _, frame := range frames {
+		if strings.TrimSpace(frame.CaptureID) == candidateID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) reviewPendingCapturesAsync() {
@@ -3702,8 +4088,7 @@ func (s *Service) reviewPendingCapturesAsync() {
 	}()
 }
 
-func (s *Service) entryFromCapture(source string, title string, summary string, capture capturehistory.Entry, policy CapturePolicy) Entry {
-	context := s.currentContext()
+func (s *Service) entryFromCapture(source string, title string, summary string, capture capturehistory.Entry, policy CapturePolicy, context windowContext) Entry {
 	dimension := fmt.Sprintf("%dx%d", capture.Width, capture.Height)
 	scope := captureScopeLabel(policy.CaptureScope)
 	multiMonitor := multiMonitorLabel(policy.MultiMonitor)
@@ -3738,9 +4123,8 @@ func (s *Service) entryFromCapture(source string, title string, summary string, 
 	return entry
 }
 
-func (s *Service) syntheticEntry(source string, title string, summary string, policy CapturePolicy) Entry {
+func (s *Service) syntheticEntry(source string, title string, summary string, policy CapturePolicy, context windowContext) Entry {
 	now := s.now()
-	context := s.currentContext()
 	entry := Entry{
 		ID:          "memory-" + source + "-" + now.Format("20060102150405"),
 		Source:      source,
@@ -4574,10 +4958,12 @@ func autoOCRResultStatus(entry Entry) string {
 
 func (s *Service) recordAutoOCRResult(id string, errText string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.status.LastAutoOCRAt = s.now().Unix()
 	s.status.LastAutoOCRID = id
 	s.status.LastAutoOCRError = strings.TrimSpace(errText)
+	event := ChangeEvent{Kind: "status_updated", EntryID: strings.TrimSpace(id), EntryCount: len(s.entries), CreatedAt: s.status.LastAutoOCRAt}
+	s.mu.Unlock()
+	s.notifyChangeObservers(event)
 }
 
 func (s *Service) recordSkippedCapture(reason string) {
@@ -7398,9 +7784,6 @@ func windowCaptureProfileForContext(context windowContext, policy CapturePolicy,
 	if intervalSeconds <= 0 {
 		intervalSeconds = int(defaultAutoCaptureInterval.Seconds())
 	}
-	if intervalSeconds > int(defaultAutoCaptureInterval.Seconds()) {
-		intervalSeconds = int(defaultAutoCaptureInterval.Seconds())
-	}
 	return AppCaptureProfile{
 		ID:                       "__default_window__",
 		DisplayName:              firstNonEmpty(context.app, context.title, "当前窗口"),
@@ -8153,6 +8536,53 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func flowConversationID(now time.Time, seed string) string {
+	return fmt.Sprintf("flow-conversation-%d-%s", now.UnixNano(), shortHash(seed))
+}
+
+func flowMessageID(now time.Time, conversationID string, role string, text string) string {
+	return fmt.Sprintf("flow-message-%d-%s", now.UnixNano(), shortHash(conversationID+"\n"+role+"\n"+text))
+}
+
+func flowConversationTitle(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if value == "" {
+		return "新对话"
+	}
+	return trimTextRunes(value, 32)
+}
+
+func normalizeFlowConversation(conversation FlowConversation) FlowConversation {
+	conversation.ID = strings.TrimSpace(conversation.ID)
+	conversation.Title = flowConversationTitle(conversation.Title)
+	if conversation.UpdatedAt <= 0 {
+		conversation.UpdatedAt = conversation.CreatedAt
+	}
+	if conversation.CreatedAt <= 0 {
+		conversation.CreatedAt = conversation.UpdatedAt
+	}
+	if conversation.LastMessage != "" {
+		conversation.LastMessage = strings.Join(strings.Fields(strings.TrimSpace(conversation.LastMessage)), " ")
+		conversation.LastMessage = trimTextRunes(conversation.LastMessage, 96)
+	}
+	return conversation
+}
+
+func normalizeFlowMessage(message FlowMessage) FlowMessage {
+	message.ID = strings.TrimSpace(message.ID)
+	message.ConversationID = strings.TrimSpace(message.ConversationID)
+	message.Role = strings.TrimSpace(strings.ToLower(message.Role))
+	if message.Role != "user" && message.Role != "assistant" {
+		message.Role = "assistant"
+	}
+	message.Text = strings.TrimSpace(message.Text)
+	message.Question = strings.TrimSpace(message.Question)
+	if message.CreatedAt <= 0 {
+		message.CreatedAt = time.Now().Unix()
+	}
+	return message
 }
 
 func defaultMemoryPath() string {

@@ -45,7 +45,7 @@ const {
             <span>进度 {{ insightProgressPercent }}%</span>
             <button type="button" @click="memory.discoverExperienceReport()">本地归纳</button>
             <button type="button" @click="memory.discoverExperienceReportAI()">AI 归纳</button>
-            <AriSearchBox v-model="globalFlowSearch" class="flow-global-search is-compact" compact placeholder="搜索洞察、证据、建议动作..." @keydown.enter.prevent="runGlobalFlowSearch()" />
+            <AriSearchBox v-model="globalFlowSearch" class="flow-global-search is-compact" compact placeholder="搜索洞察、留痕、建议动作..." @keydown.enter.prevent="runGlobalFlowSearch()" />
           </AriToolbar>
           <div v-if="memory.experienceDiscoveryResult" class="flow-note-strip">
             {{ memory.experienceDiscoveryResult.message }}
@@ -105,7 +105,7 @@ const {
               <div class="flow-radar-legend">
                 <span>实线 强关联</span>
                 <span>虚线 弱关联</span>
-                <span>节点大小 证据链数量</span>
+                <span>节点大小 留痕链数量</span>
               </div>
             </section>
             <aside class="flow-radar-inspector flow-agent-inspector" aria-label="洞察解释">
@@ -127,7 +127,7 @@ const {
                 <p>{{ selectedInsight.summary }}</p>
                 <small>{{ selectedInsight.reason }}</small>
                 <div class="experience-meta">
-                  <span>证据 {{ selectedInsight.evidence.length }}</span>
+                  <span>留痕 {{ selectedInsight.evidence.length }}</span>
                   <span>{{ decisionLabel(selectedInsight.decisionStatus) }}</span>
                   <span>{{ formatTime(selectedInsight.createdAt) }}</span>
                 </div>
@@ -157,18 +157,18 @@ const {
                   <button type="button" @click="buildChecklistFromInsight(selectedInsight)">生成清单</button>
                   <button type="button" @click="memory.buildDailyDraft()">加入复盘</button>
                 </div>
-                <small>隐私边界：只引用本地证据，外发任务包前需要人工确认。</small>
+                <small>隐私边界：只引用本地留痕，外发任务包前需要人工确认。</small>
               </section>
               <section class="flow-quiet-panel">
                 <div class="side-title">
                   <Camera :size="15" />
-                  证据链
+                  留痕链
                 </div>
                 <button v-for="entry in insightEvidencePreview" :key="entry.id" type="button" class="flow-answer-evidence" @click="openEvidence(entry)">
                   <strong>{{ entryFocusTitle(entry) }}</strong>
                   <small>{{ sourceLabel(entry) }} · {{ formatTime(entry.createdAt) }}</small>
                 </button>
-                <p v-if="!insightEvidencePreview.length">选择一个洞察后查看它引用的证据。</p>
+                <p v-if="!insightEvidencePreview.length">选择一个洞察后查看它引用的留痕。</p>
               </section>
             </aside>
           </div>

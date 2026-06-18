@@ -43,7 +43,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-//go:embed frontend/dist
+//go:embed all:frontend/dist
 var assets embed.FS
 
 //go:embed assets/logo.ico
@@ -256,6 +256,9 @@ func main() {
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
+	})
+	workmemory.RegisterChangeObserver(workMemoryService, func(event workmemory.ChangeEvent) {
+		app.Event.Emit("ariadne:work-memory-changed", event)
 	})
 	captureOverlayService.Attach(app)
 	pinnedImageService.Attach(app)

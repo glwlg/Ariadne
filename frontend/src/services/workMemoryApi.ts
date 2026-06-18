@@ -19,6 +19,10 @@ import type {
   WorkMemoryExportRequest,
   WorkMemoryDraft,
   WorkMemoryEntry,
+  WorkMemoryFlowConversation,
+  WorkMemoryFlowConversationAskRequest,
+  WorkMemoryFlowConversationAskResult,
+  WorkMemoryFlowMessage,
   WorkMemoryImportMaterialRequest,
   WorkMemoryImportMaterialResult,
   WorkMemoryFlowAskRequest,
@@ -39,7 +43,7 @@ const fallbackEntry: WorkMemoryEntry = {
   text: 'Cloudflare Tunnel 入口正常，OpenWrt 网关疑似仍指向 192.168.1.1。',
   windowTitle: 'Windows Terminal',
   appName: 'Terminal',
-  tags: ['网络', '证据'],
+  tags: ['网络', '留痕'],
   favorite: true,
   sensitive: false,
   createdAt: 1770000000,
@@ -98,6 +102,9 @@ let fallbackHealth: WorkMemoryHealthSummary = {
 
 let fallbackTimeline: WorkMemoryEntry[] = [fallbackEntry]
 
+let fallbackFlowConversations: WorkMemoryFlowConversation[] = []
+let fallbackFlowMessages: Record<string, WorkMemoryFlowMessage[]> = {}
+
 let fallbackScheduledDraftStatus: ScheduledDraftStatus = {
   enabled: true,
   running: false,
@@ -114,7 +121,7 @@ let fallbackAutonomousArtifacts: WorkMemoryAutonomousArtifact[] = [
     id: 'auto-fallback-skill',
     kind: 'skill',
     title: '剪贴板上下文整理 Skill',
-    summary: '开发态 fallback 模拟：当证据足够、流程清晰且低风险时，心流会自动生成可执行 Skill 草稿。',
+    summary: '开发态 fallback 模拟：当留痕足够、流程清晰且低风险时，心流会自动生成可执行 Skill 草稿。',
     body: '# 剪贴板上下文整理 Skill\n\n## When To Use\n当剪贴板文本反复需要格式化、提取或归档时使用。\n\n## Steps\n1. 读取当前剪贴板文本\n2. 判断文本类型并生成结构化摘要\n3. 输出可复制结果\n\n## Autonomous Boundary\n删除该产物并填写原因后，心流会避免再次生成同类 Skill。',
     evidence: [fallbackEntry.id],
     dedupKey: 'skill:fallback-clipboard-context',
@@ -314,6 +321,63 @@ export async function askWorkMemoryFlow(request: WorkMemoryFlowAskRequest): Prom
   return fallbackAskFlow(normalized)
 }
 
+export async function getWorkMemoryFlowConversations(): Promise<WorkMemoryFlowConversation[]> {
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowConversations(await binding.FlowConversations())
+    } catch {
+      return normalizeFlowConversations(fallbackFlowConversations)
+    }
+  }
+  return normalizeFlowConversations(fallbackFlowConversations)
+}
+
+export async function getWorkMemoryFlowMessages(conversationId: string): Promise<WorkMemoryFlowMessage[]> {
+  const normalizedId = conversationId.trim()
+  if (!normalizedId) return []
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowMessages(await binding.FlowMessages(normalizedId))
+    } catch {
+      return normalizeFlowMessages(fallbackFlowMessages[normalizedId] ?? [])
+    }
+  }
+  return normalizeFlowMessages(fallbackFlowMessages[normalizedId] ?? [])
+}
+
+export async function createWorkMemoryFlowConversation(title = ''): Promise<WorkMemoryFlowConversation> {
+  const normalizedTitle = title.trim() || '新对话'
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowConversation(await binding.CreateFlowConversation(normalizedTitle))
+    } catch {
+      return fallbackCreateFlowConversation(normalizedTitle)
+    }
+  }
+  return fallbackCreateFlowConversation(normalizedTitle)
+}
+
+export async function askWorkMemoryFlowConversation(request: WorkMemoryFlowConversationAskRequest): Promise<WorkMemoryFlowConversationAskResult> {
+  const normalized = {
+    conversationId: request.conversationId?.trim() || '',
+    question: request.question.trim(),
+    limit: request.limit ?? 8,
+    since: request.since ?? 0,
+  }
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowConversationAskResult(await binding.AskFlowConversation(normalized), normalized.question)
+    } catch {
+      return fallbackAskFlowConversation(normalized)
+    }
+  }
+  return fallbackAskFlowConversation(normalized)
+}
+
 function normalizeFlowAskResponse(result: WorkMemoryFlowAskResponse, question: string): WorkMemoryFlowAskResponse {
   return {
     ok: Boolean(result?.ok),
@@ -343,6 +407,59 @@ function normalizeFlowAskResponse(result: WorkMemoryFlowAskResponse, question: s
     usedAi: Boolean(result?.usedAi),
     message: result?.message || '',
     createdAt: Number(result?.createdAt ?? Math.floor(Date.now() / 1000)),
+  }
+}
+
+function normalizeFlowConversation(item: WorkMemoryFlowConversation): WorkMemoryFlowConversation {
+  const now = Math.floor(Date.now() / 1000)
+  return {
+    id: item?.id || fallbackFlowId('conversation'),
+    title: item?.title || '新对话',
+    createdAt: Number(item?.createdAt ?? now),
+    updatedAt: Number(item?.updatedAt ?? item?.createdAt ?? now),
+    messageCount: Number(item?.messageCount ?? 0),
+    lastMessage: item?.lastMessage || '',
+  }
+}
+
+function normalizeFlowConversations(items: WorkMemoryFlowConversation[]): WorkMemoryFlowConversation[] {
+  return Array.isArray(items)
+    ? items
+        .filter((item) => item?.id)
+        .map(normalizeFlowConversation)
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+    : []
+}
+
+function normalizeFlowMessage(item: WorkMemoryFlowMessage): WorkMemoryFlowMessage {
+  const role = item?.role === 'user' ? 'user' : 'assistant'
+  const result = item?.result ? normalizeFlowAskResponse(item.result, item.question || item.text || '') : undefined
+  return {
+    id: item?.id || fallbackFlowId(`message-${role}`),
+    conversationId: item?.conversationId || '',
+    role,
+    text: item?.text || '',
+    question: item?.question || result?.question || '',
+    result,
+    error: Boolean(item?.error),
+    createdAt: Number(item?.createdAt ?? Math.floor(Date.now() / 1000)),
+  }
+}
+
+function normalizeFlowMessages(items: WorkMemoryFlowMessage[]): WorkMemoryFlowMessage[] {
+  return Array.isArray(items) ? items.filter((item) => item?.id).map(normalizeFlowMessage).sort((left, right) => left.createdAt - right.createdAt) : []
+}
+
+function normalizeFlowConversationAskResult(result: WorkMemoryFlowConversationAskResult, question: string): WorkMemoryFlowConversationAskResult {
+  const response = normalizeFlowAskResponse(result?.response, question)
+  const conversation = normalizeFlowConversation(result?.conversation)
+  const messages = normalizeFlowMessages(result?.messages ?? [])
+  return {
+    ok: Boolean(result?.ok),
+    message: result?.message || response.message || '',
+    conversation,
+    messages,
+    response,
   }
 }
 
@@ -392,8 +509,8 @@ function fallbackAskFlow(request: WorkMemoryFlowAskRequest): WorkMemoryFlowAskRe
     tags: entry.tags,
   }))
   const answer = evidence.length
-    ? `我在本地心流记忆里找到 ${evidence.length} 条相关证据，已按当前问题收在下方。正式桌面运行时由 Go 后端统一归纳回答。`
-    : '当前没有足够的本地 fallback 证据。正式桌面运行时会使用 Go 后端的心流问答入口继续检索。'
+    ? `我找到 ${evidence.length} 条相关留痕，已按当前问题整理。`
+    : '当前没有找到足够的本地留痕。可以换个关键词，或先让时间机器继续积累截图、OCR 和剪贴板上下文。'
   return {
     ok: true,
     question,
@@ -404,9 +521,76 @@ function fallbackAskFlow(request: WorkMemoryFlowAskRequest): WorkMemoryFlowAskRe
     evidence,
     suggestedQuestions: ['我今天干了些什么？', '今天有哪些人找过我？', '今天我的哪些工作流可以优化？'],
     usedAi: false,
-    message: '开发态 fallback',
+    message: '',
     createdAt: now,
   }
+}
+
+function fallbackCreateFlowConversation(title = '新对话'): WorkMemoryFlowConversation {
+  const now = Math.floor(Date.now() / 1000)
+  const conversation: WorkMemoryFlowConversation = {
+    id: fallbackFlowId('conversation'),
+    title: title.trim() || '新对话',
+    createdAt: now,
+    updatedAt: now,
+    messageCount: 0,
+    lastMessage: '',
+  }
+  fallbackFlowConversations = [conversation, ...fallbackFlowConversations]
+  fallbackFlowMessages[conversation.id] = []
+  return conversation
+}
+
+function fallbackAskFlowConversation(request: WorkMemoryFlowConversationAskRequest): WorkMemoryFlowConversationAskResult {
+  let conversation = request.conversationId ? fallbackFlowConversations.find((item) => item.id === request.conversationId) : undefined
+  if (!conversation) {
+    conversation = fallbackCreateFlowConversation(shortFlowTitle(request.question))
+  }
+  const response = fallbackAskFlow(request)
+  const now = Math.floor(Date.now() / 1000)
+  const userMessage: WorkMemoryFlowMessage = {
+    id: fallbackFlowId('message-user'),
+    conversationId: conversation.id,
+    role: 'user',
+    text: request.question,
+    createdAt: now,
+  }
+  const assistantMessage: WorkMemoryFlowMessage = {
+    id: fallbackFlowId('message-assistant'),
+    conversationId: conversation.id,
+    role: 'assistant',
+    text: response.answer || response.message || '心流问答暂时不可用。',
+    question: request.question,
+    result: response,
+    error: !response.ok,
+    createdAt: response.createdAt || now,
+  }
+  fallbackFlowMessages[conversation.id] = [...(fallbackFlowMessages[conversation.id] ?? []), userMessage, assistantMessage]
+  conversation = {
+    ...conversation,
+    title: conversation.title || shortFlowTitle(request.question),
+    updatedAt: assistantMessage.createdAt,
+    messageCount: fallbackFlowMessages[conversation.id].length,
+    lastMessage: assistantMessage.text,
+  }
+  fallbackFlowConversations = [conversation, ...fallbackFlowConversations.filter((item) => item.id !== conversation.id)]
+  return {
+    ok: response.ok,
+    message: response.message,
+    conversation,
+    messages: fallbackFlowMessages[conversation.id],
+    response,
+  }
+}
+
+function fallbackFlowId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function shortFlowTitle(value: string) {
+  const normalized = value.trim().replace(/\s+/g, ' ')
+  if (!normalized) return '新对话'
+  return normalized.length > 32 ? `${normalized.slice(0, 32)}...` : normalized
 }
 
 function fallbackSearch(query: string): SearchResult[] {
@@ -1153,7 +1337,7 @@ function fallbackRetrospectiveDraft(entryIDs: string[]): WorkMemoryDraft {
     ...(evidence.length ? evidence.map((entry) => `- ${entry.title}：${entry.summary}`) : ['- 先选择一组工作记忆再生成问题复盘。']),
     '',
     '## 时间线',
-    ...(evidence.length ? evidence.map((entry) => `- ${new Date(entry.createdAt * 1000).toLocaleString()} · ${entry.title}`) : ['- 暂无可用证据。']),
+    ...(evidence.length ? evidence.map((entry) => `- ${new Date(entry.createdAt * 1000).toLocaleString()} · ${entry.title}`) : ['- 暂无可用留痕。']),
     '',
     '## 初步原因',
     '- 正式环境由 Go 本地规则根据错误、原因、验证和待办线索整理。',
@@ -1279,7 +1463,7 @@ function fallbackExperienceReport(periodDays: number): ExperienceReport {
   return {
     id: `experience-${Date.now()}`,
     title: '经验发现报告',
-    summary: evidence.length ? '开发态 fallback 发现 1 条可整理线索，正式环境由本地规则和工作记忆证据生成。' : '暂无足够工作记忆生成经验发现。',
+    summary: evidence.length ? '开发态 fallback 发现 1 条可整理线索，正式环境由本地规则和工作记忆留痕生成。' : '暂无足够工作记忆生成经验发现。',
     periodDays,
     entryCount: fallbackTimeline.length,
     evidenceCount: evidence.length,
@@ -1292,7 +1476,7 @@ function fallbackExperienceReport(periodDays: number): ExperienceReport {
             title: '知识沉淀机会',
             summary: '当前 fallback 时间线中存在可整理的排障记录。',
             reason: '有收藏或高信息密度记录，适合生成知识草稿。',
-            recommendation: '生成知识草稿并保留证据，外发或同步前由用户确认。',
+            recommendation: '生成知识草稿并保留留痕，外发或同步前由用户确认。',
             evidence,
             confidence: 0.52,
             severity: 'medium',
@@ -1354,7 +1538,7 @@ function fallbackAgentTaskPackage(goal: string, evidence: string[]): AgentTaskPa
     context: '由 Ariadne 工作记忆中心生成，交给外部代理前必须由用户确认。',
     evidence,
     boundaries: ['不得绕过用户授权修改文件或运行高风险命令', '不得默认外发敏感记忆'],
-    acceptance: ['任务包包含目标、上下文、证据、边界和验收标准'],
+    acceptance: ['任务包包含目标、上下文、留痕、边界和验收标准'],
     requiresReview: true,
     createdAt: Math.floor(Date.now() / 1000),
   }
@@ -1365,11 +1549,11 @@ function fallbackWorkflowDraft(title: string, evidence: string[]): WorkflowDraft
     id: `workflow-draft-${Date.now()}`,
     title: title.trim() || '候选工作流草稿',
     trigger: '用户在启动器中搜索相似任务并确认执行',
-    input: '选中的文本、截图 OCR 或工作记忆证据',
+    input: '选中的文本、截图 OCR 或工作记忆留痕',
     steps: [
       {
         id: 'collect-evidence',
-        label: '收集当前输入和历史证据',
+        label: '收集当前输入和历史留痕',
         command: 'work_memory.search(input)',
         requiresConfirm: false,
       },

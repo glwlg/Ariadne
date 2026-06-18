@@ -603,7 +603,7 @@ func defaultSettings() AppSettings {
 		WorkMemory: WorkMemorySettings{
 			Enabled:                    true,
 			TimeMachineEnabled:         false,
-			AutoCaptureIntervalSeconds: 30,
+			AutoCaptureIntervalSeconds: 60,
 			WindowSwitchCaptureEnabled: true,
 			WindowSwitchCooldownSecs:   3,
 			CaptureScope:               "active_window",
@@ -1197,6 +1197,12 @@ func normalizeTheme(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "light":
 		return "light"
+	case "professional-pink":
+		return "professional-pink"
+	case "light-graphite":
+		return "light-graphite"
+	case "cloud-blue":
+		return "cloud-blue"
 	case "dark":
 		return "dark"
 	default:

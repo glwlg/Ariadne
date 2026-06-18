@@ -24,8 +24,8 @@ func TestDefaultSettingsEnableAutonomousFlowWithoutStartingCapture(t *testing.T)
 	if settings.WorkMemory.TimeMachineEnabled {
 		t.Fatal("time machine should not start enabled by default")
 	}
-	if !settings.WorkMemory.WindowSwitchCaptureEnabled || settings.WorkMemory.WindowSwitchCooldownSecs != 3 || settings.WorkMemory.AutoCaptureIntervalSeconds != 30 {
-		t.Fatalf("window capture strategy should default to delayed 3s and 30s active interval: %#v", settings.WorkMemory)
+	if !settings.WorkMemory.WindowSwitchCaptureEnabled || settings.WorkMemory.WindowSwitchCooldownSecs != 3 || settings.WorkMemory.AutoCaptureIntervalSeconds != 60 {
+		t.Fatalf("window capture strategy should default to 3s stability and 60s same-window probing: %#v", settings.WorkMemory)
 	}
 	if settings.WorkMemory.CaptureScope != "active_window" {
 		t.Fatalf("time machine should default to active-window capture to avoid background noise, got %q", settings.WorkMemory.CaptureScope)
@@ -212,6 +212,25 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 	updated := NewServiceWithPaths("", "").UpdateSettings(current)
 	if updated.General.Theme != "dark" {
 		t.Fatalf("current dark mode should remain available, got %q", updated.General.Theme)
+	}
+}
+
+func TestAdditionalLightThemesPersist(t *testing.T) {
+	service := NewServiceWithPaths("", "")
+	settings := service.GetSettings()
+	for _, theme := range []string{"professional-pink", "light-graphite", "cloud-blue"} {
+		settings.General.Theme = theme
+		updated := service.UpdateSettings(settings)
+		if updated.General.Theme != theme {
+			t.Fatalf("theme %q should persist, got %q", theme, updated.General.Theme)
+		}
+		settings = updated
+	}
+
+	settings.General.Theme = "unknown-theme"
+	updated := service.UpdateSettings(settings)
+	if updated.General.Theme != "light" {
+		t.Fatalf("unknown theme should normalize to light, got %q", updated.General.Theme)
 	}
 }
 

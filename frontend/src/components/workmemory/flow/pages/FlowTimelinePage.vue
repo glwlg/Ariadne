@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { toRefs } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue'
 import AriEmptyState from '../../../ui/AriEmptyState.vue'
-import AriSearchBox from '../../../ui/AriSearchBox.vue'
 import AriToolbar from '../../../ui/AriToolbar.vue'
 import FlowDateSwitcher from '../components/FlowDateSwitcher.vue'
 import FlowPageHeader from '../components/FlowPageHeader.vue'
@@ -22,7 +21,6 @@ const {
   FileText,
   Flag,
   ImageOff,
-  Play,
   Search,
   Settings,
   Shield,
@@ -43,7 +41,6 @@ const {
   flowTimeRangeLabel,
   flowWorkHoursLabel,
   formatTimelineClock,
-  globalFlowSearch,
   isClipboardEntry,
   isOcrEntry,
   isScreenshotEntry,
@@ -54,15 +51,17 @@ const {
   openEvidence,
   openFlowPage,
   openTimelineLaneMenu,
+  openTimelinePlaybackDetail,
   openTimelinePlaybackTick,
   resetFlowDateToday,
-  runGlobalFlowSearch,
+  resetTimelineZoomRange,
   runTimelineBatchOCR,
   selectCurrentTimelineForRetrospective,
   selectTimelineAppFilter,
   selectedTimelineAppCount,
   selectedTimelineAppLabel,
   setTimelineFilter,
+  setTimelineZoomRange,
   shiftFlowDate,
   timelineAppFilter,
   timelineAppOptions,
@@ -86,15 +85,141 @@ const {
   timelineScrubPercent,
   timelineSelectedEntries,
   timelineSelectedSummary,
-  timelineSourceEntries,
+  timelineRangeSourceEntries,
   timelineSourceFilter,
   timelineStats,
   timelineThumbnailIsMissing,
   timelineThumbnailUrl,
+  timelineZoomActive,
+  timelineZoomEndHour,
+  timelineZoomStartHour,
   toggleTimelineAppPicker,
   toggleTimelineSelection,
   topApps,
 } = toRefs(ctx)
+
+const timelineBoardRef = ref<HTMLElement | null>(null)
+const timelineAxisScrollRef = ref<HTMLElement | null>(null)
+const timelineRangeSelecting = ref(false)
+const timelineRangeSelection = ref<{ start: number; end: number } | null>(null)
+const timelineRangeSelectionStyle = computed(() => {
+  if (!timelineRangeSelection.value) return {}
+  const start = Math.min(timelineRangeSelection.value.start, timelineRangeSelection.value.end)
+  const end = Math.max(timelineRangeSelection.value.start, timelineRangeSelection.value.end)
+  return {
+    left: `${start * 100}%`,
+    width: `${Math.max((end - start) * 100, 0.35)}%`,
+  }
+})
+const timelineTrackWidth = computed(() => {
+  const visibleHours = Math.max(0.25, timelineZoomEndHour.value - timelineZoomStartHour.value)
+  const hourWidth = visibleHours <= 1 ? 640 : visibleHours <= 2 ? 420 : visibleHours <= 4 ? 300 : visibleHours <= 8 ? 210 : 132
+  const minimumWidth = 1440
+  const entryWidth = timelineEntries.value.length * 48
+  return `${Math.max(minimumWidth, entryWidth, visibleHours * hourWidth)}px`
+})
+let timelineScrollSyncing = false
+let timelineRangePointerId = -1
+let timelineRangeStartRatio = 0
+
+function timelineScrollTargets() {
+  const targets: HTMLElement[] = []
+  if (timelineAxisScrollRef.value) {
+    targets.push(timelineAxisScrollRef.value)
+  }
+  timelineBoardRef.value
+    ?.querySelectorAll<HTMLElement>('.flow-forensic-track-scroll')
+    .forEach((target) => targets.push(target))
+  return targets
+}
+
+function setTimelineScrollLeft(scrollLeft: number, source?: HTMLElement | null) {
+  timelineScrollSyncing = true
+  for (const target of timelineScrollTargets()) {
+    if (target !== source) {
+      target.scrollLeft = scrollLeft
+    }
+  }
+  requestAnimationFrame(() => {
+    timelineScrollSyncing = false
+  })
+}
+
+function syncTimelineScroll(event: Event) {
+  if (timelineScrollSyncing) return
+  const source = event.currentTarget as HTMLElement | null
+  if (!source) return
+  setTimelineScrollLeft(source.scrollLeft, source)
+}
+
+function timelinePointerRatio(event: PointerEvent) {
+  const ruler = timelineAxisScrollRef.value
+  if (!ruler) return 0
+  const rect = ruler.getBoundingClientRect()
+  const width = Math.max(1, ruler.scrollWidth)
+  const x = event.clientX - rect.left + ruler.scrollLeft
+  return Math.max(0, Math.min(1, x / width))
+}
+
+function timelineHourFromRatio(ratio: number) {
+  return timelineZoomStartHour.value + ratio * (timelineZoomEndHour.value - timelineZoomStartHour.value)
+}
+
+function beginTimelineRulerSelection(event: PointerEvent) {
+  if (event.button !== 0 || !timelineAxisScrollRef.value) return
+  timelineRangeSelecting.value = true
+  timelineRangePointerId = event.pointerId
+  timelineRangeStartRatio = timelinePointerRatio(event)
+  timelineRangeSelection.value = { start: timelineRangeStartRatio, end: timelineRangeStartRatio }
+  timelineAxisScrollRef.value.setPointerCapture(event.pointerId)
+  event.preventDefault()
+}
+
+function updateTimelineRulerSelection(event: PointerEvent) {
+  if (!timelineRangeSelecting.value || event.pointerId !== timelineRangePointerId) return
+  timelineRangeSelection.value = { start: timelineRangeStartRatio, end: timelinePointerRatio(event) }
+  event.preventDefault()
+}
+
+function endTimelineRulerSelection(event?: PointerEvent) {
+  if (!timelineRangeSelecting.value) return
+  if (event && event.pointerId !== timelineRangePointerId) return
+  const selection = timelineRangeSelection.value
+  timelineRangeSelecting.value = false
+  if (event && timelineAxisScrollRef.value?.hasPointerCapture(event.pointerId)) {
+    timelineAxisScrollRef.value.releasePointerCapture(event.pointerId)
+  }
+  timelineRangePointerId = -1
+  timelineRangeSelection.value = null
+  if (!selection || Math.abs(selection.end - selection.start) < 0.012) return
+  const startHour = timelineHourFromRatio(Math.min(selection.start, selection.end))
+  const endHour = timelineHourFromRatio(Math.max(selection.start, selection.end))
+  setTimelineZoomRange.value(startHour, endHour)
+  void nextTick(() => setTimelineScrollLeft(0, timelineAxisScrollRef.value))
+}
+
+function resetTimelineRulerZoom() {
+  resetTimelineZoomRange.value()
+  void nextTick(() => setTimelineScrollLeft(0, timelineAxisScrollRef.value))
+}
+
+watch(
+  () => [timelineLanes.value.length, timelineEntries.value.length, timelineTrackWidth.value, timelineZoomStartHour.value, timelineZoomEndHour.value],
+  async () => {
+    await nextTick()
+    setTimelineScrollLeft(timelineAxisScrollRef.value?.scrollLeft ?? 0, timelineAxisScrollRef.value)
+  },
+  { flush: 'post' },
+)
+
+onMounted(async () => {
+  await nextTick()
+  setTimelineScrollLeft(0, timelineAxisScrollRef.value)
+})
+
+onBeforeUnmount(() => {
+  endTimelineRulerSelection()
+})
 
 void timelineAppSearchRef
 void timelineAppSelectRef
@@ -109,11 +234,18 @@ void timelineLoadMoreRef
             <FlowDateSwitcher :label="flowDateButtonLabel" @previous="shiftFlowDate(-1)" @next="shiftFlowDate(1)" @reset="resetFlowDateToday()" />
             <span>时间范围 {{ flowTimeRangeLabel }}</span>
             <span>工作时间 {{ flowWorkHoursLabel }}</span>
-            <button type="button" @click="memory.toggleTimeMachine()">
+            <button
+              type="button"
+              :title="memory.status.timeMachineEnabled ? '暂停屏幕时间机器' : '开启屏幕时间机器'"
+              @click="memory.toggleTimeMachine()"
+            >
               <Clock3 :size="14" />
-              时间机器
+              {{ memory.status.timeMachineEnabled ? '暂停采集' : '开启采集' }}
             </button>
-            <AriSearchBox v-model="globalFlowSearch" class="flow-global-search is-compact" compact placeholder="搜索时间、程序、OCR..." @keydown.enter.prevent="runGlobalFlowSearch()" />
+            <button v-if="timelineZoomActive" type="button" title="恢复 06:00-22:00" @click="resetTimelineRulerZoom">
+              <Clock3 :size="14" />
+              恢复全时段
+            </button>
           </AriToolbar>
 
           <div class="flow-timeline-stats">
@@ -169,7 +301,7 @@ void timelineLoadMoreRef
                 >
                   <span class="flow-app-avatar">A</span>
                   <span>全部程序</span>
-                  <small>{{ timelineSourceEntries.length }}</small>
+                  <small>{{ timelineRangeSourceEntries.length }}</small>
                 </button>
                 <button
                   v-for="option in filteredTimelineAppOptions"
@@ -213,9 +345,35 @@ void timelineLoadMoreRef
           </div>
 
           <div class="flow-forensic-layout">
-            <section class="flow-forensic-board" aria-label="多轨时间取证板">
+            <section ref="timelineBoardRef" class="flow-forensic-board" :style="{ '--timeline-track-width': timelineTrackWidth }" aria-label="多轨时间留痕板">
               <div class="flow-forensic-axis">
-                <span v-for="tick in timelineAxisTicks" :key="tick.label" :style="{ left: `${tick.left}%` }">{{ tick.label }}</span>
+                <div class="flow-forensic-axis-spacer" aria-hidden="true"></div>
+                <div
+                  ref="timelineAxisScrollRef"
+                  class="flow-forensic-axis-scroll"
+                  :class="{ 'is-dragging': timelineRangeSelecting }"
+                  aria-label="时间尺"
+                  @scroll="syncTimelineScroll"
+                  @dblclick="resetTimelineRulerZoom"
+                  @pointerdown="beginTimelineRulerSelection"
+                  @pointermove="updateTimelineRulerSelection"
+                  @pointerup="endTimelineRulerSelection"
+                  @pointercancel="endTimelineRulerSelection"
+                  @lostpointercapture="endTimelineRulerSelection"
+                >
+                  <div class="flow-forensic-time-content">
+                    <div class="flow-forensic-density" aria-hidden="true">
+                      <span
+                        v-for="bar in timelineDensityBars"
+                        :key="bar.key"
+                        :style="{ left: `${bar.left}%`, width: `${bar.width}%`, height: `${bar.height}%` }"
+                        :title="bar.label"
+                      ></span>
+                    </div>
+                    <div v-if="timelineRangeSelection" class="flow-forensic-range-selection" :style="timelineRangeSelectionStyle"></div>
+                    <span v-for="tick in timelineAxisTicks" :key="tick.label" class="flow-forensic-axis-tick" :style="{ left: `${tick.left}%` }">{{ tick.label }}</span>
+                  </div>
+                </div>
               </div>
               <div class="flow-forensic-lanes">
                 <section v-for="lane in timelineLanes" :key="lane.key" class="flow-forensic-lane">
@@ -233,54 +391,56 @@ void timelineLoadMoreRef
                       {{ isTimelineAppExcluded(lane.appName) ? '已排除' : '右键排除' }}
                     </span>
                   </header>
-                  <div class="flow-forensic-track">
-                    <article
-                      v-for="(entry, entryIndex) in lane.entries"
-                      :key="entry.id"
-                      class="flow-forensic-event"
-                      :class="{
-                        'is-selected': entry.id === memory.selectedId,
-                        'is-checked': isTimelineSelected(entry.id),
-                        'is-sensitive': entry.sensitive,
-                      }"
-                      :style="timelineEventStyle(entry, entryIndex)"
-                      :title="entryFocusTitle(entry)"
-                    >
-                      <button
-                        type="button"
-                        class="flow-forensic-select"
-                        :aria-pressed="isTimelineSelected(entry.id)"
-                        :aria-label="isTimelineSelected(entry.id) ? '取消勾选轨迹' : '勾选轨迹'"
-                        @click.stop="toggleTimelineSelection(entry.id)"
+                  <div class="flow-forensic-track-scroll" @scroll="syncTimelineScroll">
+                    <div class="flow-forensic-track">
+                      <article
+                        v-for="(entry, entryIndex) in lane.entries"
+                        :key="entry.id"
+                        class="flow-forensic-event"
+                        :class="{
+                          'is-selected': entry.id === memory.selectedId,
+                          'is-checked': isTimelineSelected(entry.id),
+                          'is-sensitive': entry.sensitive,
+                        }"
+                        :style="timelineEventStyle(entry, entryIndex)"
+                        :title="entryFocusTitle(entry)"
                       >
-                        <Check v-if="isTimelineSelected(entry.id)" :size="12" />
-                      </button>
-                      <button type="button" class="flow-forensic-open" @click="openEvidence(entry)">
-                        <span
-                          class="flow-forensic-thumb"
-                          :class="{
-                            'has-image': Boolean(timelineThumbnailUrl(entry)),
-                            'is-image-missing': timelineThumbnailIsMissing(entry),
-                          }"
+                        <button
+                          type="button"
+                          class="flow-forensic-select"
+                          :aria-pressed="isTimelineSelected(entry.id)"
+                          :aria-label="isTimelineSelected(entry.id) ? '取消勾选轨迹' : '勾选轨迹'"
+                          @click.stop="toggleTimelineSelection(entry.id)"
                         >
-                          <img v-if="timelineThumbnailUrl(entry)" :src="timelineThumbnailUrl(entry)" :alt="entryFocusTitle(entry)" loading="lazy" />
-                          <template v-else-if="timelineThumbnailIsMissing(entry)">
-                            <ImageOff :size="14" />
-                            <span>已清理</span>
-                          </template>
-                          <Camera v-else-if="isScreenshotEntry(entry)" :size="14" />
-                          <Copy v-else-if="isClipboardEntry(entry)" :size="14" />
-                          <FileText v-else :size="14" />
-                        </span>
-                        <Camera v-if="isScreenshotEntry(entry)" :size="13" />
-                        <Copy v-else-if="isClipboardEntry(entry)" :size="13" />
-                        <FileText v-else :size="13" />
-                        <span>{{ formatTimelineClock(entry.createdAt) }}</span>
-                        <small>{{ entryFocusSummary(entry) }}</small>
-                        <i v-if="entryEvidenceBadges(entry).length">{{ entryEvidenceBadges(entry)[0] }}</i>
-                        <em v-if="isOcrEntry(entry)">OCR {{ entry.qualityOcrStatus === 'ok' ? '92%' : '待校验' }}</em>
-                      </button>
-                    </article>
+                          <Check v-if="isTimelineSelected(entry.id)" :size="12" />
+                        </button>
+                        <button type="button" class="flow-forensic-open" @click="openEvidence(entry)">
+                          <span
+                            class="flow-forensic-thumb"
+                            :class="{
+                              'has-image': Boolean(timelineThumbnailUrl(entry)),
+                              'is-image-missing': timelineThumbnailIsMissing(entry),
+                            }"
+                          >
+                            <img v-if="timelineThumbnailUrl(entry)" :src="timelineThumbnailUrl(entry)" :alt="entryFocusTitle(entry)" loading="lazy" />
+                            <template v-else-if="timelineThumbnailIsMissing(entry)">
+                              <ImageOff :size="14" />
+                              <span>已清理</span>
+                            </template>
+                            <Camera v-else-if="isScreenshotEntry(entry)" :size="14" />
+                            <Copy v-else-if="isClipboardEntry(entry)" :size="14" />
+                            <FileText v-else :size="14" />
+                          </span>
+                          <Camera v-if="isScreenshotEntry(entry)" :size="13" />
+                          <Copy v-else-if="isClipboardEntry(entry)" :size="13" />
+                          <FileText v-else :size="13" />
+                          <span>{{ formatTimelineClock(entry.createdAt) }}</span>
+                          <small>{{ entryFocusSummary(entry) }}</small>
+                          <i v-if="entryEvidenceBadges(entry).length">{{ entryEvidenceBadges(entry)[0] }}</i>
+                          <em v-if="isOcrEntry(entry)">OCR {{ entry.qualityOcrStatus === 'ok' ? '92%' : '待校验' }}</em>
+                        </button>
+                      </article>
+                    </div>
                   </div>
                 </section>
                 <AriEmptyState
@@ -297,9 +457,6 @@ void timelineLoadMoreRef
               <div v-if="timelineHasMoreDays" ref="timelineLoadMoreRef" class="flow-timeline-load-more">
                 <span>继续加载更早轨迹</span>
                 <button type="button" @click="loadMoreTimelineDays">立即加载</button>
-              </div>
-              <div class="flow-density-map" aria-label="24 小时密度图">
-                <span v-for="bar in timelineDensityBars" :key="bar.hour" :style="{ height: `${bar.height}%` }" :title="`${bar.hour}:00 · ${bar.count} 条`"></span>
               </div>
               <div
                 v-if="timelineLaneMenu.open"
@@ -335,7 +492,7 @@ void timelineLoadMoreRef
               </div>
             </section>
 
-            <div class="flow-timeline-lower-deck" aria-label="时间线操作区">
+            <div class="flow-timeline-lower-deck flow-timeline-side-deck" aria-label="时间线操作区">
               <section class="flow-time-machine-panel flow-quiet-panel" aria-label="屏幕时间机器">
                 <header class="flow-time-machine-head">
                   <div class="side-title">
@@ -366,9 +523,9 @@ void timelineLoadMoreRef
                       <AriButton size="sm" variant="ghost" :disabled="!memory.playbackEntries.length" @click="memory.stepPlayback(-1)">
                         <ArrowLeft :size="14" />
                       </AriButton>
-                      <AriButton size="sm" variant="secondary" :disabled="!memory.playbackEntries.length || memory.isLoadingPlaybackImage" @click="memory.startPlayback()">
-                        <Play :size="14" />
-                        {{ memory.playbackEntry ? '定位' : '开始' }}
+                      <AriButton size="sm" variant="secondary" :disabled="!memory.playbackEntries.length || memory.isLoadingPlaybackImage" @click="openTimelinePlaybackDetail()">
+                        <FileText :size="14" />
+                        详情
                       </AriButton>
                       <AriButton size="sm" variant="ghost" :disabled="!memory.playbackEntries.length" @click="memory.stepPlayback(1)">
                         <ArrowRight :size="14" />
@@ -405,7 +562,7 @@ void timelineLoadMoreRef
               <section class="flow-timeline-support-card flow-quiet-panel">
                 <div class="side-title">
                   <Database :size="15" />
-                  取证摘要
+                  留痕摘要
                 </div>
                 <div class="flow-source-summary">
                   <span><Camera :size="14" /> 截图 {{ evidenceCounts.screenshots }}</span>

@@ -914,6 +914,8 @@ func applyAnnotationOperations(img *image.RGBA, operations []AnnotationOperation
 			drawArrow(img, operation, annotationColor(operation.Color), clampInt(operation.StrokeWidth, 2, 24, 4))
 		case "pen":
 			drawPolyline(img, operation.Points, annotationColor(operation.Color), clampInt(operation.StrokeWidth, 1, 24, 3))
+		case "highlight":
+			drawHighlightPolyline(img, operation.Points, annotationColor(operation.Color), max(10, clampInt(operation.StrokeWidth, 1, 24, 3)*4))
 		case "mosaic":
 			if len(operation.Points) > 1 {
 				applyMosaicPath(img, operation.Points, clampInt(operation.PixelSize, 6, 48, 12))
@@ -938,6 +940,8 @@ func normalizeOperationKind(kind string) string {
 		return "arrow"
 	case "pen", "brush":
 		return "pen"
+	case "highlight", "highlighter", "marker":
+		return "highlight"
 	case "mosaic", "pixelate":
 		return "mosaic"
 	case "text":
@@ -1016,6 +1020,35 @@ func drawPolyline(img *image.RGBA, points []AnnotationPoint, col color.RGBA, str
 	}
 }
 
+func drawHighlightPolyline(img *image.RGBA, points []AnnotationPoint, col color.RGBA, stroke int) {
+	if len(points) == 0 {
+		return
+	}
+	col.A = 108
+	if len(points) == 1 {
+		paintBrushBlended(img, points[0].X, points[0].Y, col, stroke)
+		return
+	}
+	for i := 1; i < len(points); i++ {
+		drawHighlightLine(img, points[i-1].X, points[i-1].Y, points[i].X, points[i].Y, col, stroke)
+	}
+}
+
+func drawHighlightLine(img *image.RGBA, x1 int, y1 int, x2 int, y2 int, col color.RGBA, stroke int) {
+	dx := x2 - x1
+	dy := y2 - y1
+	steps := max(abs(dx), abs(dy))
+	if steps == 0 {
+		paintBrushBlended(img, x1, y1, col, stroke)
+		return
+	}
+	for i := 0; i <= steps; i++ {
+		x := x1 + int(math.Round(float64(dx)*float64(i)/float64(steps)))
+		y := y1 + int(math.Round(float64(dy)*float64(i)/float64(steps)))
+		paintBrushBlended(img, x, y, col, stroke)
+	}
+}
+
 func drawLine(img *image.RGBA, x1 int, y1 int, x2 int, y2 int, col color.RGBA, stroke int) {
 	dx := x2 - x1
 	dy := y2 - y1
@@ -1041,6 +1074,28 @@ func paintBrush(img *image.RGBA, x int, y int, col color.RGBA, stroke int) {
 			if (px-x)*(px-x)+(py-y)*(py-y) <= radius*radius {
 				img.SetRGBA(px, py, col)
 			}
+		}
+	}
+}
+
+func paintBrushBlended(img *image.RGBA, x int, y int, col color.RGBA, stroke int) {
+	radius := max(1, stroke/2)
+	alpha := float64(col.A) / 255
+	for py := y - radius; py <= y+radius; py++ {
+		for px := x - radius; px <= x+radius; px++ {
+			if !image.Pt(px, py).In(img.Bounds()) {
+				continue
+			}
+			if (px-x)*(px-x)+(py-y)*(py-y) > radius*radius {
+				continue
+			}
+			base := img.RGBAAt(px, py)
+			img.SetRGBA(px, py, color.RGBA{
+				R: uint8(math.Round(float64(col.R)*alpha + float64(base.R)*(1-alpha))),
+				G: uint8(math.Round(float64(col.G)*alpha + float64(base.G)*(1-alpha))),
+				B: uint8(math.Round(float64(col.B)*alpha + float64(base.B)*(1-alpha))),
+				A: base.A,
+			})
 		}
 	}
 }

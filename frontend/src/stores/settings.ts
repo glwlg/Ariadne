@@ -1,9 +1,9 @@
-import { computed, ref } from 'vue'
+import { computed, ref, toRaw } from 'vue'
 import { defineStore } from 'pinia'
 import { exportDiagnosticsBundle, getPlatformStatus, resolveLegacyConflict } from '../services/platformApi'
 import { createLauncherDraft, getLauncherStatus, removeLauncher, upsertLauncher } from '../services/launchersApi'
 import { getLegacyDataStatus, importLegacyData } from '../services/migrationApi'
-import { applyTheme } from '../lib/theme'
+import { applyTheme, publishTheme } from '../lib/theme'
 import { listPlugins } from '../services/pluginsApi'
 import { createRollbackCheckpoint as createReleaseRollbackCheckpoint, getReleaseBackupStatus, restoreRollbackCheckpoint as restoreReleaseRollbackCheckpoint } from '../services/releaseApi'
 import { clearSearchUsage, getSearchUsageStatus } from '../services/searchUsageApi'
@@ -138,7 +138,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     try {
       settings.value = await updateSettings(settings.value)
-      applyTheme(settings.value.general.theme)
+      publishTheme(settings.value.general.theme)
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
       showFeedback(isStorageHealthy(storageStatus.value) ? '设置已保存' : '设置保存失败')
@@ -161,7 +161,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     try {
       settings.value = await updateSettings(settings.value)
-      applyTheme(settings.value.general.theme)
+      publishTheme(settings.value.general.theme)
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
       const shell = platformStatus.value?.shell
@@ -181,7 +181,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     try {
       settings.value = await resetSettings()
-      applyTheme(settings.value.general.theme)
+      publishTheme(settings.value.general.theme)
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
       showFeedback(isStorageHealthy(storageStatus.value) ? '已恢复默认设置' : '恢复默认失败')
@@ -196,7 +196,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     try {
       settings.value = await importLegacyConfig()
-      applyTheme(settings.value.general.theme)
+      publishTheme(settings.value.general.theme)
       legacyStatus.value = await getLegacyConfigStatus()
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
@@ -309,7 +309,7 @@ export const useSettingsStore = defineStore('settings', () => {
       await load()
     }
     if (!settings.value) return null
-    const next = structuredClone(settings.value)
+    const next = structuredClone(toRaw(settings.value))
     next.workMemory = {
       ...next.workMemory,
       ...patch,
@@ -691,7 +691,7 @@ function isBareFunctionHotkey(key: string) {
 
 function cloneLauncher(launcher: Launcher): Launcher {
   return {
-    ...structuredClone(launcher),
+    ...structuredClone(toRaw(launcher)),
     keywords: [...(launcher.keywords ?? [])],
     tags: [...(launcher.tags ?? [])],
   }

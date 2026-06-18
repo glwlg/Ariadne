@@ -47,13 +47,13 @@ const {
               >
                 <span>{{ item.icon }}</span>
                 <strong>{{ item.label }}</strong>
-                <small>{{ item.draft ? `${item.createdAtLabel} · 证据 ${item.evidence.length}` : '未生成' }}</small>
+                <small>{{ item.draft ? `${item.createdAtLabel} · 留痕 ${item.evidence.length}` : '未生成' }}</small>
               </button>
             </aside>
 
             <section class="flow-draft-document" aria-label="草稿预览">
               <div class="flow-draft-evidence-line">
-                <span>证据时间线</span>
+                <span>留痕时间线</span>
                 <button v-for="(entry, index) in draftEvidenceTimeline.slice(0, 8)" :key="entry.id" type="button" class="flow-draft-thumb" @click="openEvidence(entry)">
                   <i>#{{ Number(index) + 1 }}</i>
                   <strong>{{ formatTimelineClock(entry.createdAt) }}</strong>
@@ -66,7 +66,7 @@ const {
                 <h2>{{ activeDraft?.draft?.title || activeDraft?.title || '未生成' }}</h2>
                 <div class="flow-draft-meta-line">
                   <small>{{ activeDraft?.draft?.body?.length || 0 }} 字</small>
-                  <small>{{ draftTimelineEntries.length }} 条证据</small>
+                  <small>{{ draftTimelineEntries.length }} 条留痕</small>
                   <small>时间同步</small>
                 </div>
                 <pre>{{ activeDraft?.draft?.body || activeDraft?.emptyHint || '等待生成草稿。' }}</pre>
@@ -89,7 +89,7 @@ const {
                   <strong>{{ entryFocusTitle(entry) }}</strong>
                   <small>{{ entry.appName || 'Unknown' }} · {{ formatTime(entry.createdAt) }}</small>
                 </button>
-                <p v-if="!draftTimelineEntries.length">生成草稿后，这里会显示段落引用的 OCR、截图或剪贴板证据。</p>
+                <p v-if="!draftTimelineEntries.length">生成草稿后，这里会显示段落引用的 OCR、截图或剪贴板留痕。</p>
               </section>
               <section class="flow-quiet-panel">
                 <div class="side-title">
@@ -118,7 +118,7 @@ const {
                 <span>内容优化 ✓</span>
                 <span>结构优化 ✓</span>
                 <span>术语统一 ✓</span>
-                <small>外发前会移除敏感字段，并保留本地证据链。</small>
+                <small>外发前会移除敏感字段，并保留本地留痕链。</small>
               </section>
             </aside>
           </div>

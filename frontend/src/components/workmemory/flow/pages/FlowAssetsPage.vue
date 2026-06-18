@@ -38,7 +38,7 @@ const {
 </script>
 
 <template>
-<section class="flow-page-panel" aria-label="心流资产">
+<section class="flow-page-panel flow-assets-page" aria-label="心流资产">
           <FlowPageHeader :eyebrow="`资产库 > 代理任务 > ${memory.agentTask?.goal || '待生成任务包'}`" title="从记忆沉淀成可复用能力" />
 
           <div class="flow-package-hub">
@@ -74,13 +74,13 @@ const {
               </div>
               <div class="flow-agent-package-section flow-package-section-numbered">
                 <strong><b>#2</b> 背景 Context</strong>
-                <p>{{ memory.agentTask?.context || '生成后会在这里展示上下文、证据、边界和验收标准。' }}</p>
+                <p>{{ memory.agentTask?.context || '生成后会在这里展示上下文、留痕、边界和验收标准。' }}</p>
               </div>
               <div class="flow-agent-package-grid">
                 <section>
-                  <strong><b>#3</b> 证据 Evidence</strong>
+                  <strong><b>#3</b> 留痕 Trace</strong>
                   <span v-for="item in memory.agentTask?.evidence || []" :key="item">{{ item }}</span>
-                  <small v-if="!memory.agentTask?.evidence.length">等待绑定证据</small>
+                  <small v-if="!memory.agentTask?.evidence.length">等待绑定留痕</small>
                 </section>
                 <section>
                   <strong><b>#4</b> 边界 Boundaries</strong>
@@ -123,7 +123,7 @@ const {
                   <small>/100</small>
                 </div>
                 <strong>{{ memory.agentTask ? '可交接，需人工确认' : '等待生成' }}</strong>
-                <p>{{ memory.agentTask?.requiresReview ? '这个任务包包含边界约束，外发前需要你确认。' : '生成后会检查缺失证据、权限边界和验收标准。' }}</p>
+                <p>{{ memory.agentTask?.requiresReview ? '这个任务包包含边界约束，外发前需要你确认。' : '生成后会检查缺失留痕、权限边界和验收标准。' }}</p>
                 <div class="flow-asset-mini-list">
                   <span v-for="part in assetReadinessParts" :key="part.label" :class="{ 'is-ok': part.ok }">{{ part.label }}</span>
                 </div>
@@ -131,7 +131,7 @@ const {
               <section class="flow-quiet-panel">
                 <div class="side-title">
                   <Flag :size="15" />
-                  缺失证据与风险边界
+                  缺失留痕与风险边界
                 </div>
                 <span v-for="item in assetMissingEvidence" :key="item" class="flow-risk-chip">{{ item }}</span>
                 <p>数据敏感度、本机文件访问和联系人触达都需要安装或外发前确认。</p>
@@ -147,7 +147,7 @@ const {
                   <div class="flow-auto-artifact-kicker">
                     <span>{{ autonomousKindLabel(artifact.kind) }}</span>
                     <small v-if="artifact.confidence">{{ confidenceLabel(artifact.confidence) }}</small>
-                    <small>证据 {{ artifact.evidence.length }} 条</small>
+                    <small>留痕 {{ artifact.evidence.length }} 条</small>
                   </div>
                   <h3>{{ artifact.title }}</h3>
                   <p>{{ artifact.summary }}</p>

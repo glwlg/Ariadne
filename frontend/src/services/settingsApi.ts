@@ -209,7 +209,7 @@ function fallbackStorageStatus(): SettingsStorageStatus {
 function normalizeFallback(settings: AppSettings): AppSettings {
   const next = structuredClone(settings)
   next.version = Math.max(next.version || 0, fallbackSettings.version)
-  next.general.theme = next.general.theme === 'dark' ? 'dark' : 'light'
+  next.general.theme = normalizeTheme(next.general.theme)
   next.screenshot.quality = clamp(next.screenshot.quality, 1, 100)
   next.workMemory.autoCaptureIntervalSeconds = clamp(next.workMemory.autoCaptureIntervalSeconds, 10, 86400)
   next.workMemory.windowSwitchCooldownSeconds = clamp(next.workMemory.windowSwitchCooldownSeconds, 3, 3600)
@@ -228,6 +228,13 @@ function normalizeFallback(settings: AppSettings): AppSettings {
   next.workMemory.excludeContentPatterns = cleanList(next.workMemory.excludeContentPatterns)
   next.ai.traceMode = ['off', 'local', 'internal'].includes(next.ai.traceMode) ? next.ai.traceMode : 'off'
   return next
+}
+
+function normalizeTheme(theme: string): AppSettings['general']['theme'] {
+  if (theme === 'professional-pink' || theme === 'light-graphite' || theme === 'cloud-blue' || theme === 'dark') {
+    return theme
+  }
+  return 'light'
 }
 
 function cleanList(items: string[] = []) {

@@ -105,7 +105,7 @@ const {
                     <input v-model="settings.settings.workMemory.windowSwitchCaptureEnabled" type="checkbox" />
                     <span />
                     <strong>窗口切换触发</strong>
-                    <small>前台窗口变化时补一帧证据。</small>
+                    <small>前台窗口变化时补一帧留痕。</small>
                   </label>
                   <label class="flow-setting-switch">
                     <input v-model="settings.settings.workMemory.autoOcr" type="checkbox" />
@@ -129,11 +129,11 @@ const {
 
                 <div class="flow-settings-field-grid">
                   <label class="flow-setting-field">
-                    <span>截图间隔秒</span>
+                    <span>同窗探测秒</span>
                     <input v-model.number="settings.settings.workMemory.autoCaptureIntervalSeconds" type="number" min="10" />
                   </label>
                   <label class="flow-setting-field">
-                    <span>窗口冷却秒</span>
+                    <span>窗口稳定秒</span>
                     <input v-model.number="settings.settings.workMemory.windowSwitchCooldownSeconds" type="number" min="3" />
                   </label>
                   <label class="flow-setting-field">
@@ -165,7 +165,7 @@ const {
                 <div class="flow-app-policy-panel">
                   <div class="flow-settings-section-head">
                     <span>应用采集策略</span>
-                    <small>命中应用后接管全局截图间隔，用自己的切窗延迟和驻留节奏。</small>
+                    <small>为高频应用设置独立的稳定时间和探测节奏。</small>
                   </div>
                   <div class="flow-app-policy-layout">
                     <div class="flow-app-profile-list" aria-label="已配置应用采集策略">
@@ -179,11 +179,11 @@ const {
                         <span class="flow-app-avatar">{{ appAvatarText(profile.displayName || profile.processName) }}</span>
                         <span>
                           <strong>{{ profile.displayName || displayAppName(profile.processName) }}</strong>
-                          <small>{{ profile.processName }} · {{ profile.enabled ? '已接管' : '已暂停' }}</small>
+                          <small>{{ profile.processName }} · {{ profile.enabled ? '独立节奏' : '已暂停' }}</small>
                         </span>
                       </button>
                       <p v-if="!appCaptureProfiles.length" class="flow-app-empty">
-                        还没有应用策略。先从最近应用添加一个，比如 Weixin.exe。
+                        可从最近应用添加独立采集节奏。
                       </p>
                     </div>
 
@@ -206,11 +206,11 @@ const {
                       </label>
                       <div class="flow-settings-field-grid is-compact">
                         <label class="flow-setting-field">
-                          <span>切换后延迟秒</span>
+                          <span>稳定等待秒</span>
                           <input v-model.number="selectedAppCaptureProfile.windowSwitchDelaySeconds" type="number" min="0" max="3600" />
                         </label>
                         <label class="flow-setting-field">
-                          <span>保持期间间隔秒</span>
+                          <span>驻留探测秒</span>
                           <input v-model.number="selectedAppCaptureProfile.activeIntervalSeconds" type="number" min="10" max="86400" />
                         </label>
                       </div>
@@ -259,7 +259,7 @@ const {
                     <input v-model="settings.settings.ai.enabled" type="checkbox" />
                     <span />
                     <strong>OpenAI Agents SDK 问答</strong>
-                    <small>先检索本地证据，再交给 Ariadne agent sidecar 生成动态回答。</small>
+                    <small>先检索本地留痕，再交给 Ariadne agent sidecar 生成动态回答。</small>
                   </label>
                   <label class="flow-setting-switch">
                     <input v-model="settings.settings.ai.embeddingEnabled" type="checkbox" />

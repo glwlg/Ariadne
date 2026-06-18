@@ -157,7 +157,7 @@ export interface CaptureOverlayAnnotationPoint {
 }
 
 export interface CaptureOverlayAnnotationOperation {
-  kind: 'rect' | 'line' | 'arrow' | 'pen' | 'mosaic' | 'text' | 'number' | 'eraser'
+  kind: 'rect' | 'line' | 'arrow' | 'pen' | 'highlight' | 'mosaic' | 'text' | 'number' | 'eraser'
   x: number
   y: number
   width?: number
@@ -913,6 +913,43 @@ export interface WorkMemoryFlowAskResponse {
   createdAt: number
 }
 
+export interface WorkMemoryFlowConversation {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messageCount: number
+  lastMessage?: string
+}
+
+export type WorkMemoryFlowMessageRole = 'user' | 'assistant'
+
+export interface WorkMemoryFlowMessage {
+  id: string
+  conversationId: string
+  role: WorkMemoryFlowMessageRole
+  text: string
+  question?: string
+  result?: WorkMemoryFlowAskResponse
+  error?: boolean
+  createdAt: number
+}
+
+export interface WorkMemoryFlowConversationAskRequest {
+  conversationId?: string
+  question: string
+  limit?: number
+  since?: number
+}
+
+export interface WorkMemoryFlowConversationAskResult {
+  ok: boolean
+  message?: string
+  conversation: WorkMemoryFlowConversation
+  messages: WorkMemoryFlowMessage[]
+  response: WorkMemoryFlowAskResponse
+}
+
 export interface WorkMemoryCaptureFrame {
   captureId?: string
   imagePath?: string
@@ -1366,7 +1403,7 @@ export interface ExperienceDecisionResult {
 }
 
 export interface GeneralSettings {
-  theme: 'dark' | 'light'
+  theme: 'dark' | 'light' | 'professional-pink' | 'light-graphite' | 'cloud-blue'
   runOnStartup: boolean
   language: string
 }

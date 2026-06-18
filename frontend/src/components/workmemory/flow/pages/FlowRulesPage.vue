@@ -68,7 +68,7 @@ const {
                   手动补记
                 </div>
                 <AriInput v-model="memory.noteDraft.title" class="memory-note-input" spellcheck="false" placeholder="标题" />
-                <AriInput v-model="memory.noteDraft.text" class="memory-note-textarea" multiline spellcheck="false" placeholder="记录问题、结论、待办或证据..." />
+                <AriInput v-model="memory.noteDraft.text" class="memory-note-textarea" multiline spellcheck="false" placeholder="记录问题、结论、待办或留痕..." />
                 <AriInput v-model="memory.noteDraft.tags" class="memory-note-input" spellcheck="false" placeholder="标签，用空格或逗号分隔" />
                 <div class="memory-check-row">
                   <label><input v-model="memory.noteDraft.favorite" type="checkbox" /> 收藏</label>

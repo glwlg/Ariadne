@@ -685,6 +685,9 @@ onMounted(() => {
                 <span>主题</span>
                 <select v-model="settings.settings.general.theme" class="settings-select">
                   <option value="light">Graphite Teal Light（默认）</option>
+                  <option value="professional-pink">专业粉（亮色）</option>
+                  <option value="light-graphite">亮石墨（亮色）</option>
+                  <option value="cloud-blue">云蓝（亮色）</option>
                   <option value="dark">Graphite Teal Dark（深色模式，手动开启）</option>
                 </select>
               </label>
@@ -1059,11 +1062,11 @@ onMounted(() => {
 
               <div class="settings-hotkey-grid">
                 <label class="settings-field">
-                  <span>截图间隔秒</span>
+                  <span>同窗探测秒</span>
                   <input v-model.number="settings.settings.workMemory.autoCaptureIntervalSeconds" class="settings-input" type="number" min="10" />
                 </label>
                 <label class="settings-field">
-                  <span>窗口切换冷却秒</span>
+                  <span>窗口稳定秒</span>
                   <input v-model.number="settings.settings.workMemory.windowSwitchCooldownSeconds" class="settings-input" type="number" min="3" />
                 </label>
                 <label class="settings-field">
