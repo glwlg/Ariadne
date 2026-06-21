@@ -42,10 +42,11 @@ const activePageLabel = computed(() => {
 </script>
 
 <template>
-  <footer class="flow-command-dock" data-no-drag>
+  <footer v-if="activeFlowPage !== 'flow'" class="flow-command-dock" :class="{ 'is-todos': activeFlowPage === 'todos' }" data-no-drag>
     <div class="flow-command-scope">
-      <span>{{ activePageLabel }}</span>
-      <strong>{{ todayEntries.length }} 条上下文 · {{ recentEvidence.length }} 条留痕</strong>
+      <span>{{ activeFlowPage === 'todos' ? '待办总览' : activePageLabel }}</span>
+      <strong v-if="activeFlowPage === 'todos'">{{ memory.todoList?.open ?? 0 }} 个待处理 · 今日待跟进</strong>
+      <strong v-else>{{ todayEntries.length }} 条上下文 · {{ recentEvidence.length }} 条留痕</strong>
     </div>
     <template v-if="activeFlowPage === 'flow'">
       <button type="button" class="is-primary" :disabled="flowBusy || memory.isAskingFlow || !flowQuestion.trim()" @click="askFlow()">Ask</button>
@@ -85,6 +86,10 @@ const activePageLabel = computed(() => {
       <button type="button" @click="selectedInsight && buildChecklistFromInsight(selectedInsight)" :disabled="!selectedInsight">生成检查清单</button>
       <button type="button" :disabled="!memory.knowledgeDraft" @click="memory.saveCurrentKnowledgeDraft()">保存为 Skill</button>
       <button type="button" :disabled="!memory.knowledgeDraftSaveResult?.ok" @click="memory.exportCurrentKnowledgeSkill()">导出</button>
+    </template>
+    <template v-else-if="activeFlowPage === 'todos'">
+      <button type="button" :disabled="memory.isSavingTodo" @click="memory.refreshTodos()">查看今日</button>
+      <button type="button" :disabled="flowBusy || memory.isAskingFlow" @click="askFlow('今天还有什么事没办的吗？')">从心流整理</button>
     </template>
     <template v-else-if="activeFlowPage === 'rules'">
       <button type="button" @click="memory.captureNow()">手动补记</button>

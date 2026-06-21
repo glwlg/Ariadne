@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -416,11 +417,16 @@ func TestOpenAICompatibleFlowAgentPostsChatCompletion(t *testing.T) {
 		Question:    "今天跟叶志伟聊了什么",
 		Intent:      "contacts",
 		LocalAnswer: "本地摘要不应作为最终回答。",
-		Runner:      "openai-agent",
-		Provider:    "openai-compatible",
-		BaseURL:     server.URL + "/v1",
-		Model:       "test-model",
-		Now:         time.Unix(1781435400, 0),
+		SelfModel:   "Identity - 姓名: luwei; 账号显示名: lw",
+		Conversation: []workmemory.FlowConversationContextMessage{
+			{Role: "user", Text: "端午值班保存待办", CreatedAt: 1781769600},
+			{Role: "assistant", Text: "待办工具未成功执行，未保存待办。", CreatedAt: 1781769660},
+		},
+		Runner:   "openai-agent",
+		Provider: "openai-compatible",
+		BaseURL:  server.URL + "/v1",
+		Model:    "test-model",
+		Now:      time.Unix(1781435400, 0),
 		Evidence: []workmemory.FlowAgentEvidence{
 			{ID: "memory-chat-ye", Title: "微信 - 叶志伟", Summary: "讨论心流问答", Text: "叶志伟：心流要真的检索内容再回复。", AppName: "Weixin.exe"},
 		},
@@ -431,7 +437,13 @@ func TestOpenAICompatibleFlowAgentPostsChatCompletion(t *testing.T) {
 	if captured.Model != "test-model" || len(captured.Messages) != 2 {
 		t.Fatalf("unexpected request payload: %#v", captured)
 	}
-	if !strings.Contains(captured.Messages[0].Content, "通用心流 Agent") || !strings.Contains(captured.Messages[1].Content, "memory-chat-ye") {
+	if !strings.Contains(captured.Messages[0].Content, "通用心流 Agent") ||
+		!strings.Contains(captured.Messages[0].Content, "聊天原文里的“你/我”") ||
+		!strings.Contains(captured.Messages[1].Content, "memory-chat-ye") ||
+		!strings.Contains(captured.Messages[1].Content, "Identity - 姓名: luwei") ||
+		!strings.Contains(captured.Messages[1].Content, "Conversation Context") ||
+		!strings.Contains(captured.Messages[1].Content, "端午值班保存待办") ||
+		!strings.Contains(captured.Messages[1].Content, "群聊中有人提到") {
 		t.Fatalf("prompt lost agent instructions or evidence: %#v", captured.Messages)
 	}
 	if result.Mode != "agent:openai-compatible-direct" || !strings.Contains(result.Answer, "叶志伟") {
@@ -470,8 +482,176 @@ func TestOpenAIAgentsSDKFlowAgentRunsBridgeProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("answer flow through sdk bridge: %v", err)
 	}
-	if result.Mode != "agent:openai-agents-sdk" || !strings.Contains(result.Answer, "SDK") {
+	if result.Mode != "agent:openai-agents-sdk-chat-tools" || !strings.Contains(result.Answer, "SDK") {
 		t.Fatalf("unexpected SDK result: %#v", result)
+	}
+}
+
+func TestFlowAgentsSDKBridgeNativeSkillRouting(t *testing.T) {
+	pythonPath, err := exec.LookPath("python")
+	pythonArgs := []string{}
+	if err != nil && runtime.GOOS == "windows" {
+		pythonPath, err = exec.LookPath("py")
+		pythonArgs = []string{"-3"}
+	}
+	if err != nil {
+		t.Skipf("python executable not found: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	bridgePath := filepath.Join(tempDir, "flow_agents_sdk_bridge.py")
+	if err := os.WriteFile(bridgePath, flowAgentsSDKBridge, 0o600); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	script := `
+import importlib.util
+import os
+import sys
+
+for key in (
+    "ARIADNE_FLOW_AGENT_FORCE_FUNCTION_TOOLS",
+    "ARIADNE_FLOW_AGENT_NATIVE_SKILLS",
+    "ARIADNE_FLOW_AGENT_NATIVE_SKILLS_STRICT",
+    "ARIADNE_FLOW_AGENT_ALLOW_COMPAT_NATIVE_SKILLS",
+):
+    os.environ.pop(key, None)
+
+spec = importlib.util.spec_from_file_location("bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+
+cases = [
+    ("openai-compatible", "http://ai.local/v1", {"nativeSkills": True}, False),
+    ("openai-compatible", "http://ai.local/v1", {}, False),
+    ("openai", "http://ai.local/v1", {"nativeSkills": True}, True),
+    ("openai", "https://api.openai.com/v1", {}, True),
+]
+for provider, base_url, payload, want in cases:
+    got = bridge._should_try_native_shell_skill(provider, base_url, payload)
+    if got is not want:
+        raise AssertionError(f"{provider} {base_url} {payload}: got {got}, want {want}")
+
+os.environ["ARIADNE_FLOW_AGENT_ALLOW_COMPAT_NATIVE_SKILLS"] = "1"
+if bridge._should_try_native_shell_skill("openai-compatible", "http://ai.local/v1", {"nativeSkills": True}) is not True:
+    raise AssertionError("explicit compat native opt-in should enable native shell skill")
+
+os.environ.pop("ARIADNE_FLOW_AGENT_ALLOW_COMPAT_NATIVE_SKILLS", None)
+os.environ["ARIADNE_FLOW_AGENT_NATIVE_SKILLS_STRICT"] = "1"
+if bridge._should_try_native_shell_skill("openai-compatible", "http://ai.local/v1", {}) is not True:
+    raise AssertionError("strict native env should enable native shell skill")
+
+os.environ["ARIADNE_FLOW_AGENT_FORCE_FUNCTION_TOOLS"] = "1"
+if bridge._should_try_native_shell_skill("openai", "https://api.openai.com/v1", {"nativeSkills": True}) is not False:
+    raise AssertionError("force function tools should disable native shell skill")
+
+plain_args = bridge._normalize_tool_arguments("<tool_call>get_workmemory_status</tool_call>")
+if plain_args != "{}":
+    raise AssertionError(f"plain XML tool arguments should become empty JSON object, got {plain_args}")
+
+search_args = bridge._normalize_tool_arguments("<tool_call>search_flow_memory<arg_key>query</arg_key><arg_value>ariadne</arg_value><arg_key>limit</arg_key><arg_value>3</arg_value><arg_key>exact</arg_key><arg_value>true</arg_value></tool_call>")
+if search_args != '{"query":"ariadne","limit":3,"exact":true}':
+    raise AssertionError(f"XML key/value tool arguments should become JSON, got {search_args}")
+`
+	scriptPath := filepath.Join(tempDir, "bridge_routing_smoke.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("write bridge script: %v", err)
+	}
+	args := append(pythonArgs, scriptPath, bridgePath)
+	cmd := exec.Command(pythonPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bridge routing smoke failed: %v\n%s", err, output)
+	}
+}
+
+func TestFlowAgentsSDKBridgeRejectsTodoSaveWithoutTool(t *testing.T) {
+	pythonPath, err := exec.LookPath("python")
+	pythonArgs := []string{}
+	if err != nil && runtime.GOOS == "windows" {
+		pythonPath, err = exec.LookPath("py")
+		pythonArgs = []string{"-3"}
+	}
+	if err != nil {
+		t.Skipf("python executable not found: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	bridgePath := filepath.Join(tempDir, "flow_agents_sdk_bridge.py")
+	if err := os.WriteFile(bridgePath, flowAgentsSDKBridge, 0o600); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	script := `
+import asyncio
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+
+class FakeMessage:
+    content = "已保存端午值班待办。"
+    tool_calls = []
+
+class FakeChoice:
+    message = FakeMessage()
+
+class FakeResponse:
+    choices = [FakeChoice()]
+
+seen_tool_choices = []
+
+class FakeCompletions:
+    async def create(self, **kwargs):
+        seen_tool_choices.append(kwargs.get("tool_choice"))
+        return FakeResponse()
+
+class FakeChat:
+    completions = FakeCompletions()
+
+class FakeClient:
+    chat = FakeChat()
+
+result = asyncio.run(bridge._run_with_compatible_chat_tools(
+    client=FakeClient(),
+    model_name="glm-5.1",
+    system_prompt="",
+    user_prompt="用户问题：端午值班保存待办\n回答要求：先调用工具。",
+    skill="",
+    cli_command="ariadne",
+))
+if result.get("ok"):
+    raise AssertionError(f"todo save claim without tool must be rejected, got {result}")
+if "待办工具" not in result.get("error", ""):
+    raise AssertionError(f"unexpected rejection reason: {result}")
+if not seen_tool_choices or seen_tool_choices[0] != {"type": "function", "function": {"name": "add_flow_todo"}}:
+    raise AssertionError(f"todo save should force add_flow_todo first, got {seen_tool_choices}")
+
+seen_tool_choices.clear()
+retry_result = asyncio.run(bridge._run_with_compatible_chat_tools(
+    client=FakeClient(),
+    model_name="glm-5.1",
+    system_prompt="",
+    user_prompt='用户问题：你刚才没加成功，再加一次\nConversation Context: [{"role":"user","text":"端午值班保存待办"},{"role":"assistant","text":"待办工具未成功执行，未保存待办。"}]',
+    skill="",
+    cli_command="ariadne",
+))
+if retry_result.get("ok"):
+    raise AssertionError(f"retry todo save claim without tool must be rejected, got {retry_result}")
+if "待办工具" not in retry_result.get("error", ""):
+    raise AssertionError(f"unexpected retry rejection reason: {retry_result}")
+if not seen_tool_choices or seen_tool_choices[0] != {"type": "function", "function": {"name": "add_flow_todo"}}:
+    raise AssertionError(f"retry reference should force add_flow_todo first, got {seen_tool_choices}")
+`
+	scriptPath := filepath.Join(tempDir, "bridge_todo_guard.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("write bridge script: %v", err)
+	}
+	args := append(pythonArgs, scriptPath, bridgePath)
+	cmd := exec.Command(pythonPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bridge todo save guard failed: %v\n%s", err, output)
 	}
 }
 
@@ -520,7 +700,7 @@ if "%OPENAI_API_KEY%"=="" (
   echo {"ok":false,"error":"missing key"}
   exit /b 0
 )
-echo {"ok":true,"answer":"SDK bridge answer for memory-chat-ye","mode":"agent:openai-agents-sdk","message":"fake sdk"}
+echo {"ok":true,"answer":"SDK bridge answer for memory-chat-ye","mode":"agent:openai-agents-sdk-chat-tools","message":"fake sdk"}
 `
 		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 			t.Fatalf("write fake python: %v", err)
@@ -534,7 +714,7 @@ if [ -z "$OPENAI_API_KEY" ]; then
   printf '%s\n' '{"ok":false,"error":"missing key"}'
   exit 0
 fi
-printf '%s\n' '{"ok":true,"answer":"SDK bridge answer for memory-chat-ye","mode":"agent:openai-agents-sdk","message":"fake sdk"}'
+printf '%s\n' '{"ok":true,"answer":"SDK bridge answer for memory-chat-ye","mode":"agent:openai-agents-sdk-chat-tools","message":"fake sdk"}'
 `
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("write fake python: %v", err)

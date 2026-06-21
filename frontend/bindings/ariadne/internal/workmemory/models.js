@@ -2424,6 +2424,13 @@ export class FlowAskRequest {
              */
             this["since"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {FlowConversationContextMessage[] | undefined}
+             */
+            this["conversation"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }
@@ -2434,7 +2441,11 @@ export class FlowAskRequest {
      * @returns {FlowAskRequest}
      */
     static createFrom($$source = {}) {
+        const $$createField3_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("conversation" in $$parsedSource) {
+            $$parsedSource["conversation"] = $$createField3_0($$parsedSource["conversation"]);
+        }
         return new FlowAskRequest(/** @type {Partial<FlowAskRequest>} */($$parsedSource));
     }
 }
@@ -2532,7 +2543,7 @@ export class FlowAskResponse {
      * @returns {FlowAskResponse}
      */
     static createFrom($$source = {}) {
-        const $$createField6_0 = $$createType16;
+        const $$createField6_0 = $$createType18;
         const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("evidence" in $$parsedSource) {
@@ -2708,9 +2719,9 @@ export class FlowConversationAskResult {
      * @returns {FlowConversationAskResult}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType17;
-        const $$createField3_0 = $$createType19;
-        const $$createField4_0 = $$createType20;
+        const $$createField2_0 = $$createType19;
+        const $$createField3_0 = $$createType21;
+        const $$createField4_0 = $$createType22;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("conversation" in $$parsedSource) {
             $$parsedSource["conversation"] = $$createField2_0($$parsedSource["conversation"]);
@@ -2722,6 +2733,48 @@ export class FlowConversationAskResult {
             $$parsedSource["response"] = $$createField4_0($$parsedSource["response"]);
         }
         return new FlowConversationAskResult(/** @type {Partial<FlowConversationAskResult>} */($$parsedSource));
+    }
+}
+
+export class FlowConversationContextMessage {
+    /**
+     * Creates a new FlowConversationContextMessage instance.
+     * @param {Partial<FlowConversationContextMessage>} [$$source = {}] - The source object to create the FlowConversationContextMessage.
+     */
+    constructor($$source = {}) {
+        if (!("role" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["role"] = "";
+        }
+        if (!("text" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["text"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["createdAt"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowConversationContextMessage instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowConversationContextMessage}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowConversationContextMessage(/** @type {Partial<FlowConversationContextMessage>} */($$parsedSource));
     }
 }
 
@@ -2797,7 +2850,7 @@ export class FlowMessage {
      * @returns {FlowMessage}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType21;
+        const $$createField5_0 = $$createType23;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
             $$parsedSource["result"] = $$createField5_0($$parsedSource["result"]);
@@ -3151,8 +3204,8 @@ export class HealthSummary {
      * @returns {HealthSummary}
      */
     static createFrom($$source = {}) {
-        const $$createField24_0 = $$createType23;
-        const $$createField25_0 = $$createType25;
+        const $$createField24_0 = $$createType25;
+        const $$createField25_0 = $$createType27;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("appStats" in $$parsedSource) {
             $$parsedSource["appStats"] = $$createField24_0($$parsedSource["appStats"]);
@@ -3363,8 +3416,8 @@ export class ImportMaterialResult {
      * @returns {ImportMaterialResult}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType27;
-        const $$createField6_0 = $$createType29;
+        const $$createField5_0 = $$createType29;
+        const $$createField6_0 = $$createType31;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("entries" in $$parsedSource) {
             $$parsedSource["entries"] = $$createField5_0($$parsedSource["entries"]);
@@ -3812,6 +3865,334 @@ export class ScheduledDraftStatus {
     }
 }
 
+export class SelfAssertion {
+    /**
+     * Creates a new SelfAssertion instance.
+     * @param {Partial<SelfAssertion>} [$$source = {}] - The source object to create the SelfAssertion.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("category" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["category"] = "";
+        }
+        if (!("key" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["key"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("value" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["value"] = "";
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (!("privacy" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["privacy"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["scope"] = undefined;
+        }
+        if (!("source" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["source"] = "";
+        }
+        if (!("confidence" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["confidence"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["evidence"] = undefined;
+        }
+        if (!("promptReady" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["promptReady"] = false;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["updatedAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SelfAssertion instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SelfAssertion}
+     */
+    static createFrom($$source = {}) {
+        const $$createField10_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("evidence" in $$parsedSource) {
+            $$parsedSource["evidence"] = $$createField10_0($$parsedSource["evidence"]);
+        }
+        return new SelfAssertion(/** @type {Partial<SelfAssertion>} */($$parsedSource));
+    }
+}
+
+export class SelfAssertionRequest {
+    /**
+     * Creates a new SelfAssertionRequest instance.
+     * @param {Partial<SelfAssertionRequest>} [$$source = {}] - The source object to create the SelfAssertionRequest.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (!("category" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["category"] = "";
+        }
+        if (!("key" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["key"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("value" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["value"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["status"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["privacy"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["scope"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["confidence"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["evidence"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SelfAssertionRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SelfAssertionRequest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField10_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("evidence" in $$parsedSource) {
+            $$parsedSource["evidence"] = $$createField10_0($$parsedSource["evidence"]);
+        }
+        return new SelfAssertionRequest(/** @type {Partial<SelfAssertionRequest>} */($$parsedSource));
+    }
+}
+
+export class SelfModel {
+    /**
+     * Creates a new SelfModel instance.
+     * @param {Partial<SelfModel>} [$$source = {}] - The source object to create the SelfModel.
+     */
+    constructor($$source = {}) {
+        if (!("assertions" in $$source)) {
+            /**
+             * @member
+             * @type {SelfAssertion[]}
+             */
+            this["assertions"] = [];
+        }
+        if (!("summary" in $$source)) {
+            /**
+             * @member
+             * @type {SelfModelSummary}
+             */
+            this["summary"] = (new SelfModelSummary());
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["updatedAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SelfModel instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SelfModel}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType33;
+        const $$createField1_0 = $$createType34;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("assertions" in $$parsedSource) {
+            $$parsedSource["assertions"] = $$createField0_0($$parsedSource["assertions"]);
+        }
+        if ("summary" in $$parsedSource) {
+            $$parsedSource["summary"] = $$createField1_0($$parsedSource["summary"]);
+        }
+        return new SelfModel(/** @type {Partial<SelfModel>} */($$parsedSource));
+    }
+}
+
+export class SelfModelSummary {
+    /**
+     * Creates a new SelfModelSummary instance.
+     * @param {Partial<SelfModelSummary>} [$$source = {}] - The source object to create the SelfModelSummary.
+     */
+    constructor($$source = {}) {
+        if (!("prompt" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["prompt"] = "";
+        }
+        if (!("included" in $$source)) {
+            /**
+             * @member
+             * @type {SelfAssertion[]}
+             */
+            this["included"] = [];
+        }
+        if (!("excluded" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["excluded"] = 0;
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["updatedAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SelfModelSummary instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SelfModelSummary}
+     */
+    static createFrom($$source = {}) {
+        const $$createField1_0 = $$createType33;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("included" in $$parsedSource) {
+            $$parsedSource["included"] = $$createField1_0($$parsedSource["included"]);
+        }
+        return new SelfModelSummary(/** @type {Partial<SelfModelSummary>} */($$parsedSource));
+    }
+}
+
 export class SemanticSearchResult {
     /**
      * Creates a new SemanticSearchResult instance.
@@ -3877,7 +4258,7 @@ export class SemanticSearchResult {
      * @returns {SemanticSearchResult}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType31;
+        const $$createField3_0 = $$createType36;
         const $$createField4_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("results" in $$parsedSource) {
@@ -4286,6 +4667,456 @@ export class Status {
     }
 }
 
+export class TodoItem {
+    /**
+     * Creates a new TodoItem instance.
+     * @param {Partial<TodoItem>} [$$source = {}] - The source object to create the TodoItem.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["note"] = undefined;
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (!("priority" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["priority"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["scope"] = undefined;
+        }
+        if (!("source" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["source"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["evidence"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["dueAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["remindAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["completedAt"] = undefined;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["updatedAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TodoItem instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {TodoItem}
+     */
+    static createFrom($$source = {}) {
+        const $$createField7_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("evidence" in $$parsedSource) {
+            $$parsedSource["evidence"] = $$createField7_0($$parsedSource["evidence"]);
+        }
+        return new TodoItem(/** @type {Partial<TodoItem>} */($$parsedSource));
+    }
+}
+
+export class TodoList {
+    /**
+     * Creates a new TodoList instance.
+     * @param {Partial<TodoList>} [$$source = {}] - The source object to create the TodoList.
+     */
+    constructor($$source = {}) {
+        if (!("items" in $$source)) {
+            /**
+             * @member
+             * @type {TodoItem[]}
+             */
+            this["items"] = [];
+        }
+        if (!("open" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["open"] = 0;
+        }
+        if (!("doing" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["doing"] = 0;
+        }
+        if (!("waiting" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["waiting"] = 0;
+        }
+        if (!("done" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["done"] = 0;
+        }
+        if (!("canceled" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["canceled"] = 0;
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["updatedAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TodoList instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {TodoList}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType38;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("items" in $$parsedSource) {
+            $$parsedSource["items"] = $$createField0_0($$parsedSource["items"]);
+        }
+        return new TodoList(/** @type {Partial<TodoList>} */($$parsedSource));
+    }
+}
+
+export class TodoListRequest {
+    /**
+     * Creates a new TodoListRequest instance.
+     * @param {Partial<TodoListRequest>} [$$source = {}] - The source object to create the TodoListRequest.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["status"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["scope"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["query"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["includeDone"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["limit"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TodoListRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {TodoListRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new TodoListRequest(/** @type {Partial<TodoListRequest>} */($$parsedSource));
+    }
+}
+
+export class TodoRequest {
+    /**
+     * Creates a new TodoRequest instance.
+     * @param {Partial<TodoRequest>} [$$source = {}] - The source object to create the TodoRequest.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["id"] = undefined;
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["note"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["status"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["priority"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["scope"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["evidence"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["dueAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["remindAt"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TodoRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {TodoRequest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField7_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("evidence" in $$parsedSource) {
+            $$parsedSource["evidence"] = $$createField7_0($$parsedSource["evidence"]);
+        }
+        return new TodoRequest(/** @type {Partial<TodoRequest>} */($$parsedSource));
+    }
+}
+
+export class TodoUpdateRequest {
+    /**
+     * Creates a new TodoUpdateRequest instance.
+     * @param {Partial<TodoUpdateRequest>} [$$source = {}] - The source object to create the TodoUpdateRequest.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["title"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["note"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["status"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["priority"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["scope"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["evidence"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["dueAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["remindAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["clearDueAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["clearRemindAt"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TodoUpdateRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {TodoUpdateRequest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField7_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("evidence" in $$parsedSource) {
+            $$parsedSource["evidence"] = $$createField7_0($$parsedSource["evidence"]);
+        }
+        return new TodoUpdateRequest(/** @type {Partial<TodoUpdateRequest>} */($$parsedSource));
+    }
+}
+
 export class WorkflowDraft {
     /**
      * Creates a new WorkflowDraft instance.
@@ -4372,7 +5203,7 @@ export class WorkflowDraft {
      * @returns {WorkflowDraft}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType33;
+        const $$createField4_0 = $$createType40;
         const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
@@ -4450,22 +5281,29 @@ const $$createType11 = ExperienceReport.createFrom;
 const $$createType12 = ExperienceInsight.createFrom;
 const $$createType13 = $Create.Array($$createType12);
 const $$createType14 = ExportFilter.createFrom;
-const $$createType15 = FlowAskEvidence.createFrom;
+const $$createType15 = FlowConversationContextMessage.createFrom;
 const $$createType16 = $Create.Array($$createType15);
-const $$createType17 = FlowConversation.createFrom;
-const $$createType18 = FlowMessage.createFrom;
-const $$createType19 = $Create.Array($$createType18);
-const $$createType20 = FlowAskResponse.createFrom;
-const $$createType21 = $Create.Nullable($$createType20);
-const $$createType22 = HealthAppStat.createFrom;
-const $$createType23 = $Create.Array($$createType22);
-const $$createType24 = HealthRecentEvent.createFrom;
+const $$createType17 = FlowAskEvidence.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = FlowConversation.createFrom;
+const $$createType20 = FlowMessage.createFrom;
+const $$createType21 = $Create.Array($$createType20);
+const $$createType22 = FlowAskResponse.createFrom;
+const $$createType23 = $Create.Nullable($$createType22);
+const $$createType24 = HealthAppStat.createFrom;
 const $$createType25 = $Create.Array($$createType24);
-const $$createType26 = Entry.createFrom;
+const $$createType26 = HealthRecentEvent.createFrom;
 const $$createType27 = $Create.Array($$createType26);
-const $$createType28 = ImportMaterialItemResult.createFrom;
+const $$createType28 = Entry.createFrom;
 const $$createType29 = $Create.Array($$createType28);
-const $$createType30 = contracts$0.SearchResult.createFrom;
+const $$createType30 = ImportMaterialItemResult.createFrom;
 const $$createType31 = $Create.Array($$createType30);
-const $$createType32 = WorkflowDraftStep.createFrom;
+const $$createType32 = SelfAssertion.createFrom;
 const $$createType33 = $Create.Array($$createType32);
+const $$createType34 = SelfModelSummary.createFrom;
+const $$createType35 = contracts$0.SearchResult.createFrom;
+const $$createType36 = $Create.Array($$createType35);
+const $$createType37 = TodoItem.createFrom;
+const $$createType38 = $Create.Array($$createType37);
+const $$createType39 = WorkflowDraftStep.createFrom;
+const $$createType40 = $Create.Array($$createType39);

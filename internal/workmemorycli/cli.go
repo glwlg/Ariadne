@@ -27,6 +27,8 @@ type Output struct {
 	Results     []MemorySummary           `json:"results,omitempty"`
 	Entry       *MemoryDetail             `json:"entry,omitempty"`
 	Note        *NoteSummary              `json:"note,omitempty"`
+	Todos       []TodoSummary             `json:"todos,omitempty"`
+	Todo        *TodoSummary              `json:"todo,omitempty"`
 	StoragePath string                    `json:"storagePath,omitempty"`
 }
 
@@ -67,6 +69,22 @@ type NoteSummary struct {
 	CreatedAt int64    `json:"createdAt"`
 }
 
+type TodoSummary struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Note        string   `json:"note,omitempty"`
+	Status      string   `json:"status"`
+	Priority    string   `json:"priority"`
+	Scope       string   `json:"scope,omitempty"`
+	Source      string   `json:"source"`
+	Evidence    []string `json:"evidence,omitempty"`
+	DueAt       int64    `json:"dueAt,omitempty"`
+	RemindAt    int64    `json:"remindAt,omitempty"`
+	CompletedAt int64    `json:"completedAt,omitempty"`
+	CreatedAt   int64    `json:"createdAt"`
+	UpdatedAt   int64    `json:"updatedAt"`
+}
+
 func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	defaultAction := "status"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -75,11 +93,11 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	fs := flag.NewFlagSet("workmemory", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	action := fs.String("action", defaultAction, "status, refresh, search, recent, get, or add-note")
+	action := fs.String("action", defaultAction, "status, refresh, search, recent, get, add-note, todos, todo-add, todo-update, or todo-delete")
 	query := fs.String("query", "", "query text for action=search")
-	id := fs.String("id", "", "memory entry id for action=get")
-	title := fs.String("title", "", "manual note title when action=add-note")
-	text := fs.String("text", "", "manual note text when action=add-note")
+	id := fs.String("id", "", "memory entry id for action=get or todo id for todo-update/todo-delete")
+	title := fs.String("title", "", "manual note title when action=add-note; todo title when action=todo-add/todo-update")
+	text := fs.String("text", "", "manual note text when action=add-note; todo note when action=todo-add/todo-update")
 	tags := fs.String("tags", "", "comma-separated manual note tags when action=add-note")
 	favorite := fs.Bool("favorite", false, "mark manual note favorite when action=add-note")
 	sensitive := fs.Bool("sensitive", false, "mark manual note sensitive when action=add-note")
@@ -88,6 +106,13 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	sinceHours := fs.Int("since-hours", 0, "relative lower bound in hours")
 	source := fs.String("source", "", "filter by source")
 	app := fs.String("app", "", "filter by app/process name")
+	todoStatus := fs.String("status", "", "todo status: open, doing, waiting, done, or canceled")
+	priority := fs.String("priority", "", "todo priority: low, normal, high, or urgent")
+	scope := fs.String("scope", "", "todo scope or project")
+	evidence := fs.String("evidence", "", "comma-separated evidence ids for todo actions")
+	due := fs.String("due", "", "todo due time as unix, RFC3339, or YYYY-MM-DD")
+	remind := fs.String("remind", "", "todo reminder time as unix, RFC3339, or YYYY-MM-DD")
+	includeDone := fs.Bool("include-done", false, "include completed and canceled todos")
 	vectorStore := fs.String("vector-store", "", "override vector store type, e.g. embedded or milvus")
 	vectorURI := fs.String("vector-uri", "", "override vector store URI")
 	collection := fs.String("collection", "", "override vector collection")
@@ -156,6 +181,64 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 			}
 			result.Message = "manual note added"
 		}
+	case "todos", "todo-list":
+		list := service.Todos(workmemory.TodoListRequest{
+			Status:      *todoStatus,
+			Scope:       *scope,
+			Query:       *query,
+			IncludeDone: *includeDone,
+			Limit:       clampLimit(*limit),
+		})
+		result.Todos = todoSummaries(list.Items)
+		result.Message = fmt.Sprintf("returned %d todos; open=%d doing=%d waiting=%d done=%d canceled=%d", len(result.Todos), list.Open, list.Doing, list.Waiting, list.Done, list.Canceled)
+	case "todo-add":
+		list := service.UpsertTodo(workmemory.TodoRequest{
+			Title:    *title,
+			Note:     *text,
+			Status:   *todoStatus,
+			Priority: *priority,
+			Scope:    *scope,
+			Source:   firstNonEmpty(*source, "agent"),
+			Evidence: splitCSV(*evidence),
+			DueAt:    parseTodoTime(*due),
+			RemindAt: parseTodoTime(*remind),
+		})
+		if len(list.Items) == 0 || strings.TrimSpace(*title) == "" {
+			result.OK = false
+			result.Message = "todo was not added"
+		} else {
+			result.Todos = todoSummaries(list.Items)
+			result.Todo = findTodoSummary(result.Todos, strings.TrimSpace(*title))
+			result.Message = "todo added"
+		}
+	case "todo-update":
+		request := workmemory.TodoUpdateRequest{
+			ID:       *id,
+			Title:    *title,
+			Note:     *text,
+			Status:   *todoStatus,
+			Priority: *priority,
+			Scope:    *scope,
+			Source:   *source,
+			DueAt:    parseTodoTime(*due),
+			RemindAt: parseTodoTime(*remind),
+		}
+		if strings.TrimSpace(*evidence) != "" {
+			request.Evidence = splitCSV(*evidence)
+		}
+		list := service.UpdateTodo(request)
+		result.Todos = todoSummaries(list.Items)
+		result.Todo = findTodoByID(result.Todos, *id)
+		if result.Todo == nil {
+			result.OK = false
+			result.Message = "todo not found"
+		} else {
+			result.Message = "todo updated"
+		}
+	case "todo-delete":
+		list := service.DeleteTodo(*id)
+		result.Todos = todoSummaries(list.Items)
+		result.Message = "todo deleted"
 	default:
 		_, _ = fmt.Fprintf(stderr, "unsupported action %q\n", result.Action)
 		return 2
@@ -365,6 +448,7 @@ func interpretationGuidance(entry workmemory.Entry) []string {
 		"微信截图可能同时包含当前会话、左侧会话列表、群聊预览、服务号和后台窗口。",
 		"联系人类问题必须用 get 查看 OCR/正文明细后再判断；不要把左侧列表或背景窗口里出现的人名当成已聊天对象。",
 		"右侧绿色气泡通常是当前用户自己的消息；不要把当前用户名字列为联系人，除非有独立证据说明对方也在发言。",
+		"聊天原文里的“你/我”属于消息发言人的视角；没有明确发言人或被指向对象时，只能写“群聊中有人提到”，不能写成用户说过、提出过或承诺过。",
 	}
 }
 
@@ -403,6 +487,67 @@ func splitCSV(value string) []string {
 		}
 	}
 	return result
+}
+
+func todoSummaries(items []workmemory.TodoItem) []TodoSummary {
+	result := make([]TodoSummary, 0, len(items))
+	for _, item := range items {
+		result = append(result, TodoSummary{
+			ID:          item.ID,
+			Title:       item.Title,
+			Note:        item.Note,
+			Status:      item.Status,
+			Priority:    item.Priority,
+			Scope:       item.Scope,
+			Source:      item.Source,
+			Evidence:    append([]string(nil), item.Evidence...),
+			DueAt:       item.DueAt,
+			RemindAt:    item.RemindAt,
+			CompletedAt: item.CompletedAt,
+			CreatedAt:   item.CreatedAt,
+			UpdatedAt:   item.UpdatedAt,
+		})
+	}
+	return result
+}
+
+func findTodoSummary(items []TodoSummary, title string) *TodoSummary {
+	title = strings.TrimSpace(title)
+	for index := range items {
+		if title != "" && items[index].Title == title {
+			return &items[index]
+		}
+	}
+	if len(items) > 0 {
+		return &items[0]
+	}
+	return nil
+}
+
+func findTodoByID(items []TodoSummary, id string) *TodoSummary {
+	id = strings.TrimSpace(id)
+	for index := range items {
+		if items[index].ID == id {
+			return &items[index]
+		}
+	}
+	return nil
+}
+
+func parseTodoTime(value string) int64 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if unix, err := strconv.ParseInt(value, 10, 64); err == nil && unix > 0 {
+		return unix
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04", "2006-01-02"} {
+		if parsed, err := time.ParseInLocation(layout, value, time.Local); err == nil {
+			return parsed.Unix()
+		}
+	}
+	return 0
 }
 
 func truncate(value string, max int) string {

@@ -108,7 +108,8 @@ func codexFlowPrompt(job workmemory.FlowAgentJob) string {
 3. 不要把回答写成静态统计报表。你要像一个理解上下文的个人助理，归纳主线、解释原因、指出可能的下一步。
 4. 可以主动发现“适合沉淀为工作流、Skill、清单、复盘”的机会，但不要让用户逐条审批；只有涉及执行或外部协作时才提示需要确认。
 5. 输出纯中文 Markdown，不要代码块，不要 JSON，不要前言，不要提到你是 Codex。
-6. 结尾用一行“依据：...”列出最多 6 个关键 evidence id。
+6. 聊天原文里的“你/我”属于消息发言人的视角，不要自动换成当前用户。只有当前证据明确显示该消息由当前用户发出，才可写“你说/你提出”；只有证据明确显示当前用户被 @、点名或被当前会话上下文指向，才可写成用户待办。否则写“群聊中有人提到”，并标注指代不明。
+7. 结尾用一行“依据：...”列出最多 6 个关键 evidence id。
 
 用户问题：%s
 问题意图：%s
@@ -117,12 +118,16 @@ func codexFlowPrompt(job workmemory.FlowAgentJob) string {
 本地兜底摘要：
 %s
 
+Self Model（只包含已确认且允许进入模型上下文的低敏断言；用于理解“我”的身份和偏好，不能覆盖当前证据）:
+%s
+
 Evidence JSON:
 %s`,
 		strings.TrimSpace(job.Question),
 		strings.TrimSpace(job.Intent),
 		now.Format(time.RFC3339),
 		strings.TrimSpace(job.LocalAnswer),
+		firstNonEmpty(strings.TrimSpace(job.SelfModel), "No confirmed low-risk Self Model assertions are available."),
 		string(evidence),
 	)
 }

@@ -1453,6 +1453,160 @@ func TestAskFlowUsesFlowAgentRunnerWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestSelfModelPersistsAndBuildsPromptSafeSummary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work_memory.json")
+	service := NewServiceWithPath(path, nil)
+	now := time.Date(2026, 6, 18, 15, 0, 0, 0, time.Local)
+	service.now = func() time.Time { return now }
+
+	model := service.UpsertSelfAssertion(SelfAssertionRequest{
+		Category: "identity",
+		Key:      "name",
+		Label:    "姓名",
+		Value:    "luwei",
+		Privacy:  "always",
+	})
+	model = service.UpsertSelfAssertion(SelfAssertionRequest{
+		Category: "identity",
+		Key:      "age",
+		Label:    "年龄",
+		Value:    "36",
+		Privacy:  "relevant",
+	})
+	model = service.UpsertSelfAssertion(SelfAssertionRequest{
+		Category: "relationship",
+		Key:      "collaborator",
+		Label:    "协作对象",
+		Value:    "张笑腾",
+		Privacy:  "always",
+	})
+
+	if len(model.Assertions) != 3 {
+		t.Fatalf("expected assertions, got %#v", model)
+	}
+	if !strings.Contains(model.Summary.Prompt, "luwei") {
+		t.Fatalf("confirmed low-risk identity should enter prompt summary: %#v", model.Summary)
+	}
+	if strings.Contains(model.Summary.Prompt, "36") || strings.Contains(model.Summary.Prompt, "张笑腾") {
+		t.Fatalf("relevant/private relationship data should not enter default prompt summary: %#v", model.Summary)
+	}
+
+	reloaded := NewServiceWithPath(path, nil)
+	reloadedModel := reloaded.SelfModel()
+	if len(reloadedModel.Assertions) != 3 || !strings.Contains(reloadedModel.Summary.Prompt, "luwei") {
+		t.Fatalf("self model should persist through service reload: %#v", reloadedModel)
+	}
+}
+
+func TestTodosPersistAndFilterActiveItems(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work_memory.json")
+	service := NewServiceWithPath(path, nil)
+	now := time.Date(2026, 6, 18, 17, 40, 0, 0, time.Local)
+	service.now = func() time.Time { return now }
+
+	list := service.UpsertTodo(TodoRequest{
+		Title:    "补齐待办模块",
+		Note:     "需要前端、CLI 和 Agent skill 都能读写",
+		Priority: "high",
+		Scope:    "Ariadne",
+		Evidence: []string{"memory-todo-source"},
+	})
+	if list.Open != 1 || len(list.Items) != 1 {
+		t.Fatalf("expected one open todo, got %#v", list)
+	}
+	todoID := list.Items[0].ID
+	if todoID == "" || list.Items[0].Evidence[0] != "memory-todo-source" {
+		t.Fatalf("todo should have id and evidence: %#v", list.Items[0])
+	}
+
+	now = now.Add(10 * time.Minute)
+	list = service.UpdateTodo(TodoUpdateRequest{ID: todoID, Status: "done"})
+	if list.Done != 1 || list.Items[0].CompletedAt == 0 {
+		t.Fatalf("done todo should record completion: %#v", list)
+	}
+	active := service.Todos(TodoListRequest{})
+	if len(active.Items) != 0 {
+		t.Fatalf("default todo list should hide closed items, got %#v", active)
+	}
+
+	reloaded := NewServiceWithPath(path, nil)
+	all := reloaded.Todos(TodoListRequest{IncludeDone: true})
+	if len(all.Items) != 1 || all.Done != 1 || all.Items[0].ID != todoID {
+		t.Fatalf("todo should persist through reload: %#v", all)
+	}
+}
+
+func TestAskFlowSyncsTodoWritesFromAgentTool(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work_memory.json")
+	service := NewServiceWithPath(path, nil)
+	defer service.Stop()
+
+	runner := &fakeFlowAgentRunner{
+		result: FlowAgentResult{
+			Answer: "已保存端午值班待办。\n\n依据：memory-time_machine-duty",
+			Mode:   "agent:openai-compatible-chat-tools",
+		},
+		onCall: func(FlowAgentJob) {
+			external := NewServiceWithPath(path, nil)
+			defer external.Stop()
+			external.UpsertTodo(TodoRequest{
+				Title:    "端午值班",
+				Note:     "6 月 21 日白班 8:00-20:00",
+				Priority: "high",
+				Source:   "agent",
+				Evidence: []string{"memory-time_machine-duty"},
+			})
+		},
+	}
+	RegisterFlowAgentRunner(service, runner)
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "openai-agent", Provider: "openai-compatible", Model: "glm-5.1"})
+
+	answer := service.AskFlow(FlowAskRequest{Question: "端午值班保存待办"})
+	if !answer.OK || !answer.UsedAI {
+		t.Fatalf("expected agent answer, got %#v", answer)
+	}
+	todos := service.Todos(TodoListRequest{IncludeDone: true})
+	if len(todos.Items) != 1 || todos.Items[0].Title != "端午值班" || todos.Items[0].Source != "agent" {
+		t.Fatalf("agent todo write should be visible to the running service, got %#v", todos)
+	}
+}
+
+func TestAskFlowAgentReceivesSelfModelSummary(t *testing.T) {
+	service := NewServiceWithPath("", nil)
+	clearEntriesForTest(service)
+	now := time.Date(2026, 6, 18, 15, 20, 0, 0, time.Local)
+	service.now = func() time.Time { return now }
+	runner := &fakeFlowAgentRunner{result: FlowAgentResult{Answer: "已按我模型和本地留痕回答。\n\n依据：本次未命中可引用证据", Mode: "agent:openai-agents-sdk"}}
+	RegisterFlowAgentRunner(service, runner)
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "openai-agent", Provider: "openai-compatible", Model: "test-model"})
+	service.UpsertSelfAssertion(SelfAssertionRequest{
+		Category: "identity",
+		Key:      "name",
+		Label:    "姓名",
+		Value:    "luwei",
+		Privacy:  "always",
+	})
+	service.UpsertSelfAssertion(SelfAssertionRequest{
+		Category: "identity",
+		Key:      "phone",
+		Label:    "手机号",
+		Value:    "13800000000",
+		Privacy:  "never",
+	})
+
+	answer := service.AskFlow(FlowAskRequest{Question: "我今天干了什么？"})
+
+	if !answer.UsedAI || runner.calls != 1 {
+		t.Fatalf("expected agent answer, got answer=%#v calls=%d", answer, runner.calls)
+	}
+	if !strings.Contains(runner.lastJob.SelfModel, "luwei") {
+		t.Fatalf("agent job should include allowed self model summary: %#v", runner.lastJob)
+	}
+	if strings.Contains(runner.lastJob.SelfModel, "13800000000") {
+		t.Fatalf("agent job should not include never-send self assertions: %#v", runner.lastJob)
+	}
+}
+
 func TestAskFlowShowsAgentErrorInsteadOfPretendingLocalSummaryWhenAgentFails(t *testing.T) {
 	service := NewServiceWithPath("", nil)
 	clearEntriesForTest(service)
@@ -1552,6 +1706,91 @@ func TestAskFlowConversationPersistsConversationAndMessages(t *testing.T) {
 	}
 	if messages[1].Result.Question != "心流会话怎么持久化？" || !strings.Contains(messages[1].Text, "非敏感") {
 		t.Fatalf("assistant message should restore result payload and answer text, got %#v", messages[1])
+	}
+}
+
+func TestAskFlowConversationPassesRecentMessagesToAgent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work_memory.json")
+	service := NewServiceWithPath(path, nil)
+	defer service.Stop()
+	clearEntriesForTest(service)
+	runner := &fakeFlowAgentRunner{
+		result: FlowAgentResult{
+			Answer: "已处理。\n\n依据：本次未命中可引用证据",
+			Mode:   "agent:openai-compatible-chat-tools",
+		},
+	}
+	RegisterFlowAgentRunner(service, runner)
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "openai-agent", Provider: "openai-compatible", Model: "glm-5.1"})
+
+	first := service.AskFlowConversation(FlowConversationAskRequest{Question: "端午值班保存待办"})
+	if !first.OK || runner.calls != 1 || len(runner.lastJob.Conversation) != 0 {
+		t.Fatalf("first turn should not have prior context, result=%#v job=%#v", first, runner.lastJob)
+	}
+
+	second := service.AskFlowConversation(FlowConversationAskRequest{
+		ConversationID: first.Conversation.ID,
+		Question:       "你刚才没加成功，再加一次",
+	})
+	if !second.OK || runner.calls != 2 {
+		t.Fatalf("expected second agent turn, result=%#v calls=%d", second, runner.calls)
+	}
+	if len(runner.lastJob.Conversation) < 2 {
+		t.Fatalf("second turn should include recent conversation context: %#v", runner.lastJob)
+	}
+	if runner.lastJob.Conversation[0].Role != "user" || !strings.Contains(runner.lastJob.Conversation[0].Text, "端午值班保存待办") {
+		t.Fatalf("conversation context should include prior user request: %#v", runner.lastJob.Conversation)
+	}
+	foundAssistant := false
+	for _, message := range runner.lastJob.Conversation {
+		if message.Role == "assistant" && strings.Contains(message.Text, "已处理") {
+			foundAssistant = true
+		}
+	}
+	if !foundAssistant {
+		t.Fatalf("conversation context should include prior assistant answer: %#v", runner.lastJob.Conversation)
+	}
+}
+
+func TestDeleteFlowConversationRemovesConversationAndMessages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work_memory.json")
+	service := NewServiceWithPath(path, nil)
+	defer service.Stop()
+	clearEntriesForTest(service)
+	now := time.Date(2026, 6, 18, 14, 0, 0, 0, time.Local)
+	service.now = func() time.Time { return now }
+	service.addEntry(Entry{
+		ID:        "flow-delete-memory",
+		Source:    "manual_note",
+		Title:     "会话删除",
+		Summary:   "心流对话记录删除时，消息也应该清理。",
+		Text:      "删除对话记录不能留下孤儿消息。",
+		AppName:   "Code.exe",
+		CreatedAt: now.Add(-10 * time.Minute).Unix(),
+	})
+
+	first := service.AskFlowConversation(FlowConversationAskRequest{Question: "第一条对话要删除"})
+	second := service.AskFlowConversation(FlowConversationAskRequest{Question: "第二条对话要保留"})
+	if first.Conversation.ID == "" || second.Conversation.ID == "" || first.Conversation.ID == second.Conversation.ID {
+		t.Fatalf("expected two distinct conversations, got first=%#v second=%#v", first.Conversation, second.Conversation)
+	}
+
+	remaining := service.DeleteFlowConversation(first.Conversation.ID)
+	if len(remaining) != 1 || remaining[0].ID != second.Conversation.ID {
+		t.Fatalf("expected only second conversation to remain, got %#v", remaining)
+	}
+	if messages := service.FlowMessages(first.Conversation.ID); len(messages) != 0 {
+		t.Fatalf("deleted conversation messages should be removed, got %#v", messages)
+	}
+	if messages := service.FlowMessages(second.Conversation.ID); len(messages) != 2 {
+		t.Fatalf("remaining conversation messages should stay, got %#v", messages)
+	}
+
+	reloaded := NewServiceWithPath(path, nil)
+	defer reloaded.Stop()
+	reloadedConversations := reloaded.FlowConversations()
+	if len(reloadedConversations) != 1 || reloadedConversations[0].ID != second.Conversation.ID {
+		t.Fatalf("deleted conversation should stay deleted after reload, got %#v", reloadedConversations)
 	}
 }
 
@@ -3601,11 +3840,15 @@ type fakeFlowAgentRunner struct {
 	lastJob FlowAgentJob
 	result  FlowAgentResult
 	err     error
+	onCall  func(FlowAgentJob)
 }
 
 func (f *fakeFlowAgentRunner) AnswerFlow(_ context.Context, job FlowAgentJob) (FlowAgentResult, error) {
 	f.calls++
 	f.lastJob = job
+	if f.onCall != nil {
+		f.onCall(job)
+	}
 	if f.err != nil {
 		return FlowAgentResult{}, f.err
 	}

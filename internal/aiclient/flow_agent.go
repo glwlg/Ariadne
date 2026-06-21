@@ -286,7 +286,7 @@ func (a *OpenAICompatibleFlowAgent) apiKey() string {
 }
 
 func flowAgentSystemPrompt() string {
-	return "你是 Ariadne 内置的通用心流 Agent。你可以通过 Ariadne Flow Memory skill 查询本地时间线、OCR、剪贴板、向量/关键词索引和证据详情；不要依赖硬编码分词或本地模板来替用户下结论。不要编造证据，不要输出静态统计报表，不要要求用户逐条审批。聊天截图常同时包含当前会话、左侧会话列表和后台窗口；回答人物关系时必须区分这些区域，不能把界面上出现过的人名都当成联系人。"
+	return "你是 Ariadne 内置的通用心流 Agent。你可以通过 Ariadne Flow Memory skill 查询本地时间线、OCR、剪贴板、向量/关键词索引和证据详情；不要依赖硬编码分词或本地模板来替用户下结论。不要编造证据，不要输出静态统计报表，不要要求用户逐条审批。聊天截图常同时包含当前会话、左侧会话列表和后台窗口；回答人物关系时必须区分这些区域，不能把界面上出现过的人名都当成联系人。聊天原文里的“你/我”属于消息发言人的视角，不要自动换成当前用户；无法确认发言人或指代对象时写“群聊中有人提到”或“指代不明”。"
 }
 
 func flowAgentPrompt(job workmemory.FlowAgentJob) string {
@@ -295,11 +295,18 @@ func flowAgentPrompt(job workmemory.FlowAgentJob) string {
 		now = time.Now()
 	}
 	evidence, _ := json.MarshalIndent(job.Evidence, "", "  ")
+	conversation, _ := json.MarshalIndent(normalizeFlowAgentConversation(job.Conversation), "", "  ")
 	return fmt.Sprintf(`用户问题：%s
 问题意图：%s
 生成时间：%s
 
 本地兜底/种子信息（不能替代工具查询）：
+%s
+
+Self Model（只包含已确认且允许进入模型上下文的低敏断言；用于理解“我”的身份和偏好，不能覆盖当前证据）:
+%s
+
+Conversation Context（当前心流会话最近消息，只用于理解“刚才/再一次/上面那个”等指代；不能替代工具查询，不能把上一轮错误声明当作已保存事实）:
 %s
 
 Seed Evidence JSON（可能为空，不能替代工具查询）:
@@ -311,13 +318,48 @@ Seed Evidence JSON（可能为空，不能替代工具查询）:
 3. 如果问题问“谁找过我”“跟谁聊过”“跟某某聊了什么”，recent/search 的摘要只能用于候选召回，必须再 get 相关 memory 读取 OCR/正文明细；不要只根据 title/summary 下结论。
 4. 不要把“沉淀了多少条、跳过多少条”当成主体；那些只能作为辅助背景。
 5. 对聊天软件截图，当前会话对象通常来自会话窗口标题或正文中明确的发言上下文；左侧会话列表、群聊列表、服务号、后台窗口和本机发送者只能作为“界面可见”，不能直接列为“我聊过的人”。无法确认时按“疑似/群聊中出现”分组，不要硬凑联系人表。
-6. 输出中文 Markdown；有证据时结尾用一行“依据：...”列出最多 6 个 memory id，没有证据时结尾写“依据：本次未命中可引用证据”。`,
+6. 聊天原文里的“你/我”属于消息发言人的视角，不要自动锚定到当前用户。只有当前证据明确显示该消息由当前用户发出，才可写“你说/你提出”；只有证据明确显示当前用户被 @、点名或被当前会话上下文指向，才可写成你的待办。否则写“群聊中有人提到”，并标注指代不明。
+7. 如果用户问待办、未完成事项、需要跟进什么，必须查询 Ariadne Todo 工具；如需新增或更新待办，先基于明确证据和用户意图操作，不要把归因不明的聊天原文自动转成“我的待办”。
+8. 如果用户使用“刚才”“再加一次”“上面那个”“继续”等指代，先用 Conversation Context 解析指代对象；上下文不足时明确说明缺少上下文，不要猜。
+9. 输出中文 Markdown；有证据时结尾用一行“依据：...”列出最多 6 个 memory id，没有证据时结尾写“依据：本次未命中可引用证据”。`,
 		strings.TrimSpace(job.Question),
 		strings.TrimSpace(job.Intent),
 		now.Format(time.RFC3339),
 		strings.TrimSpace(job.LocalAnswer),
+		firstNonEmpty(strings.TrimSpace(job.SelfModel), "No confirmed low-risk Self Model assertions are available."),
+		string(conversation),
 		string(evidence),
 	)
+}
+
+func normalizeFlowAgentConversation(messages []workmemory.FlowConversationContextMessage) []workmemory.FlowConversationContextMessage {
+	if len(messages) == 0 {
+		return []workmemory.FlowConversationContextMessage{}
+	}
+	if len(messages) > 10 {
+		messages = messages[len(messages)-10:]
+	}
+	result := make([]workmemory.FlowConversationContextMessage, 0, len(messages))
+	for _, message := range messages {
+		role := strings.TrimSpace(strings.ToLower(message.Role))
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		text := strings.TrimSpace(message.Text)
+		if text == "" {
+			continue
+		}
+		runes := []rune(text)
+		if len(runes) > 1600 {
+			text = string(runes[:1600]) + "..."
+		}
+		result = append(result, workmemory.FlowConversationContextMessage{
+			Role:      role,
+			Text:      text,
+			CreatedAt: message.CreatedAt,
+		})
+	}
+	return result
 }
 
 func flowMemoryToolCommand(job workmemory.FlowAgentJob) string {
@@ -333,22 +375,28 @@ func flowMemoryToolCommand(job workmemory.FlowAgentJob) string {
 func flowMemorySkillContent() string {
 	return `---
 name: ariadne-flow-memory
-description: Query Ariadne local flow memory, timeline, OCR, clipboard, window context, and evidence details.
+description: Query Ariadne local flow memory, todo list, timeline, OCR, clipboard, window context, and evidence details.
 ---
 
-Use this skill whenever a user asks about what happened, who contacted them, what they worked on, which workflow can be improved, or asks for supporting evidence from Ariadne.
+Use this skill whenever a user asks about what happened, who contacted them, what they worked on, what remains unfinished, which workflow can be improved, or asks for supporting evidence from Ariadne.
 
 Available CLI:
 - ariadne.exe workmemory search --query "<text>" --limit 8 --since-hours 24
 - ariadne.exe workmemory recent --limit 8 --since-hours 24
 - ariadne.exe workmemory get --id "<memory-id>"
+- ariadne.exe workmemory todos --status open --limit 20
+- ariadne.exe workmemory todo-add --title "<todo>" --text "<note>" --priority normal --scope "<project>" --evidence "<memory-id>"
+- ariadne.exe workmemory todo-update --id "<todo-id>" --status doing|waiting|done|canceled
 
 Rules:
 - Query the CLI before answering factual questions about the user's day or memory.
+- Query todos before answering questions about unfinished work, reminders, follow-ups, pending approvals, or what to do next.
 - Search multiple times with different focused queries when the first query is too narrow.
 - Use get after search when a result needs full text, OCR, frame, or image metadata.
+- Add or update todos only when the user's request or the evidence makes the task and owner clear. If chat attribution is unclear, keep it as uncertain context in the answer instead of writing a todo.
 - For contact/chat questions, search/recent summaries are only candidates. Always call get for the candidate memories before naming people.
 - Chat screenshots may contain the active conversation, left conversation list, service accounts, group previews, and background apps at the same time. Only name a person as a chat contact when the active conversation title or adjacent message context supports it. Do not treat sidebar names, group member names, or the user's own right-side messages as confirmed contacts.
+- In chat text, "you/I" belongs to the quoted speaker's message context. Do not rewrite it as the current user's action, commitment, or todo unless current evidence identifies the user as sender or addressee. If attribution is unclear, say that someone in the group mentioned it and keep the addressee uncertain.
 - Do not expose sensitive entries. The CLI filters sensitive and pending records by default.
 - If no evidence is found, answer conversationally but clearly say that Ariadne did not find local evidence.
 - Cite memory ids in the final answer when evidence was used.`

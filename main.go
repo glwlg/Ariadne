@@ -46,7 +46,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed assets/logo.ico
+//go:embed assets/logo.png
 var appIcon []byte
 
 //go:embed assets/logo.png
@@ -308,6 +308,7 @@ func main() {
 		log.Printf("apply autostart: %v", err)
 	}
 	deferStartupMaintenance(func() {
+		toolWindowService.ApplyMainWindowPolicy()
 		latest := settingsService.GetSettings()
 		applyOCRAIRuntime(ocrService, latest.AI)
 		applyWorkMemoryRuntime(workMemoryService, latest.WorkMemory)

@@ -136,7 +136,7 @@
 }
 
 .flow-stage.is-chat-home {
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .flow-page-toolbar {
@@ -4238,7 +4238,7 @@ html.window-controls-visible .flow-shell {
 }
 
 .flow-stage.is-chat-home {
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .flow-soft-action,
@@ -6427,6 +6427,667 @@ html.window-controls-visible .flow-shell {
   box-shadow: none;
 }
 
+.flow-me-page {
+  min-height: 0;
+}
+
+.flow-me-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) minmax(260px, 320px);
+  gap: 14px;
+}
+
+.flow-me-editor,
+.flow-me-main,
+.flow-me-inspector {
+  min-width: 0;
+}
+
+.flow-me-editor {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.flow-me-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flow-me-presets button {
+  min-height: 28px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 999px;
+  padding: 0 9px;
+  background: rgba(239, 246, 255, 0.74);
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.flow-me-main {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.flow-me-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flow-me-stats article,
+.flow-me-group,
+.flow-me-summary {
+  min-width: 0;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.flow-me-stats article {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.flow-me-stats span,
+.flow-me-group header span,
+.flow-me-assertion span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.flow-me-stats strong {
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 820;
+}
+
+.flow-me-stats small,
+.flow-me-group header small,
+.flow-me-assertion small,
+.flow-me-assertion i,
+.flow-me-summary li,
+.flow-me-summary p {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.flow-me-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.flow-me-group {
+  display: grid;
+  overflow: hidden;
+}
+
+.flow-me-group header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 12px 14px;
+}
+
+.flow-me-group header > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.flow-me-group header strong {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 820;
+}
+
+.flow-me-assertions {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.flow-me-assertions.is-empty {
+  min-height: 74px;
+  place-items: center;
+}
+
+.flow-me-assertions.is-empty p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.flow-me-assertion {
+  min-width: 0;
+  position: relative;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 9px;
+  padding: 10px 42px 10px 10px;
+  background: rgba(248, 250, 252, 0.72);
+  cursor: pointer;
+}
+
+.flow-me-assertion:hover,
+.flow-me-assertion:focus-visible {
+  border-color: rgba(37, 99, 235, 0.32);
+  background: #ffffff;
+  outline: none;
+}
+
+.flow-me-assertion.is-prompt-ready {
+  border-color: rgba(20, 184, 166, 0.34);
+  background: rgba(240, 253, 250, 0.7);
+}
+
+.flow-me-assertion strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-me-assertion i {
+  font-style: normal;
+}
+
+.flow-me-delete {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: 8px;
+  background: rgba(254, 242, 242, 0.8);
+  color: #b91c1c;
+}
+
+.flow-me-summary {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  box-shadow: none;
+}
+
+.flow-me-summary p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.flow-me-summary ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.flow-todos-page {
+  min-height: 0;
+  display: grid;
+  gap: 16px;
+  overflow: auto;
+}
+
+.flow-todos-focus-header {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 2px 2px 0;
+}
+
+.flow-todos-focus-header > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.flow-todos-focus-header span,
+.flow-todos-focus-header p,
+.flow-todos-list-head span,
+.flow-todos-reminder header span,
+.flow-todo-quick-add header button,
+.flow-focus-kicker,
+.flow-focus-meta,
+.flow-todo-row-body small,
+.flow-todo-row-body p,
+.flow-todos-done,
+.flow-todos-reminder dl,
+.flow-todos-reminder p {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.flow-todos-focus-header > div:first-child > span {
+  color: #2563eb;
+  font-weight: 820;
+  letter-spacing: 0;
+}
+
+.flow-todos-focus-header h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 840;
+  letter-spacing: 0;
+}
+
+.flow-todos-focus-header p {
+  margin: 0;
+}
+
+.flow-todos-header-actions,
+.flow-focus-actions,
+.flow-todo-row-actions,
+.flow-todo-quick-actions,
+.flow-todos-reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.flow-todos-focus-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 8px;
+  padding: 20px 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.06);
+}
+
+.flow-todos-focus-card.is-empty {
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.flow-focus-main {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.flow-focus-kicker,
+.flow-focus-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-focus-kicker svg {
+  color: #2563eb;
+}
+
+.flow-focus-main h2 {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 840;
+  letter-spacing: 0;
+}
+
+.flow-focus-main p {
+  max-width: 760px;
+  margin: 0;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.flow-focus-meta span {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.flow-priority-chip,
+.flow-priority-dot {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  font-weight: 780;
+}
+
+.flow-priority-chip {
+  padding: 3px 9px;
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.82);
+}
+
+.flow-priority-chip.is-high,
+.flow-priority-chip.is-urgent,
+.flow-priority-dot.is-high,
+.flow-priority-dot.is-urgent {
+  color: #b45309;
+  background: rgba(254, 243, 199, 0.9);
+}
+
+.flow-priority-chip.is-low,
+.flow-priority-dot.is-low {
+  color: #475569;
+  background: rgba(241, 245, 249, 0.94);
+}
+
+.flow-priority-dot {
+  padding: 2px 7px;
+  color: #1d4ed8;
+  font-size: 11px;
+  background: rgba(219, 234, 254, 0.78);
+}
+
+.flow-todos-focus-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 300px);
+  gap: 16px;
+  align-items: start;
+}
+
+.flow-todos-agenda,
+.flow-todos-reminder,
+.flow-todo-quick-add,
+.flow-todos-done {
+  min-width: 0;
+  display: grid;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.045);
+}
+
+.flow-todos-agenda {
+  gap: 0;
+  overflow: hidden;
+}
+
+.flow-todo-quick-add {
+  gap: 12px;
+  margin: 12px;
+  padding: 14px;
+  background: rgba(248, 250, 252, 0.86);
+  box-shadow: none;
+}
+
+.flow-todo-quick-add header,
+.flow-todos-list-head,
+.flow-todos-reminder header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.flow-todo-quick-add header strong,
+.flow-todos-list-head strong,
+.flow-todos-reminder header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-todo-quick-add header button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-weight: 720;
+}
+
+.flow-todo-quick-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flow-todo-quick-fields label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.flow-todo-quick-fields label.is-wide {
+  grid-column: span 2;
+}
+
+.flow-todo-quick-fields span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.flow-todo-quick-fields input,
+.flow-todo-quick-fields select {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 7px;
+  padding: 0 10px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.flow-todos-list-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
+}
+
+.flow-todos-list-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.flow-todos-search {
+  width: min(280px, 42vw);
+}
+
+.flow-todos-simple-list {
+  display: grid;
+}
+
+.flow-todos-simple-list.is-empty {
+  place-items: center;
+  min-height: 160px;
+}
+
+.flow-todos-simple-list > p,
+.flow-todos-done > p {
+  margin: 0;
+  padding: 20px;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+
+.flow-todo-simple-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  background: transparent;
+  cursor: pointer;
+}
+
+.flow-todo-simple-row:hover,
+.flow-todo-simple-row:focus-visible,
+.flow-todo-simple-row.is-selected {
+  background: rgba(239, 246, 255, 0.58);
+  outline: none;
+}
+
+.flow-todo-check {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 999px;
+  background: #fff;
+  color: #2563eb;
+}
+
+.flow-todo-row-body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.flow-todo-row-body > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-todo-row-body strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 780;
+  overflow-wrap: anywhere;
+}
+
+.flow-todo-row-body p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-todo-row-actions button,
+.flow-todos-reminder-actions button {
+  min-height: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 7px;
+  padding: 0 8px;
+  background: rgba(248, 250, 252, 0.88);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.flow-todo-row-actions button:hover,
+.flow-todos-reminder-actions button:hover {
+  border-color: rgba(37, 99, 235, 0.26);
+  color: #1d4ed8;
+  background: #fff;
+}
+
+.flow-todo-row-actions button.is-danger {
+  color: #b91c1c;
+}
+
+.flow-todos-done {
+  gap: 0;
+  margin: 12px;
+  padding: 0;
+  box-shadow: none;
+}
+
+.flow-todos-done summary {
+  cursor: pointer;
+  padding: 11px 12px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.flow-todo-done-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  color: #64748b;
+  font-size: 13px;
+}
+
+.flow-todo-done-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-todos-reminder {
+  align-content: start;
+  gap: 14px;
+  padding: 16px;
+  box-shadow: none;
+}
+
+.flow-todos-reminder header {
+  align-items: start;
+}
+
+.flow-todos-reminder dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.flow-todos-reminder dl > div {
+  display: grid;
+  gap: 3px;
+}
+
+.flow-todos-reminder dt {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.flow-todos-reminder dd {
+  margin: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.flow-todos-reminder p {
+  margin: 0;
+}
+
 .flow-empty-card {
   place-items: center;
   min-height: 180px;
@@ -6478,7 +7139,7 @@ html.window-controls-visible .flow-shell {
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-columns: 244px minmax(420px, 1fr) 258px;
+  grid-template-columns: 244px minmax(420px, 1fr);
   gap: 14px;
 }
 
@@ -6590,7 +7251,7 @@ html.window-controls-visible .flow-shell {
   min-width: 0;
   position: relative;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
   gap: 8px;
   align-items: start;
   border: 1px solid rgba(15, 23, 42, 0.08);
@@ -6598,6 +7259,10 @@ html.window-controls-visible .flow-shell {
   padding: 9px;
   background: rgba(248, 250, 252, 0.72);
   color: #0f172a;
+}
+
+.flow-canvas-history-item.is-empty-state {
+  grid-template-columns: 30px minmax(0, 1fr);
 }
 
 .flow-canvas-history-item:has(.flow-message-selector) {
@@ -6631,6 +7296,49 @@ html.window-controls-visible .flow-shell {
 
 .flow-canvas-history-item.is-user .flow-canvas-history-dot {
   background: #334155;
+}
+
+.flow-canvas-history-delete {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #ef4444;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.flow-canvas-history-item:hover .flow-canvas-history-delete,
+.flow-canvas-history-item.is-active .flow-canvas-history-delete,
+.flow-canvas-history-delete:focus-visible {
+  opacity: 1;
+}
+
+.flow-canvas-history-delete:hover {
+  border-color: rgba(239, 68, 68, 0.42);
+  background: rgba(254, 242, 242, 0.96);
+  transform: translateY(-1px);
+}
+
+.flow-canvas-history-delete.is-delete-armed {
+  border-color: rgba(239, 68, 68, 0.58);
+  background: #fee2e2;
+  color: #b91c1c;
+  opacity: 1;
+}
+
+.flow-canvas-history-delete:disabled {
+  cursor: default;
+  opacity: 0.46;
+  transform: none;
 }
 
 .flow-canvas-history-item strong,
@@ -6712,6 +7420,34 @@ html.window-controls-visible .flow-shell {
 
 .flow-message-row {
   width: 100%;
+}
+
+.flow-chat-dialog.is-selection-mode .flow-message-row {
+  cursor: pointer;
+}
+
+.flow-chat-dialog.is-selection-mode .flow-message-row .flow-message-bubble {
+  cursor: pointer;
+}
+
+.flow-chat-dialog:not(.is-selection-mode) .flow-message:not(.is-user) {
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+
+.flow-chat-dialog:not(.is-selection-mode) .flow-message:not(.is-user) .flow-message-avatar {
+  grid-column: 1;
+}
+
+.flow-chat-dialog:not(.is-selection-mode) .flow-message:not(.is-user) .flow-message-bubble {
+  grid-column: 2;
+}
+
+.flow-chat-dialog:not(.is-selection-mode) .flow-message.is-user {
+  grid-template-columns: minmax(0, 1fr) 44px;
+}
+
+.flow-chat-dialog:not(.is-selection-mode) .flow-message.is-user .flow-message-avatar {
+  grid-column: 2;
 }
 
 .flow-message-row.is-active .flow-message-bubble {
@@ -7492,7 +8228,7 @@ html.window-controls-visible .flow-shell {
 }
 
 .flow-cognitive-shell {
-  grid-template-columns: 220px minmax(420px, 1fr) 240px;
+  grid-template-columns: 220px minmax(420px, 1fr);
 }
 
 .flow-cognitive-composer {
@@ -8315,6 +9051,26 @@ html.window-controls-visible .flow-shell {
   }
 
   .flow-timeline-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-me-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-todos-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-me-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flow-todos-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flow-todos-toolbar {
     grid-template-columns: 1fr;
   }
 
@@ -10995,7 +11751,7 @@ html.dark .capture-overlay-toast {
 
 /* Late overrides for Flow redesign additions. Keep after legacy responsive blocks. */
 .flow-stage.is-chat-home {
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .flow-cognitive-home {
@@ -11074,6 +11830,13 @@ html.dark .capture-overlay-toast {
   height: 100%;
   align-content: stretch;
   overflow: hidden;
+}
+
+.flow-me-page,
+.flow-todos-page {
+  align-content: start;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .flow-timeline-page {
@@ -12191,4 +12954,979 @@ html.dark .capture-overlay-toast {
 
 .capture-overlay-surface .capture-thickness-control input {
   accent-color: var(--primary);
+}
+
+/* Todo focus board, matched to the selected Product Design reference. */
+.flow-todos-page.flow-todos-page {
+  height: 100%;
+  overflow: auto;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96), rgba(240, 247, 255, 0.94));
+}
+
+.flow-todos-canvas {
+  width: min(100%, 1260px);
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 22px;
+  padding: 34px 30px 26px;
+}
+
+.flow-todos-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.flow-todos-topbar h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 32px;
+  font-weight: 840;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.flow-todos-top-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.flow-todos-search-control {
+  width: 248px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  padding: 0 15px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #475569;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.035);
+}
+
+.flow-todos-search-control input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 620;
+  outline: none;
+}
+
+.flow-todos-search-control input::placeholder {
+  color: #94a3b8;
+}
+
+.flow-todos-button,
+.flow-action-button {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  padding: 0 18px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #334155;
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.035);
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.flow-todos-button:not(:disabled):hover,
+.flow-action-button:not(:disabled):hover {
+  border-color: rgba(37, 99, 235, 0.34);
+  color: #1d4ed8;
+  background: #ffffff;
+  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.08);
+}
+
+.flow-todos-button.is-primary,
+.flow-action-button.is-primary {
+  border-color: rgba(37, 99, 235, 0.86);
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.22);
+}
+
+.flow-action-button.is-success {
+  border-color: rgba(16, 185, 129, 0.26);
+  color: #059669;
+}
+
+.flow-todos-button:disabled,
+.flow-action-button:disabled {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.flow-todos-board {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 22px;
+  align-items: start;
+}
+
+.flow-todos-main {
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+}
+
+.flow-todos-focus-card,
+.flow-todos-list-card,
+.flow-todos-completed,
+.flow-todos-reminder,
+.flow-todo-quick-add {
+  min-width: 0;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.93);
+  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.055);
+}
+
+.flow-todos-focus-card {
+  min-height: 318px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 22px;
+  padding: 30px 24px 32px;
+}
+
+.flow-todos-focus-card.is-empty {
+  min-height: 260px;
+}
+
+.flow-todos-card-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.flow-todos-card-title > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 820;
+  letter-spacing: 0;
+}
+
+.flow-todos-title-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  color: #1e293b;
+}
+
+.flow-todos-card-title button,
+.flow-todo-more {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #0f172a;
+}
+
+.flow-todos-card-title button:hover,
+.flow-todo-more:hover {
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.flow-todos-focus-body {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 30px;
+  align-items: center;
+}
+
+.flow-todos-focus-symbol {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.flow-todos-focus-symbol span {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #eff6ff;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.flow-todos-focus-content {
+  min-width: 0;
+  display: grid;
+  gap: 13px;
+}
+
+.flow-todos-focus-content h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 27px;
+  font-weight: 850;
+  line-height: 1.22;
+  letter-spacing: 0;
+}
+
+.flow-todos-focus-meta,
+.flow-todo-time,
+.flow-todo-trace {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 620;
+  line-height: 1.4;
+}
+
+.flow-todos-focus-meta {
+  flex-wrap: wrap;
+}
+
+.flow-meta-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(148, 163, 184, 0.35);
+}
+
+.flow-flag-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #ea580c;
+  font-weight: 760;
+}
+
+.flow-flag-meta.is-low,
+.flow-todo-flag.is-low {
+  color: #64748b;
+}
+
+.flow-flag-meta.is-normal,
+.flow-todo-flag.is-normal {
+  color: #2563eb;
+}
+
+.flow-flag-meta.is-high,
+.flow-flag-meta.is-urgent,
+.flow-todo-flag.is-high,
+.flow-todo-flag.is-urgent {
+  color: #f97316;
+}
+
+.flow-scope-pill {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 6px;
+  padding: 4px 9px;
+  background: rgba(239, 246, 255, 0.96);
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 1.1;
+}
+
+.flow-todos-focus-content p {
+  margin: 0;
+  color: #334155;
+  font-size: 16px;
+  font-weight: 620;
+  line-height: 1.55;
+}
+
+.flow-todos-focus-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.flow-todos-focus-actions .flow-action-button {
+  min-width: 152px;
+}
+
+.flow-todos-empty-focus {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  color: #64748b;
+  text-align: center;
+}
+
+.flow-todos-empty-focus strong {
+  color: #0f172a;
+  font-size: 20px;
+}
+
+.flow-todos-empty-focus p {
+  max-width: 420px;
+  margin: 0;
+  line-height: 1.65;
+}
+
+.flow-todos-empty-focus div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flow-todo-quick-add {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  box-shadow: none;
+}
+
+.flow-todo-quick-add header,
+.flow-todo-quick-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.flow-todo-quick-add header strong {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 820;
+}
+
+.flow-todo-quick-add header button {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.flow-todo-quick-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.flow-todo-quick-fields label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.flow-todo-quick-fields label.is-wide {
+  grid-column: span 2;
+}
+
+.flow-todo-quick-fields span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.flow-todo-quick-fields input,
+.flow-todo-quick-fields select {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  padding: 0 11px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+  outline: none;
+}
+
+.flow-todo-quick-fields input:focus,
+.flow-todo-quick-fields select:focus {
+  border-color: rgba(37, 99, 235, 0.42);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.flow-todos-list-card {
+  overflow: hidden;
+}
+
+.flow-todos-list-title {
+  height: 63px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 0 18px;
+}
+
+.flow-todos-list-title div {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flow-todos-list-title strong {
+  color: #0f172a;
+  font-size: 19px;
+  font-weight: 820;
+}
+
+.flow-todos-list-title span {
+  min-width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(241, 245, 249, 0.96);
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.flow-todos-table {
+  display: grid;
+}
+
+.flow-todos-table.is-empty {
+  min-height: 138px;
+  place-items: center;
+}
+
+.flow-todos-table > p,
+.flow-todos-completed-list > p {
+  margin: 0;
+  padding: 24px;
+  color: #94a3b8;
+  font-size: 14px;
+  text-align: center;
+}
+
+.flow-todo-row {
+  min-width: 0;
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: 26px 34px minmax(220px, 1fr) 82px minmax(210px, 0.68fr) 112px 34px auto;
+  gap: 16px;
+  align-items: center;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 0 18px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.flow-todo-row:last-child {
+  border-bottom: 0;
+}
+
+.flow-todo-row:hover,
+.flow-todo-row:focus-visible,
+.flow-todo-row.is-selected {
+  background: rgba(239, 246, 255, 0.58);
+  outline: none;
+}
+
+.flow-todo-check {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  border-radius: 5px;
+  background: #ffffff;
+}
+
+.flow-todo-check:hover {
+  border-color: rgba(37, 99, 235, 0.48);
+  background: rgba(239, 246, 255, 0.9);
+}
+
+.flow-todo-flag {
+  display: grid;
+  place-items: center;
+}
+
+.flow-todo-title {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.flow-todo-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-todo-title small {
+  min-width: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-todo-time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-todo-time svg,
+.flow-todo-trace svg {
+  flex: 0 0 auto;
+  color: #334155;
+}
+
+.flow-todo-trace {
+  justify-content: flex-end;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.flow-todo-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.flow-todo-row-actions button {
+  min-height: 30px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 7px;
+  padding: 0 9px;
+  background: rgba(248, 250, 252, 0.94);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.flow-todo-row-actions button:hover {
+  border-color: rgba(37, 99, 235, 0.32);
+  color: #1d4ed8;
+  background: #ffffff;
+}
+
+.flow-todo-row-actions button.is-danger {
+  color: #dc2626;
+}
+
+.flow-todos-completed {
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.flow-todos-completed > button {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  padding: 0 18px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 820;
+  text-align: left;
+}
+
+.flow-todos-completed > button strong {
+  min-width: 28px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(241, 245, 249, 0.96);
+  color: #64748b;
+  font-size: 13px;
+}
+
+.flow-todos-completed > button svg {
+  margin-left: auto;
+  color: #64748b;
+  transition: transform 0.16s ease;
+}
+
+.flow-todos-completed > button svg.is-open {
+  transform: rotate(180deg);
+}
+
+.flow-todos-completed-list {
+  display: grid;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.flow-todos-completed-list article {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  padding: 0 18px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.flow-todos-completed-list article:last-child {
+  border-bottom: 0;
+}
+
+.flow-todos-completed-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-todos-reminder {
+  position: sticky;
+  top: 0;
+  min-height: 748px;
+  align-content: start;
+  gap: 0;
+  padding: 28px 22px;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.04);
+}
+
+.flow-todos-reminder header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #0f172a;
+}
+
+.flow-todos-reminder header strong {
+  font-size: 21px;
+  font-weight: 840;
+}
+
+.flow-reminder-section {
+  display: grid;
+  gap: 11px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 24px 0;
+}
+
+.flow-reminder-section span {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  color: #334155;
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.flow-reminder-section strong {
+  margin-left: 30px;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 680;
+  line-height: 1.5;
+}
+
+.flow-reminder-section .flow-scope-pill {
+  margin-left: 30px;
+  justify-self: start;
+}
+
+.flow-reminder-trace {
+  width: 100%;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 0;
+  background: transparent;
+  color: #334155;
+  font-size: 15px;
+  font-weight: 760;
+  text-align: left;
+}
+
+.flow-reminder-trace span {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.flow-todos-reminder > p {
+  margin: 24px 0 0;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.flow-shell .flow-command-dock.is-todos {
+  min-height: 72px;
+  align-items: center;
+  margin: 0;
+  border-width: 1px 0 0;
+  border-color: rgba(148, 163, 184, 0.22);
+  border-radius: 0;
+  padding: 12px 30px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f172a;
+  box-shadow: 0 -18px 42px rgba(15, 23, 42, 0.04);
+}
+
+.flow-shell .flow-command-dock.is-todos .flow-command-scope {
+  margin-right: auto;
+}
+
+.flow-shell .flow-command-dock.is-todos .flow-command-scope span {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.flow-shell .flow-command-dock.is-todos .flow-command-scope strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 820;
+}
+
+.flow-shell .flow-command-dock.is-todos button {
+  min-height: 44px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  padding: 0 17px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #334155;
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.flow-shell .flow-command-dock.is-todos button:hover {
+  border-color: rgba(37, 99, 235, 0.32);
+  color: #1d4ed8;
+}
+
+@media (max-width: 1280px) {
+  .flow-todos-canvas {
+    padding-inline: 22px;
+  }
+
+  .flow-todos-board {
+    grid-template-columns: minmax(0, 1fr) 270px;
+  }
+
+  .flow-todo-row {
+    grid-template-columns: 24px 28px minmax(180px, 1fr) 76px minmax(160px, 0.55fr) 96px 30px;
+  }
+
+  .flow-todo-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding-left: 68px;
+  }
+}
+
+@media (max-width: 980px) {
+  .flow-todos-topbar,
+  .flow-todos-top-actions,
+  .flow-todos-focus-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .flow-todos-search-control,
+  .flow-todos-button,
+  .flow-action-button {
+    width: 100%;
+  }
+
+  .flow-todos-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .flow-todos-reminder {
+    position: static;
+    min-height: 0;
+  }
+
+  .flow-todos-focus-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .flow-todos-focus-symbol {
+    width: 88px;
+    height: 88px;
+  }
+
+  .flow-todo-row {
+    grid-template-columns: 24px 28px minmax(0, 1fr) 32px;
+    row-gap: 8px;
+    padding-block: 12px;
+  }
+
+  .flow-todo-row .flow-scope-pill,
+  .flow-todo-time,
+  .flow-todo-trace {
+    grid-column: 3 / -1;
+  }
+
+  .flow-todo-row-actions {
+    grid-column: 3 / -1;
+    padding-left: 0;
+  }
+
+  .flow-todo-quick-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .flow-todo-quick-fields label.is-wide {
+    grid-column: auto;
+  }
+}
+
+/* Immediate QA correction for the selected Todo mock: remove overlap and row squeeze. */
+.flow-todos-page.flow-todos-page {
+  padding: 0;
+}
+
+.flow-todos-page .flow-todos-canvas {
+  width: min(100%, 1540px);
+  justify-self: center;
+  padding: 32px clamp(24px, 2.4vw, 38px) 24px;
+}
+
+.flow-todos-page .flow-todos-board {
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+}
+
+.flow-todos-page .flow-todos-focus-card {
+  min-height: 400px;
+  grid-template-areas:
+    "head"
+    "body"
+    "actions";
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  align-content: start;
+  gap: 30px;
+  padding: 32px 34px 34px;
+}
+
+.flow-todos-page .flow-todos-card-title {
+  grid-area: head;
+  position: relative;
+  z-index: 1;
+}
+
+.flow-todos-page .flow-todos-focus-body {
+  grid-area: body;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  gap: 30px;
+}
+
+.flow-todos-page .flow-todos-focus-symbol {
+  width: 104px;
+  height: 104px;
+}
+
+.flow-todos-page .flow-todos-focus-content h2 {
+  max-width: 760px;
+  font-size: 30px;
+  line-height: 1.25;
+}
+
+.flow-todos-page .flow-todos-focus-content p {
+  font-size: 15px;
+}
+
+.flow-todos-page .flow-todos-focus-actions {
+  grid-area: actions;
+  align-self: end;
+}
+
+.flow-todos-page .flow-todos-list-card {
+  overflow: hidden;
+}
+
+.flow-todos-page .flow-todos-list-title {
+  height: 78px;
+  padding-inline: 26px;
+}
+
+.flow-todos-page .flow-todo-row {
+  grid-template-columns: 28px 38px minmax(300px, 1fr) 92px minmax(236px, 0.68fr) 122px 36px;
+  gap: 18px;
+  min-height: 92px;
+  padding: 0 26px;
+}
+
+.flow-todos-page .flow-todo-row.is-selected {
+  background: #ffffff;
+}
+
+.flow-todos-page .flow-todo-title strong {
+  font-size: 14px;
+}
+
+.flow-todos-page .flow-todo-title small {
+  max-width: 420px;
+}
+
+.flow-todos-page .flow-todo-row-actions {
+  display: none;
+}
+
+.flow-todos-page .flow-todos-reminder {
+  min-height: clamp(720px, calc(100vh - 150px), 920px);
+  padding: 30px 28px;
+}
+
+@media (max-width: 1260px) {
+  .flow-todos-page .flow-todos-board {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .flow-todos-page .flow-todo-row {
+    grid-template-columns: 26px 34px minmax(260px, 1fr) 82px minmax(190px, 0.58fr) 106px 34px;
+  }
 }

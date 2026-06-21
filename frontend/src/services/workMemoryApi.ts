@@ -31,7 +31,17 @@ import type {
   WorkMemoryNoteRequest,
   WorkMemorySemanticSearchResult,
   WorkMemorySemanticStatus,
+  WorkMemorySelfAssertion,
+  WorkMemorySelfAssertionRequest,
+  WorkMemorySelfModel,
   WorkMemoryStatus,
+  WorkMemoryTodoItem,
+  WorkMemoryTodoList,
+  WorkMemoryTodoListRequest,
+  WorkMemoryTodoPriority,
+  WorkMemoryTodoRequest,
+  WorkMemoryTodoStatus,
+  WorkMemoryTodoUpdateRequest,
 } from '../types/ariadne'
 
 const fallbackEntry: WorkMemoryEntry = {
@@ -104,6 +114,49 @@ let fallbackTimeline: WorkMemoryEntry[] = [fallbackEntry]
 
 let fallbackFlowConversations: WorkMemoryFlowConversation[] = []
 let fallbackFlowMessages: Record<string, WorkMemoryFlowMessage[]> = {}
+let fallbackSelfModel: WorkMemorySelfModel = {
+  assertions: [
+    {
+      id: 'self-fallback-name',
+      category: 'identity',
+      key: 'name',
+      label: '姓名',
+      value: 'luwei',
+      status: 'confirmed',
+      privacy: 'always',
+      scope: '',
+      source: 'manual',
+      confidence: 1,
+      evidence: [],
+      promptReady: true,
+      createdAt: fallbackEntry.createdAt,
+      updatedAt: fallbackEntry.createdAt,
+    },
+  ],
+  summary: {
+    prompt: 'Identity - 姓名: luwei',
+    included: [],
+    excluded: 0,
+    updatedAt: fallbackEntry.createdAt,
+  },
+  updatedAt: fallbackEntry.createdAt,
+}
+fallbackSelfModel.summary.included = fallbackSelfModel.assertions.filter((assertion) => assertion.promptReady)
+
+let fallbackTodos: WorkMemoryTodoItem[] = [
+  {
+    id: 'todo-fallback-follow-up',
+    title: '确认今天未完成的跟进项',
+    note: '可把需要跟进的事项保存到这里。',
+    status: 'open',
+    priority: 'normal',
+    scope: '心流',
+    source: 'fallback',
+    evidence: [],
+    createdAt: fallbackEntry.createdAt,
+    updatedAt: fallbackEntry.createdAt,
+  },
+]
 
 let fallbackScheduledDraftStatus: ScheduledDraftStatus = {
   enabled: true,
@@ -360,6 +413,20 @@ export async function createWorkMemoryFlowConversation(title = ''): Promise<Work
   return fallbackCreateFlowConversation(normalizedTitle)
 }
 
+export async function deleteWorkMemoryFlowConversation(id: string): Promise<WorkMemoryFlowConversation[]> {
+  const normalizedId = id.trim()
+  if (!normalizedId) return normalizeFlowConversations(fallbackFlowConversations)
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowConversations(await binding.DeleteFlowConversation(normalizedId))
+    } catch {
+      return fallbackDeleteFlowConversation(normalizedId)
+    }
+  }
+  return fallbackDeleteFlowConversation(normalizedId)
+}
+
 export async function askWorkMemoryFlowConversation(request: WorkMemoryFlowConversationAskRequest): Promise<WorkMemoryFlowConversationAskResult> {
   const normalized = {
     conversationId: request.conversationId?.trim() || '',
@@ -376,6 +443,348 @@ export async function askWorkMemoryFlowConversation(request: WorkMemoryFlowConve
     }
   }
   return fallbackAskFlowConversation(normalized)
+}
+
+export async function getWorkMemorySelfModel(): Promise<WorkMemorySelfModel> {
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeSelfModel(await binding.SelfModel())
+    } catch {
+      return normalizeSelfModel(fallbackSelfModel)
+    }
+  }
+  return normalizeSelfModel(fallbackSelfModel)
+}
+
+export async function upsertWorkMemorySelfAssertion(request: WorkMemorySelfAssertionRequest): Promise<WorkMemorySelfModel> {
+  const normalized = normalizeSelfAssertionRequest(request)
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeSelfModel(await binding.UpsertSelfAssertion(normalized))
+    } catch {
+      return fallbackUpsertSelfAssertion(normalized)
+    }
+  }
+  return fallbackUpsertSelfAssertion(normalized)
+}
+
+export async function deleteWorkMemorySelfAssertion(id: string): Promise<WorkMemorySelfModel> {
+  const normalized = id.trim()
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeSelfModel(await binding.DeleteSelfAssertion(normalized))
+    } catch {
+      return fallbackDeleteSelfAssertion(normalized)
+    }
+  }
+  return fallbackDeleteSelfAssertion(normalized)
+}
+
+export async function listWorkMemoryTodos(request: WorkMemoryTodoListRequest = {}): Promise<WorkMemoryTodoList> {
+  const normalized = normalizeTodoListRequest(request)
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeTodoList(await binding.Todos(normalized))
+    } catch {
+      return fallbackTodoList(normalized)
+    }
+  }
+  return fallbackTodoList(normalized)
+}
+
+export async function upsertWorkMemoryTodo(request: WorkMemoryTodoRequest): Promise<WorkMemoryTodoList> {
+  const normalized = normalizeTodoRequest(request)
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeTodoList(await binding.UpsertTodo(normalized))
+    } catch {
+      return fallbackUpsertTodo(normalized)
+    }
+  }
+  return fallbackUpsertTodo(normalized)
+}
+
+export async function updateWorkMemoryTodo(request: WorkMemoryTodoUpdateRequest): Promise<WorkMemoryTodoList> {
+  const normalized = normalizeTodoUpdateRequest(request)
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeTodoList(await binding.UpdateTodo(normalized))
+    } catch {
+      return fallbackUpdateTodo(normalized)
+    }
+  }
+  return fallbackUpdateTodo(normalized)
+}
+
+export async function deleteWorkMemoryTodo(id: string): Promise<WorkMemoryTodoList> {
+  const normalized = id.trim()
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeTodoList(await binding.DeleteTodo(normalized))
+    } catch {
+      return fallbackDeleteTodo(normalized)
+    }
+  }
+  return fallbackDeleteTodo(normalized)
+}
+
+function normalizeSelfAssertionRequest(request: WorkMemorySelfAssertionRequest): WorkMemorySelfAssertionRequest {
+  return {
+    id: request.id?.trim() || '',
+    category: normalizeSelfCategory(request.category),
+    key: request.key.trim(),
+    label: request.label.trim(),
+    value: request.value.trim(),
+    status: normalizeSelfStatus(request.status ?? 'confirmed'),
+    privacy: normalizeSelfPrivacy(request.privacy ?? 'always'),
+    scope: request.scope?.trim() || '',
+    source: request.source?.trim() || 'manual',
+    confidence: Number.isFinite(request.confidence) ? request.confidence : undefined,
+    evidence: Array.isArray(request.evidence) ? request.evidence.map(String).map((item) => item.trim()).filter(Boolean) : [],
+  }
+}
+
+function normalizeSelfModel(model: WorkMemorySelfModel): WorkMemorySelfModel {
+  const assertions = Array.isArray(model?.assertions) ? model.assertions.map(normalizeSelfAssertion).filter((assertion) => assertion.id) : []
+  const included = Array.isArray(model?.summary?.included) ? model.summary.included.map(normalizeSelfAssertion).filter((assertion) => assertion.id) : assertions.filter((assertion) => assertion.promptReady)
+  const updatedAt = Number(model?.updatedAt ?? model?.summary?.updatedAt ?? Math.max(0, ...assertions.map((assertion) => assertion.updatedAt)))
+  return {
+    assertions: assertions.sort((left, right) => right.updatedAt - left.updatedAt),
+    summary: {
+      prompt: model?.summary?.prompt || (included.length ? included.map((assertion) => `${assertion.label || assertion.key}: ${assertion.value}`).join('\n') : ''),
+      included,
+      excluded: Number(model?.summary?.excluded ?? Math.max(0, assertions.length - included.length)),
+      updatedAt: Number(model?.summary?.updatedAt ?? updatedAt),
+    },
+    updatedAt,
+  }
+}
+
+function normalizeSelfAssertion(item: WorkMemorySelfAssertion): WorkMemorySelfAssertion {
+  const now = Math.floor(Date.now() / 1000)
+  return {
+    id: item?.id || '',
+    category: normalizeSelfCategory(item?.category),
+    key: item?.key || '',
+    label: item?.label || item?.key || '',
+    value: item?.value || '',
+    status: normalizeSelfStatus(item?.status),
+    privacy: normalizeSelfPrivacy(item?.privacy),
+    scope: item?.scope || '',
+    source: item?.source || 'manual',
+    confidence: Number(item?.confidence ?? 0),
+    evidence: Array.isArray(item?.evidence) ? item.evidence.map(String).filter(Boolean) : [],
+    promptReady: Boolean(item?.promptReady),
+    createdAt: Number(item?.createdAt ?? now),
+    updatedAt: Number(item?.updatedAt ?? item?.createdAt ?? now),
+  }
+}
+
+function normalizeSelfCategory(value: string | undefined): WorkMemorySelfAssertion['category'] {
+  return value === 'preference' || value === 'relationship' || value === 'boundary' ? value : 'identity'
+}
+
+function normalizeSelfStatus(value: string | undefined): WorkMemorySelfAssertion['status'] {
+  return value === 'observed' || value === 'rejected' || value === 'ephemeral' ? value : 'confirmed'
+}
+
+function normalizeSelfPrivacy(value: string | undefined): WorkMemorySelfAssertion['privacy'] {
+  return value === 'relevant' || value === 'never' ? value : 'always'
+}
+
+function normalizeTodoListRequest(request: WorkMemoryTodoListRequest): WorkMemoryTodoListRequest {
+  return {
+    status: normalizeTodoStatusFilter(request.status),
+    scope: request.scope?.trim() || '',
+    query: request.query?.trim() || '',
+    includeDone: Boolean(request.includeDone),
+    limit: Math.max(1, Math.min(300, Number(request.limit ?? 100) || 100)),
+  }
+}
+
+function normalizeTodoRequest(request: WorkMemoryTodoRequest): WorkMemoryTodoRequest {
+  return {
+    id: request.id?.trim() || '',
+    title: request.title.trim(),
+    note: request.note?.trim() || '',
+    status: normalizeTodoStatus(request.status),
+    priority: normalizeTodoPriority(request.priority),
+    scope: request.scope?.trim() || '',
+    source: request.source?.trim() || 'manual',
+    evidence: normalizeEvidence(request.evidence),
+    dueAt: Number(request.dueAt ?? 0),
+    remindAt: Number(request.remindAt ?? 0),
+  }
+}
+
+function normalizeTodoUpdateRequest(request: WorkMemoryTodoUpdateRequest): WorkMemoryTodoUpdateRequest {
+  return {
+    id: request.id.trim(),
+    title: request.title?.trim() || '',
+    note: request.note?.trim() || '',
+    status: normalizeTodoStatusFilter(request.status),
+    priority: normalizeTodoPriorityFilter(request.priority),
+    scope: request.scope?.trim() || '',
+    source: request.source?.trim() || '',
+    evidence: request.evidence ? normalizeEvidence(request.evidence) : undefined,
+    dueAt: Number(request.dueAt ?? 0),
+    remindAt: Number(request.remindAt ?? 0),
+    clearDueAt: Boolean(request.clearDueAt),
+    clearRemindAt: Boolean(request.clearRemindAt),
+  }
+}
+
+function normalizeTodoList(list: WorkMemoryTodoList): WorkMemoryTodoList {
+  const items = Array.isArray(list?.items) ? list.items.map(normalizeTodoItem).filter((item) => item.id && item.title) : []
+  return {
+    items,
+    open: Number(list?.open ?? items.filter((item) => item.status === 'open').length),
+    doing: Number(list?.doing ?? items.filter((item) => item.status === 'doing').length),
+    waiting: Number(list?.waiting ?? items.filter((item) => item.status === 'waiting').length),
+    done: Number(list?.done ?? items.filter((item) => item.status === 'done').length),
+    canceled: Number(list?.canceled ?? items.filter((item) => item.status === 'canceled').length),
+    updatedAt: Number(list?.updatedAt ?? Math.max(0, ...items.map((item) => item.updatedAt))),
+  }
+}
+
+function normalizeTodoItem(item: WorkMemoryTodoItem): WorkMemoryTodoItem {
+  const now = Math.floor(Date.now() / 1000)
+  return {
+    id: item?.id || '',
+    title: item?.title || '',
+    note: item?.note || '',
+    status: normalizeTodoStatus(item?.status),
+    priority: normalizeTodoPriority(item?.priority),
+    scope: item?.scope || '',
+    source: item?.source || 'manual',
+    evidence: normalizeEvidence(item?.evidence),
+    dueAt: Number(item?.dueAt ?? 0),
+    remindAt: Number(item?.remindAt ?? 0),
+    completedAt: Number(item?.completedAt ?? 0),
+    createdAt: Number(item?.createdAt ?? now),
+    updatedAt: Number(item?.updatedAt ?? item?.createdAt ?? now),
+  }
+}
+
+function normalizeTodoStatus(value: string | undefined): WorkMemoryTodoStatus {
+  return value === 'doing' || value === 'waiting' || value === 'done' || value === 'canceled' ? value : 'open'
+}
+
+function normalizeTodoStatusFilter(value: string | undefined): WorkMemoryTodoStatus | '' {
+  return value === 'open' || value === 'doing' || value === 'waiting' || value === 'done' || value === 'canceled' ? value : ''
+}
+
+function normalizeTodoPriority(value: string | undefined): WorkMemoryTodoPriority {
+  return value === 'low' || value === 'high' || value === 'urgent' ? value : 'normal'
+}
+
+function normalizeTodoPriorityFilter(value: string | undefined): WorkMemoryTodoPriority | '' {
+  return value === 'low' || value === 'normal' || value === 'high' || value === 'urgent' ? value : ''
+}
+
+function normalizeEvidence(items: string[] | undefined): string[] {
+  return Array.isArray(items) ? items.map(String).map((item) => item.trim()).filter(Boolean) : []
+}
+
+function fallbackTodoList(request: WorkMemoryTodoListRequest = {}): WorkMemoryTodoList {
+  const normalized = normalizeTodoListRequest(request)
+  const query = normalized.query?.toLowerCase() || ''
+  const scope = normalized.scope?.toLowerCase() || ''
+  const filtered = fallbackTodos
+    .map(normalizeTodoItem)
+    .filter((item) => {
+      if (normalized.status && item.status !== normalized.status) return false
+      if (!normalized.status && !normalized.includeDone && (item.status === 'done' || item.status === 'canceled')) return false
+      if (scope && !item.scope?.toLowerCase().includes(scope)) return false
+      if (query) {
+        const haystack = [item.title, item.note, item.scope, item.status, item.priority, ...item.evidence].join(' ').toLowerCase()
+        if (!haystack.includes(query)) return false
+      }
+      return true
+    })
+    .sort(sortTodoItems)
+    .slice(0, normalized.limit)
+  return normalizeTodoList({
+    items: filtered,
+    open: fallbackTodos.filter((item) => item.status === 'open').length,
+    doing: fallbackTodos.filter((item) => item.status === 'doing').length,
+    waiting: fallbackTodos.filter((item) => item.status === 'waiting').length,
+    done: fallbackTodos.filter((item) => item.status === 'done').length,
+    canceled: fallbackTodos.filter((item) => item.status === 'canceled').length,
+    updatedAt: Math.max(0, ...fallbackTodos.map((item) => item.updatedAt)),
+  })
+}
+
+function fallbackUpsertTodo(request: WorkMemoryTodoRequest): WorkMemoryTodoList {
+  const normalized = normalizeTodoRequest(request)
+  if (!normalized.title) {
+    return fallbackTodoList({ includeDone: true })
+  }
+  const now = Math.floor(Date.now() / 1000)
+  const item = normalizeTodoItem({
+    id: normalized.id || `todo-fallback-${now}-${Math.random().toString(36).slice(2, 7)}`,
+    title: normalized.title,
+    note: normalized.note || '',
+    status: normalizeTodoStatus(normalized.status),
+    priority: normalizeTodoPriority(normalized.priority),
+    scope: normalized.scope || '',
+    source: normalized.source || 'manual',
+    evidence: normalizeEvidence(normalized.evidence),
+    dueAt: normalized.dueAt || 0,
+    remindAt: normalized.remindAt || 0,
+    createdAt: now,
+    updatedAt: now,
+  })
+  fallbackTodos = [item, ...fallbackTodos.filter((todo) => todo.id !== item.id)].sort(sortTodoItems)
+  return fallbackTodoList({ includeDone: true })
+}
+
+function fallbackUpdateTodo(request: WorkMemoryTodoUpdateRequest): WorkMemoryTodoList {
+  const normalized = normalizeTodoUpdateRequest(request)
+  const now = Math.floor(Date.now() / 1000)
+  fallbackTodos = fallbackTodos.map((item) => {
+    if (item.id !== normalized.id) return item
+    return normalizeTodoItem({
+      ...item,
+      title: normalized.title || item.title,
+      note: normalized.note || item.note,
+      status: normalizeTodoStatusFilter(normalized.status) || item.status,
+      priority: normalizeTodoPriorityFilter(normalized.priority) || item.priority,
+      scope: normalized.scope || item.scope,
+      source: normalized.source || item.source,
+      evidence: normalized.evidence ?? item.evidence,
+      dueAt: normalized.clearDueAt ? 0 : normalized.dueAt || item.dueAt,
+      remindAt: normalized.clearRemindAt ? 0 : normalized.remindAt || item.remindAt,
+      completedAt: normalized.status === 'done' ? now : item.completedAt,
+      updatedAt: now,
+    })
+  })
+  return fallbackTodoList({ includeDone: true })
+}
+
+function fallbackDeleteTodo(id: string): WorkMemoryTodoList {
+  fallbackTodos = fallbackTodos.filter((item) => item.id !== id)
+  return fallbackTodoList({ includeDone: true })
+}
+
+function sortTodoItems(left: WorkMemoryTodoItem, right: WorkMemoryTodoItem) {
+  const statusRank: Record<WorkMemoryTodoStatus, number> = { doing: 0, open: 1, waiting: 2, done: 3, canceled: 4 }
+  const priorityRank: Record<WorkMemoryTodoPriority, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
+  if (statusRank[left.status] !== statusRank[right.status]) return statusRank[left.status] - statusRank[right.status]
+  if (priorityRank[left.priority] !== priorityRank[right.priority]) return priorityRank[left.priority] - priorityRank[right.priority]
+  if ((left.dueAt || 0) !== (right.dueAt || 0)) {
+    if (!left.dueAt) return 1
+    if (!right.dueAt) return -1
+    return left.dueAt - right.dueAt
+  }
+  return right.updatedAt - left.updatedAt
 }
 
 function normalizeFlowAskResponse(result: WorkMemoryFlowAskResponse, question: string): WorkMemoryFlowAskResponse {
@@ -541,6 +950,13 @@ function fallbackCreateFlowConversation(title = '新对话'): WorkMemoryFlowConv
   return conversation
 }
 
+function fallbackDeleteFlowConversation(id: string): WorkMemoryFlowConversation[] {
+  const normalizedId = id.trim()
+  delete fallbackFlowMessages[normalizedId]
+  fallbackFlowConversations = fallbackFlowConversations.filter((conversation) => conversation.id !== normalizedId)
+  return normalizeFlowConversations(fallbackFlowConversations)
+}
+
 function fallbackAskFlowConversation(request: WorkMemoryFlowConversationAskRequest): WorkMemoryFlowConversationAskResult {
   let conversation = request.conversationId ? fallbackFlowConversations.find((item) => item.id === request.conversationId) : undefined
   if (!conversation) {
@@ -580,6 +996,52 @@ function fallbackAskFlowConversation(request: WorkMemoryFlowConversationAskReque
     conversation,
     messages: fallbackFlowMessages[conversation.id],
     response,
+  }
+}
+
+function fallbackUpsertSelfAssertion(request: WorkMemorySelfAssertionRequest): WorkMemorySelfModel {
+  const now = Math.floor(Date.now() / 1000)
+  const assertion = normalizeSelfAssertion({
+    id: request.id || `self-fallback-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    category: request.category,
+    key: request.key,
+    label: request.label,
+    value: request.value,
+    status: request.status ?? 'confirmed',
+    privacy: request.privacy ?? 'always',
+    scope: request.scope || '',
+    source: request.source || 'manual',
+    confidence: request.confidence ?? 1,
+    evidence: request.evidence ?? [],
+    promptReady: (request.status ?? 'confirmed') === 'confirmed' && (request.privacy ?? 'always') === 'always' && request.category !== 'relationship',
+    createdAt: now,
+    updatedAt: now,
+  })
+  fallbackSelfModel = rebuildFallbackSelfModel([
+    assertion,
+    ...fallbackSelfModel.assertions.filter((item) => item.id !== assertion.id),
+  ])
+  return normalizeSelfModel(fallbackSelfModel)
+}
+
+function fallbackDeleteSelfAssertion(id: string): WorkMemorySelfModel {
+  fallbackSelfModel = rebuildFallbackSelfModel(fallbackSelfModel.assertions.filter((assertion) => assertion.id !== id))
+  return normalizeSelfModel(fallbackSelfModel)
+}
+
+function rebuildFallbackSelfModel(assertions: WorkMemorySelfAssertion[]): WorkMemorySelfModel {
+  const normalized = assertions.map(normalizeSelfAssertion)
+  const included = normalized.filter((assertion) => assertion.promptReady)
+  const updatedAt = Math.max(0, ...normalized.map((assertion) => assertion.updatedAt))
+  return {
+    assertions: normalized,
+    summary: {
+      prompt: included.length ? included.map((assertion) => `${assertion.label || assertion.key}: ${assertion.value}`).join('\n') : '',
+      included,
+      excluded: normalized.length - included.length,
+      updatedAt,
+    },
+    updatedAt,
   }
 }
 

@@ -64,6 +64,22 @@ _Avoid_: Secret, blocked item
 The user-controlled state that prevents Ariadne from using local work memory in ways that could expose private context.
 _Avoid_: Incognito mode, disabled memory
 
+**Self Model (我模型)**:
+The local model of the user's confirmed identity, preferences, relationships, and delegation boundaries that Flow uses to interpret work memory from the user's point of view.
+_Avoid_: Personal profile, user database, persona prompt
+
+**Self Assertion**:
+A single claim in the Self Model, carrying its source, confirmation state, confidence, scope, and permission to be used in model context.
+_Avoid_: Profile field, memory fact, guessed preference
+
+**Speaker Attribution**:
+The evidence-backed determination of who authored, addressed, or was mentioned by a message before Flow turns chat evidence into the user's actions, commitments, or todos.
+_Avoid_: Contact extraction, chat summary, name detection
+
+**Todo Item**:
+A durable local follow-up in Flow with status, priority, scope, evidence, and optional due or reminder time.
+_Avoid_: Chat bullet, draft note, inferred promise
+
 ### Capture And Recall
 
 **Screenshot History**:

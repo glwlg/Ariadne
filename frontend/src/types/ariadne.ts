@@ -950,6 +950,119 @@ export interface WorkMemoryFlowConversationAskResult {
   response: WorkMemoryFlowAskResponse
 }
 
+export type WorkMemorySelfAssertionCategory = 'identity' | 'preference' | 'relationship' | 'boundary'
+export type WorkMemorySelfAssertionStatus = 'confirmed' | 'observed' | 'rejected' | 'ephemeral'
+export type WorkMemorySelfAssertionPrivacy = 'always' | 'relevant' | 'never'
+
+export interface WorkMemorySelfAssertion {
+  id: string
+  category: WorkMemorySelfAssertionCategory
+  key: string
+  label: string
+  value: string
+  status: WorkMemorySelfAssertionStatus
+  privacy: WorkMemorySelfAssertionPrivacy
+  scope?: string
+  source: string
+  confidence: number
+  evidence: string[]
+  promptReady: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WorkMemorySelfAssertionRequest {
+  id?: string
+  category: WorkMemorySelfAssertionCategory
+  key: string
+  label: string
+  value: string
+  status?: WorkMemorySelfAssertionStatus
+  privacy?: WorkMemorySelfAssertionPrivacy
+  scope?: string
+  source?: string
+  confidence?: number
+  evidence?: string[]
+}
+
+export interface WorkMemorySelfModelSummary {
+  prompt: string
+  included: WorkMemorySelfAssertion[]
+  excluded: number
+  updatedAt: number
+}
+
+export interface WorkMemorySelfModel {
+  assertions: WorkMemorySelfAssertion[]
+  summary: WorkMemorySelfModelSummary
+  updatedAt: number
+}
+
+export type WorkMemoryTodoStatus = 'open' | 'doing' | 'waiting' | 'done' | 'canceled'
+export type WorkMemoryTodoPriority = 'low' | 'normal' | 'high' | 'urgent'
+
+export interface WorkMemoryTodoItem {
+  id: string
+  title: string
+  note?: string
+  status: WorkMemoryTodoStatus
+  priority: WorkMemoryTodoPriority
+  scope?: string
+  source: string
+  evidence: string[]
+  dueAt?: number
+  remindAt?: number
+  completedAt?: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WorkMemoryTodoListRequest {
+  status?: WorkMemoryTodoStatus | ''
+  scope?: string
+  query?: string
+  includeDone?: boolean
+  limit?: number
+}
+
+export interface WorkMemoryTodoRequest {
+  id?: string
+  title: string
+  note?: string
+  status?: WorkMemoryTodoStatus
+  priority?: WorkMemoryTodoPriority
+  scope?: string
+  source?: string
+  evidence?: string[]
+  dueAt?: number
+  remindAt?: number
+}
+
+export interface WorkMemoryTodoUpdateRequest {
+  id: string
+  title?: string
+  note?: string
+  status?: WorkMemoryTodoStatus | ''
+  priority?: WorkMemoryTodoPriority | ''
+  scope?: string
+  source?: string
+  evidence?: string[]
+  dueAt?: number
+  remindAt?: number
+  clearDueAt?: boolean
+  clearRemindAt?: boolean
+}
+
+export interface WorkMemoryTodoList {
+  items: WorkMemoryTodoItem[]
+  open: number
+  doing: number
+  waiting: number
+  done: number
+  canceled: number
+  updatedAt: number
+}
+
 export interface WorkMemoryCaptureFrame {
   captureId?: string
   imagePath?: string

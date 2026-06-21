@@ -277,7 +277,7 @@ const {
                     <input v-model="settings.settings.ai.agentResponsesEnabled" type="checkbox" />
                     <span />
                     <strong>Responses 原生 Skill</strong>
-                    <small>兼容接口支持 /responses 时优先用原生 ShellTool；失败回退工具降级。</small>
+                    <small>OpenAI 官方路径使用原生 ShellTool；LiteLLM 等兼容接口使用 SDK 兼容工具。</small>
                   </label>
                   <label class="flow-setting-switch">
                     <input v-model="settings.settings.ai.externalAgentEnabled" type="checkbox" />

@@ -13,6 +13,8 @@ import {
   Flag,
   ImageOff,
   KeyRound,
+  ListTodo,
+  UserRound,
   Play,
   Plus,
   RefreshCw,
@@ -77,10 +79,12 @@ export function useWorkMemoryFlow() {
   const flowChatInputRef = ref<HTMLTextAreaElement | null>(null)
   const flowPendingMessages = ref<FlowChatMessage[]>([])
   const flowChatSelectedIds = ref<string[]>([])
+  const flowChatSelectionMode = ref(false)
   const flowContextMenu = ref({
     open: false,
     x: 0,
     y: 0,
+    messageId: '',
   })
   const flowRememberFeedback = ref('')
   const flowSettingsOpen = ref(false)
@@ -88,6 +92,7 @@ export function useWorkMemoryFlow() {
   const selectedAppCaptureProfileId = ref('')
   const detailDrawerOpen = ref(false)
   const flowCanvasActiveId = ref('')
+  const flowConversationDeleteArmedId = ref('')
   const activeDraftKind = ref<DraftKind>('daily')
   const activeInsightId = ref('')
   const timelineSourceFilter = ref<TimelineSourceFilter>('all')
@@ -154,6 +159,8 @@ export function useWorkMemoryFlow() {
     { id: 'insights' as const, label: '洞察', detail: '归纳', icon: markRaw(Sparkles) },
     { id: 'drafts' as const, label: '草稿', detail: '输出', icon: markRaw(FileText) },
     { id: 'assets' as const, label: '资产', detail: '能力', icon: markRaw(Database) },
+    { id: 'todos' as const, label: '待办', detail: '跟进', icon: markRaw(ListTodo) },
+    { id: 'me' as const, label: '我', detail: '身份', icon: markRaw(UserRound) },
     { id: 'rules' as const, label: '规则', detail: '边界', icon: markRaw(Shield) },
   ]
   const flowQuestions = [
@@ -394,10 +401,14 @@ export function useWorkMemoryFlow() {
     const selectedIds = new Set(flowChatSelectedIds.value)
     return selectableFlowChatMessages.value.filter((message) => selectedIds.has(message.id))
   })
+  const flowContextMenuMessage = computed(() => {
+    if (!flowContextMenu.value.messageId) return null
+    return selectableFlowChatMessages.value.find((message) => message.id === flowContextMenu.value.messageId) ?? null
+  })
   const flowChatIsEmpty = computed(() => !flowChatMessages.value.length && !memory.isLoadingFlowConversation)
   const flowSelectionLabel = computed(() => {
     const count = selectedFlowChatMessages.value.length
-    return count ? `已选 ${count} 条` : '右键或勾选消息后加入沉淀'
+    return count ? `已选 ${count} 条` : '右键消息可开启多选'
   })
   const autonomousInboxSummary = computed(() => {
     const count = memory.autonomousArtifacts.length
@@ -693,6 +704,8 @@ export function useWorkMemoryFlow() {
       insights: '搜索洞察和留痕链...',
       drafts: '搜索草稿来源...',
       assets: '搜索任务包和资产...',
+      todos: '搜索待办和跟进事项...',
+      me: '搜索身份、偏好、关系和边界...',
       rules: '搜索规则和索引...',
     }
     return labels[activeFlowPage.value]
@@ -1677,6 +1690,7 @@ export function useWorkMemoryFlow() {
     if (!isFlowMessageSelectable(message)) {
       return
     }
+    flowChatSelectionMode.value = true
     if (isFlowMessageSelected(message)) {
       flowChatSelectedIds.value = flowChatSelectedIds.value.filter((id) => id !== message.id)
       return
@@ -1688,16 +1702,22 @@ export function useWorkMemoryFlow() {
     if (!isFlowMessageSelectable(message)) {
       return
     }
+    flowChatSelectionMode.value = true
     flowChatSelectedIds.value = [message.id]
   }
   
   function clearFlowChatSelection() {
     flowChatSelectedIds.value = []
+    flowChatSelectionMode.value = false
   }
   
   function handleFlowMessageClick(message: FlowChatMessage, event: MouseEvent) {
     closeFlowMessageMenu()
-    if (event.ctrlKey || event.metaKey || flowChatSelectedIds.value.length) {
+    const target = event.target as HTMLElement | null
+    if (target?.closest('button, a, input, textarea, select')) {
+      return
+    }
+    if (flowChatSelectionMode.value || event.ctrlKey || event.metaKey || flowChatSelectedIds.value.length) {
       toggleFlowMessageSelection(message)
     }
   }
@@ -1707,13 +1727,11 @@ export function useWorkMemoryFlow() {
     if (!isFlowMessageSelectable(message)) {
       return
     }
-    if (!isFlowMessageSelected(message)) {
-      selectSingleFlowMessage(message)
-    }
     flowContextMenu.value = {
       open: true,
       x: event.clientX,
       y: event.clientY,
+      messageId: message.id,
     }
   }
   
@@ -1721,6 +1739,14 @@ export function useWorkMemoryFlow() {
     if (flowContextMenu.value.open) {
       flowContextMenu.value = { ...flowContextMenu.value, open: false }
     }
+  }
+
+  function startFlowMessageMultiSelect(message: FlowChatMessage | null) {
+    flowChatSelectionMode.value = true
+    if (message && isFlowMessageSelectable(message) && !isFlowMessageSelected(message)) {
+      flowChatSelectedIds.value = [...flowChatSelectedIds.value, message.id]
+    }
+    closeFlowMessageMenu()
   }
   
   function flowMessageRoleLabel(message: FlowChatMessage) {
@@ -1760,7 +1786,9 @@ export function useWorkMemoryFlow() {
     if (!result) return ''
     if (result.mode === 'agent_error') return 'Agent 调用失败'
     if (result.mode === 'agent:openai-agents-sdk-shell-skill') return 'OpenAI SDK Skill'
-    if (result.mode === 'agent:openai-agents-sdk-function-tool-fallback') return 'OpenAI SDK 工具降级'
+    if (result.mode === 'agent:openai-agents-sdk-chat-tools') return 'SDK 兼容工具'
+    if (result.mode === 'agent:openai-agents-sdk-function-tool-fallback') return 'SDK 兼容工具'
+    if (result.mode === 'agent:openai-compatible-chat-tools') return 'SDK 兼容工具'
     if (result.mode === 'agent:openai-agents-sdk') return 'OpenAI Agents SDK'
     if (result.mode === 'agent:openai-compatible-direct') return 'OpenAI 兼容直连'
     if (result.mode === 'agent:codex') return 'Codex Agent'
@@ -2003,6 +2031,16 @@ export function useWorkMemoryFlow() {
     await copyText(flowTranscript(messages))
     showFlowRememberFeedback('已复制选中对话')
   }
+
+  async function copyFlowContextMessage() {
+    const message = flowContextMenuMessage.value
+    closeFlowMessageMenu()
+    if (!message) {
+      showFlowRememberFeedback('没有可复制的消息')
+      return
+    }
+    await copyFlowMessage(message)
+  }
   
   async function rememberSelectedFlowMessages() {
     closeFlowMessageMenu()
@@ -2024,6 +2062,17 @@ export function useWorkMemoryFlow() {
       showFlowRememberFeedback('已加入沉淀')
     }
   }
+
+  async function rememberFlowContextMessage() {
+    const message = flowContextMenuMessage.value
+    if (!message) {
+      showFlowRememberFeedback('没有可沉淀的消息')
+      closeFlowMessageMenu()
+      return
+    }
+    selectSingleFlowMessage(message)
+    await rememberSelectedFlowMessages()
+  }
   
   function showFlowRememberFeedback(message: string) {
     flowRememberFeedback.value = message
@@ -2035,16 +2084,20 @@ export function useWorkMemoryFlow() {
   }
   
   async function scrollFlowChatToBottom() {
-    await nextTick()
-    const thread = flowChatThreadRef.value
-    if (thread) {
-      thread.scrollTop = thread.scrollHeight
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await nextTick()
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const thread = flowChatThreadRef.value
+      if (thread) {
+        thread.scrollTop = Math.max(0, thread.scrollHeight - thread.clientHeight)
+      }
     }
   }
 
   async function startFlowConversation() {
     closeFlowMessageMenu()
     clearFlowChatSelection()
+    flowConversationDeleteArmedId.value = ''
     flowPendingMessages.value = []
     await memory.startFlowConversation('新对话')
     await scrollFlowChatToBottom()
@@ -2053,10 +2106,29 @@ export function useWorkMemoryFlow() {
   async function selectFlowConversation(id: string) {
     closeFlowMessageMenu()
     clearFlowChatSelection()
+    flowConversationDeleteArmedId.value = ''
     flowPendingMessages.value = []
     await memory.selectFlowConversation(id)
     flowCanvasActiveId.value = ''
     await scrollFlowChatToBottom()
+  }
+
+  async function removeFlowConversation(id: string) {
+    closeFlowMessageMenu()
+    clearFlowChatSelection()
+    flowPendingMessages.value = []
+    if (flowConversationDeleteArmedId.value !== id) {
+      flowConversationDeleteArmedId.value = id
+      showFlowRememberFeedback('再次点击删除对话')
+      return
+    }
+    const wasActive = id === activeFlowConversationId.value
+    await memory.removeFlowConversation(id)
+    flowConversationDeleteArmedId.value = ''
+    flowCanvasActiveId.value = ''
+    if (wasActive) {
+      await scrollFlowChatToBottom()
+    }
   }
   
   async function askFlow(question = flowQuestion.value) {
@@ -2120,6 +2192,9 @@ export function useWorkMemoryFlow() {
     activeFlowPage.value = page
     detailDrawerOpen.value = false
     closeTimelineLaneMenu()
+    if (page === 'todos') {
+      void memory.refreshTodos({ silent: true })
+    }
   }
   
   function openEvidence(entry: WorkMemoryEntry) {
@@ -2156,6 +2231,7 @@ export function useWorkMemoryFlow() {
     Flag: markRaw(Flag),
     ImageOff: markRaw(ImageOff),
     KeyRound: markRaw(KeyRound),
+    ListTodo: markRaw(ListTodo),
     Play: markRaw(Play),
     Plus: markRaw(Plus),
     RefreshCw: markRaw(RefreshCw),
@@ -2166,6 +2242,7 @@ export function useWorkMemoryFlow() {
     Tags: markRaw(Tags),
     Trash2: markRaw(Trash2),
     Upload: markRaw(Upload),
+    UserRound: markRaw(UserRound),
     Workflow: markRaw(Workflow),
     X: markRaw(X),
     DAY_SECONDS,
@@ -2217,6 +2294,7 @@ export function useWorkMemoryFlow() {
     copyAutonomousArtifact,
     copyCurrentAgentTask,
     copyFlowMessage,
+    copyFlowContextMessage,
     copySelectedFlowMessages,
     copyTimelineSelectionReference,
     decisionLabel,
@@ -2242,9 +2320,12 @@ export function useWorkMemoryFlow() {
     flowChatInputRef,
     flowChatIsEmpty,
     flowChatMessages,
+    flowChatSelectionMode,
     flowChatSelectedIds,
     flowChatThreadRef,
     flowContextMenu,
+    flowContextMenuMessage,
+    flowConversationDeleteArmedId,
     flowConversationPreview,
     flowConversationTime,
     flowConversations,
@@ -2304,9 +2385,11 @@ export function useWorkMemoryFlow() {
     openTimelinePlaybackDetail,
     openTimelinePlaybackTick,
     recentEvidence,
+    rememberFlowContextMessage,
     rejectingAutonomousArtifactId,
     rememberSelectedFlowMessages,
     removeAppCaptureProfile,
+    removeFlowConversation,
     resetFlowDateToday,
     resetTimelineZoomRange,
     rulesImpactStats,
@@ -2341,6 +2424,7 @@ export function useWorkMemoryFlow() {
     shiftFlowDate,
     sourceLabel,
     startFlowConversation,
+    startFlowMessageMultiSelect,
     timeMachineLabel,
     timelineAllCurrentSelected,
     timelineAppFilter,
@@ -2400,6 +2484,37 @@ export function useWorkMemoryFlow() {
     setupTimelineLoadObserver()
     window.addEventListener('pointerdown', handleTimelineAppPointerDown, true)
   })
+
+  let lastFlowAutoScrollKey = ''
+
+  watch(
+    () => {
+      const lastMessage = flowChatMessages.value[flowChatMessages.value.length - 1]
+      return {
+        conversationId: activeFlowConversationId.value,
+        isLoading: memory.isLoadingFlowConversation,
+        lastMessageId: lastMessage?.id ?? '',
+        messageCount: flowChatMessages.value.length,
+        page: activeFlowPage.value,
+      }
+    },
+    async ({ conversationId, isLoading, lastMessageId, messageCount, page }) => {
+      if (page !== 'flow') {
+        lastFlowAutoScrollKey = ''
+        return
+      }
+      if (isLoading || !conversationId || !messageCount) {
+        return
+      }
+      const autoScrollKey = `${conversationId}:${messageCount}:${lastMessageId}`
+      if (autoScrollKey === lastFlowAutoScrollKey) {
+        return
+      }
+      lastFlowAutoScrollKey = autoScrollKey
+      await scrollFlowChatToBottom()
+    },
+    { immediate: true, flush: 'post' },
+  )
   
   watch(
     () => [activeFlowPage.value, visibleTimelineDayGroups.value.length, timelineHasMoreDays.value],

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -73,6 +75,8 @@ async def _run(payload: dict) -> dict:
 
     set_tracing_disabled(True)
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    if provider != "openai":
+        _install_chat_tool_argument_normalizer(client)
     native_error = ""
     if _should_try_native_shell_skill(provider, base_url, payload):
         native = await _run_with_native_shell_skill(
@@ -93,6 +97,17 @@ async def _run(payload: dict) -> dict:
         if native.get("ok") or _truthy(os.environ.get("ARIADNE_FLOW_AGENT_NATIVE_SKILLS_STRICT")):
             return native
         native_error = str(native.get("error") or "").strip()
+
+    if provider != "openai":
+        return await _run_with_compatible_chat_tools(
+            client=client,
+            model_name=model_name,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            skill=skill,
+            cli_command=cli_command,
+            native_error=native_error,
+        )
 
     model = OpenAIChatCompletionsModel(model=model_name, openai_client=client)
 
@@ -139,6 +154,68 @@ async def _run(payload: dict) -> dict:
         """Load one Ariadne flow memory entry by id, including text/OCR/frame metadata."""
         return await _call_cli("get", ["--id", entry_id])
 
+    @function_tool
+    async def list_flow_todos(
+        status: str = "",
+        query: str = "",
+        scope: str = "",
+        include_done: bool = False,
+        limit: int = 20,
+    ) -> str:
+        """List Ariadne todos for unfinished work, follow-ups, reminders, and pending actions."""
+        args = ["--limit", str(_bounded_int(limit, 1, 50))]
+        if status:
+            args += ["--status", status]
+        if query:
+            args += ["--query", query]
+        if scope:
+            args += ["--scope", scope]
+        if include_done:
+            args += ["--include-done"]
+        return await _call_cli("todos", args)
+
+    @function_tool
+    async def add_flow_todo(
+        title: str,
+        note: str = "",
+        priority: str = "normal",
+        status: str = "open",
+        scope: str = "",
+        evidence: str = "",
+    ) -> str:
+        """Add one Ariadne todo when the task and owner are clear."""
+        args = ["--title", title, "--priority", priority, "--status", status]
+        if note:
+            args += ["--text", note]
+        if scope:
+            args += ["--scope", scope]
+        if evidence:
+            args += ["--evidence", evidence]
+        return await _call_cli("todo-add", args)
+
+    @function_tool
+    async def update_flow_todo(
+        todo_id: str,
+        status: str = "",
+        title: str = "",
+        note: str = "",
+        priority: str = "",
+        scope: str = "",
+    ) -> str:
+        """Update one Ariadne todo status or metadata by id."""
+        args = ["--id", todo_id]
+        if status:
+            args += ["--status", status]
+        if title:
+            args += ["--title", title]
+        if note:
+            args += ["--text", note]
+        if priority:
+            args += ["--priority", priority]
+        if scope:
+            args += ["--scope", scope]
+        return await _call_cli("todo-update", args)
+
     instructions = system_prompt
     if skill:
         instructions = (
@@ -151,7 +228,7 @@ async def _run(payload: dict) -> dict:
         name="Ariadne Flow",
         instructions=instructions,
         model=model,
-        tools=[search_flow_memory, recent_flow_memory, get_flow_memory_entry],
+        tools=[search_flow_memory, recent_flow_memory, get_flow_memory_entry, list_flow_todos, add_flow_todo, update_flow_todo],
     )
     result = await Runner.run(agent, input=user_prompt)
     answer = str(getattr(result, "final_output", "") or "").strip()
@@ -159,13 +236,13 @@ async def _run(payload: dict) -> dict:
         return {"ok": False, "error": "OpenAI Agents SDK 返回空内容"}
     if _looks_like_unexecuted_tool_call(answer):
         return {"ok": False, "error": "OpenAI Agents SDK function tool path 返回了未执行的 tool_call 文本"}
-    message = "OpenAI Agents SDK 已通过 function tools 调用 Ariadne workmemory CLI（兼容接口降级）。"
+    message = "OpenAI Agents SDK 已通过 Chat Completions function tools 调用 Ariadne workmemory CLI。"
     if native_error:
-        message += " 原生 shell skill 未启用或不可用: " + native_error[:220]
+        message += " 原生 Responses Skill 不可用: " + native_error[:220]
     return {
         "ok": True,
         "answer": answer,
-        "mode": "agent:openai-agents-sdk-function-tool-fallback",
+        "mode": "agent:openai-agents-sdk-chat-tools",
         "message": message,
     }
 
@@ -176,6 +253,458 @@ def _bounded_int(value: Any, minimum: int, maximum: int) -> int:
     except Exception:
         number = minimum
     return max(minimum, min(maximum, number))
+
+
+async def _run_with_compatible_chat_tools(
+    *,
+    client: Any,
+    model_name: str,
+    system_prompt: str,
+    user_prompt: str,
+    skill: str,
+    cli_command: str,
+    native_error: str = "",
+) -> dict:
+    instructions = system_prompt
+    if skill:
+        instructions = (
+            instructions
+            + "\n\nAriadne Flow Memory skill is available to you:\n"
+            + skill
+            + "\n\nUse the provided tools to execute this skill; do not answer factual memory questions from the fallback summary alone."
+        )
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": user_prompt},
+    ]
+    tools = _compatible_chat_tool_schemas()
+    todo_requirement = _todo_tool_requirement(user_prompt)
+    used_tools = False
+    used_tool_names: list[str] = []
+    todo_mutation_succeeded = False
+    for _ in range(6):
+        tool_choice: Any = "auto"
+        if not used_tools and todo_requirement.get("required_tool"):
+            tool_choice = _chat_tool_choice(str(todo_requirement["required_tool"]))
+        try:
+            response = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=0.2,
+                max_tokens=1800,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": f"OpenAI-compatible Chat Tools 调用失败: {type(exc).__name__}: {exc}"}
+        choices = getattr(response, "choices", None) or []
+        if not choices:
+            return {"ok": False, "error": "OpenAI-compatible Chat Tools 未返回 choices"}
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            return {"ok": False, "error": "OpenAI-compatible Chat Tools 未返回 message"}
+        tool_calls = list(getattr(message, "tool_calls", None) or [])
+        if tool_calls:
+            used_tools = True
+            messages.append(_assistant_message_from_tool_calls(message, tool_calls))
+            for tool_call in tool_calls:
+                tool_name = str(getattr(getattr(tool_call, "function", None), "name", "") or "").strip()
+                tool_args = _tool_arguments_dict(getattr(getattr(tool_call, "function", None), "arguments", None))
+                tool_output = await asyncio.to_thread(_run_compatible_tool, cli_command, user_prompt, tool_name, tool_args)
+                used_tool_names.append(tool_name)
+                if tool_name in {"add_flow_todo", "update_flow_todo"} and _tool_output_ok(tool_output):
+                    todo_mutation_succeeded = True
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": str(getattr(tool_call, "id", "") or ""),
+                        "name": tool_name,
+                        "content": tool_output[:18000],
+                    }
+                )
+            continue
+        answer = str(getattr(message, "content", "") or "").strip()
+        if not answer:
+            return {"ok": False, "error": "OpenAI-compatible Chat Tools 返回空内容"}
+        missing_required_tool = _missing_required_todo_tool(todo_requirement, used_tool_names, todo_mutation_succeeded)
+        if missing_required_tool:
+            return {"ok": False, "error": missing_required_tool}
+        if _looks_like_unexecuted_tool_call(answer):
+            return {"ok": False, "error": "OpenAI-compatible Chat Tools 返回了未执行的 tool_call 文本"}
+        message_text = "OpenAI-compatible Chat Completions 已通过 Ariadne 兼容工具调用本地 workmemory CLI。"
+        if native_error:
+            message_text += " 原生 Responses Skill 不可用: " + native_error[:220]
+        if not used_tools:
+            message_text += " 本轮模型未请求工具。"
+        return {
+            "ok": True,
+            "answer": answer,
+            "mode": "agent:openai-compatible-chat-tools",
+            "message": message_text,
+        }
+    return {"ok": False, "error": "OpenAI-compatible Chat Tools 超过最大工具调用轮次"}
+
+
+def _chat_tool_choice(name: str) -> dict[str, Any]:
+    return {"type": "function", "function": {"name": name}}
+
+
+def _todo_tool_requirement(user_prompt: str) -> dict[str, Any]:
+    question = _extract_flow_user_question(user_prompt)
+    compact = re.sub(r"\s+", "", question.lower())
+    full_compact = re.sub(r"\s+", "", str(user_prompt or "").lower())
+    if not compact:
+        return {}
+    add_verbs = ("保存", "添加", "新增", "加入", "记录", "记下", "记一下", "创建", "收进", "提醒我")
+    update_verbs = ("完成", "取消", "关闭", "改成", "改为", "标记", "更新")
+    todo_terms = ("待办", "todo", "事项", "跟进", "提醒", "没办", "未完成", "待处理")
+    has_todo_term = any(term in compact for term in todo_terms)
+    retry_add_reference = any(term in compact for term in ("再加一次", "重新加", "加上", "没加成功", "没有加成功", "没保存成功", "没有保存成功"))
+    context_mentions_todo = any(term in full_compact for term in ("待办", "todo", "保存待办", "记为待办", "保存为待办"))
+    if retry_add_reference and context_mentions_todo:
+        return {"required_tool": "add_flow_todo", "mutating": True}
+    if has_todo_term and any(verb in compact for verb in add_verbs):
+        return {"required_tool": "add_flow_todo", "mutating": True}
+    if "保存待办" in compact or "记为待办" in compact or "保存为待办" in compact or "保存到待办" in compact:
+        return {"required_tool": "add_flow_todo", "mutating": True}
+    if has_todo_term and any(verb in compact for verb in update_verbs):
+        return {"required_tool": "list_flow_todos", "mutating": False}
+    if has_todo_term:
+        return {"required_tool": "list_flow_todos", "mutating": False}
+    return {}
+
+
+def _extract_flow_user_question(user_prompt: str) -> str:
+    text = str(user_prompt or "")
+    match = re.search(r"(?m)^用户问题[:：]\s*(.+)$", text)
+    if match:
+        return match.group(1).strip()
+    return text.strip().splitlines()[0].strip() if text.strip() else ""
+
+
+def _missing_required_todo_tool(requirement: dict[str, Any], used_tool_names: list[str], todo_mutation_succeeded: bool) -> str:
+    required_tool = str(requirement.get("required_tool") or "").strip()
+    if not required_tool:
+        return ""
+    if required_tool not in used_tool_names:
+        return f"模型未调用待办工具 {required_tool}，未保存或读取待办。"
+    if bool(requirement.get("mutating")) and not todo_mutation_succeeded:
+        return "待办工具未成功执行，未保存待办。"
+    return ""
+
+
+def _missing_required_todo_shell_action(requirement: dict[str, Any], executed_actions: list[str], todo_mutation_succeeded: bool) -> str:
+    required_tool = str(requirement.get("required_tool") or "").strip()
+    if not required_tool:
+        return ""
+    required_actions = {
+        "add_flow_todo": {"todo-add"},
+        "update_flow_todo": {"todo-update"},
+        "list_flow_todos": {"todos", "todo-list"},
+    }.get(required_tool, set())
+    if required_actions and not any(action in required_actions for action in executed_actions):
+        return f"模型未调用待办工具 {required_tool}，未保存或读取待办。"
+    if bool(requirement.get("mutating")) and not todo_mutation_succeeded:
+        return "待办工具未成功执行，未保存待办。"
+    return ""
+
+
+def _tool_output_ok(output: str) -> bool:
+    try:
+        parsed = json.loads(str(output or "{}"))
+    except Exception:
+        return False
+    return bool(isinstance(parsed, dict) and parsed.get("ok"))
+
+
+def _compatible_chat_tool_schemas() -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_flow_memory",
+                "description": "Search Ariadne local flow memory with semantic/keyword fallback and return JSON evidence.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer"},
+                        "since_hours": {"type": "integer"},
+                        "source": {"type": "string"},
+                        "app": {"type": "string"},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "recent_flow_memory",
+                "description": "Return recent non-sensitive Ariadne flow memories as JSON.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer"},
+                        "since_hours": {"type": "integer"},
+                        "source": {"type": "string"},
+                        "app": {"type": "string"},
+                    },
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_flow_memory_entry",
+                "description": "Load one Ariadne flow memory entry by id, including text/OCR/frame metadata.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"entry_id": {"type": "string"}},
+                    "required": ["entry_id"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_flow_todos",
+                "description": "List Ariadne todos for unfinished work, follow-ups, reminders, and pending actions.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string"},
+                        "query": {"type": "string"},
+                        "scope": {"type": "string"},
+                        "include_done": {"type": "boolean"},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "add_flow_todo",
+                "description": "Add one Ariadne todo when the task and owner are clear.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "note": {"type": "string"},
+                        "priority": {"type": "string"},
+                        "status": {"type": "string"},
+                        "scope": {"type": "string"},
+                        "evidence": {"type": "string"},
+                    },
+                    "required": ["title"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "update_flow_todo",
+                "description": "Update one Ariadne todo status or metadata by id.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "todo_id": {"type": "string"},
+                        "status": {"type": "string"},
+                        "title": {"type": "string"},
+                        "note": {"type": "string"},
+                        "priority": {"type": "string"},
+                        "scope": {"type": "string"},
+                    },
+                    "required": ["todo_id"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    ]
+
+
+def _assistant_message_from_tool_calls(message: Any, tool_calls: list[Any]) -> dict[str, Any]:
+    payload = {"role": "assistant", "content": str(getattr(message, "content", "") or "")}
+    serialized_calls = []
+    for tool_call in tool_calls:
+        function = getattr(tool_call, "function", None)
+        tool_name = str(getattr(function, "name", "") or "").strip()
+        tool_args = _tool_arguments_dict(getattr(function, "arguments", None))
+        serialized_calls.append(
+            {
+                "id": str(getattr(tool_call, "id", "") or ""),
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": json.dumps(tool_args, ensure_ascii=False, separators=(",", ":")),
+                },
+            }
+        )
+    payload["tool_calls"] = serialized_calls
+    return payload
+
+
+def _tool_arguments_dict(raw: Any) -> dict[str, Any]:
+    normalized = _normalize_tool_arguments(raw)
+    text = normalized if normalized is not None else str(raw or "{}").strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return {}
+    if isinstance(parsed, dict):
+        return parsed
+    return {}
+
+
+def _run_compatible_tool(cli_command: str, user_prompt: str, tool_name: str, args: dict[str, Any]) -> str:
+    if tool_name == "search_flow_memory":
+        query = str(args.get("query") or user_prompt).strip()
+        limit = _bounded_int(args.get("limit", 8), 1, 20)
+        since_hours = _bounded_int(args.get("since_hours", 24), 1, 24 * 30)
+        cli_args = ["--query", query, "--limit", str(limit), "--since-hours", str(since_hours)]
+        if args.get("source"):
+            cli_args += ["--source", str(args.get("source"))]
+        if args.get("app"):
+            cli_args += ["--app", str(args.get("app"))]
+        return _run_workmemory_cli(cli_command, "search", cli_args)
+    if tool_name == "recent_flow_memory":
+        limit = _bounded_int(args.get("limit", 8), 1, 20)
+        since_hours = _bounded_int(args.get("since_hours", 24), 1, 24 * 30)
+        cli_args = ["--limit", str(limit), "--since-hours", str(since_hours)]
+        if args.get("source"):
+            cli_args += ["--source", str(args.get("source"))]
+        if args.get("app"):
+            cli_args += ["--app", str(args.get("app"))]
+        return _run_workmemory_cli(cli_command, "recent", cli_args)
+    if tool_name == "get_flow_memory_entry":
+        entry_id = str(args.get("entry_id") or args.get("id") or "").strip()
+        if not entry_id:
+            return json.dumps({"ok": False, "message": "get_flow_memory_entry 缺少 entry_id"}, ensure_ascii=False)
+        return _run_workmemory_cli(cli_command, "get", ["--id", entry_id])
+    if tool_name == "list_flow_todos":
+        limit = _bounded_int(args.get("limit", 20), 1, 50)
+        cli_args = ["--limit", str(limit)]
+        if args.get("status"):
+            cli_args += ["--status", str(args.get("status"))]
+        if args.get("query"):
+            cli_args += ["--query", str(args.get("query"))]
+        if args.get("scope"):
+            cli_args += ["--scope", str(args.get("scope"))]
+        if bool(args.get("include_done")):
+            cli_args += ["--include-done"]
+        return _run_workmemory_cli(cli_command, "todos", cli_args)
+    if tool_name == "add_flow_todo":
+        title = str(args.get("title") or "").strip()
+        if not title:
+            return json.dumps({"ok": False, "message": "add_flow_todo 缺少 title"}, ensure_ascii=False)
+        cli_args = ["--title", title]
+        for key, flag in (("note", "--text"), ("priority", "--priority"), ("status", "--status"), ("scope", "--scope"), ("evidence", "--evidence")):
+            value = str(args.get(key) or "").strip()
+            if value:
+                cli_args += [flag, value]
+        return _run_workmemory_cli(cli_command, "todo-add", cli_args)
+    if tool_name == "update_flow_todo":
+        todo_id = str(args.get("todo_id") or args.get("id") or "").strip()
+        if not todo_id:
+            return json.dumps({"ok": False, "message": "update_flow_todo 缺少 todo_id"}, ensure_ascii=False)
+        cli_args = ["--id", todo_id]
+        for key, flag in (("status", "--status"), ("title", "--title"), ("note", "--text"), ("priority", "--priority"), ("scope", "--scope")):
+            value = str(args.get(key) or "").strip()
+            if value:
+                cli_args += [flag, value]
+        return _run_workmemory_cli(cli_command, "todo-update", cli_args)
+    return json.dumps({"ok": False, "message": f"未知工具: {tool_name}"}, ensure_ascii=False)
+
+
+def _install_chat_tool_argument_normalizer(client: Any) -> None:
+    completions = getattr(getattr(client, "chat", None), "completions", None)
+    create = getattr(completions, "create", None)
+    if completions is None or create is None or getattr(completions, "_ariadne_glm_tool_normalizer", False):
+        return
+
+    async def create_with_normalized_tool_arguments(*args: Any, **kwargs: Any) -> Any:
+        response = await create(*args, **kwargs)
+        return _normalize_chat_completion_tool_arguments(response)
+
+    setattr(completions, "create", create_with_normalized_tool_arguments)
+    setattr(completions, "_ariadne_glm_tool_normalizer", True)
+
+
+def _normalize_chat_completion_tool_arguments(response: Any) -> Any:
+    for choice in getattr(response, "choices", None) or []:
+        message = getattr(choice, "message", None)
+        for tool_call in getattr(message, "tool_calls", None) or []:
+            function = getattr(tool_call, "function", None)
+            if function is None:
+                continue
+            normalized = _normalize_tool_arguments(getattr(function, "arguments", None))
+            if normalized is not None:
+                try:
+                    function.arguments = normalized
+                except Exception:
+                    pass
+    return response
+
+
+def _normalize_tool_arguments(raw: Any) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not _looks_like_xml_tool_arguments(text):
+        return None
+    args: dict[str, Any] = {}
+    for key, value in re.findall(r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>", text, re.S | re.I):
+        key = html.unescape(key).strip()
+        if not key:
+            continue
+        args[key] = _coerce_tool_argument_value(html.unescape(value).strip())
+    return json.dumps(args, ensure_ascii=False, separators=(",", ":"))
+
+
+def _looks_like_xml_tool_arguments(text: str) -> bool:
+    lowered = text.lower()
+    if "<tool_call" in lowered or "</tool_call>" in lowered:
+        return True
+    return "<arg_key>" in lowered and "<arg_value>" in lowered
+
+
+def _coerce_tool_argument_value(value: str) -> Any:
+    text = value.strip()
+    if text == "":
+        return ""
+    lowered = text.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if lowered == "null":
+        return None
+    if re.fullmatch(r"-?\d+", text):
+        try:
+            return int(text)
+        except Exception:
+            return text
+    if re.fullmatch(r"-?(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?", text) or re.fullmatch(r"-?\d+[eE][+-]?\d+", text):
+        try:
+            return float(text)
+        except Exception:
+            return text
+    if text[:1] in "{[":
+        try:
+            return json.loads(text)
+        except Exception:
+            return text
+    return text
 
 
 async def _run_with_native_shell_skill(
@@ -196,6 +725,7 @@ async def _run_with_native_shell_skill(
 ) -> dict:
     if not skill:
         return {"ok": False, "error": "Flow Memory skill 内容为空"}
+    todo_requirement = _todo_tool_requirement(user_prompt)
     skill_dir = _write_skill_directory(skill)
     shell = _AriadneFlowMemoryShell(
         cli_command=cli_command,
@@ -213,7 +743,7 @@ async def _run_with_native_shell_skill(
             "skills": [
                 {
                     "name": "ariadne-flow-memory",
-                    "description": "Query Ariadne local flow memory, timeline, OCR, clipboard, window context, and evidence details.",
+                    "description": "Query Ariadne local flow memory, todo list, timeline, OCR, clipboard, window context, and evidence details.",
                     "path": str(skill_dir),
                 }
             ],
@@ -238,6 +768,13 @@ async def _run_with_native_shell_skill(
     answer = str(getattr(result, "final_output", "") or "").strip()
     if not answer:
         return {"ok": False, "error": "OpenAI Agents SDK 原生 shell skill 返回空内容"}
+    missing_required_tool = _missing_required_todo_shell_action(
+        todo_requirement,
+        shell.executed_actions,
+        shell.todo_mutation_succeeded,
+    )
+    if missing_required_tool:
+        return {"ok": False, "error": missing_required_tool}
     if _looks_like_unexecuted_tool_call(answer):
         return {"ok": False, "error": "OpenAI Agents SDK 原生 shell skill 返回了未执行的 tool_call 文本，当前兼容接口未真正执行 Responses 工具调用"}
     return {
@@ -265,6 +802,8 @@ class _AriadneFlowMemoryShell:
         self.ShellCallOutcome = ShellCallOutcome
         self.ShellCommandOutput = ShellCommandOutput
         self.ShellResult = ShellResult
+        self.executed_actions: list[str] = []
+        self.todo_mutation_succeeded = False
 
     async def __call__(self, request: Any) -> Any:
         action = request.data.action
@@ -302,6 +841,9 @@ class _AriadneFlowMemoryShell:
             }
         action, args = parsed
         output = _run_workmemory_cli(self.cli_command, action, args, timeout_ms=timeout_ms)
+        self.executed_actions.append(action)
+        if action in {"todo-add", "todo-update"} and _tool_output_ok(output):
+            self.todo_mutation_succeeded = True
         return {"stdout": output, "stderr": "", "exit_code": 0, "timed_out": False}
 
 
@@ -315,11 +857,19 @@ def _write_skill_directory(skill: str) -> Path:
 def _should_try_native_shell_skill(provider: str, base_url: str, payload: dict) -> bool:
     if _truthy(os.environ.get("ARIADNE_FLOW_AGENT_FORCE_FUNCTION_TOOLS")):
         return False
-    if _truthy(payload.get("nativeSkills")) or _truthy(os.environ.get("ARIADNE_FLOW_AGENT_NATIVE_SKILLS")):
+
+    if _truthy(os.environ.get("ARIADNE_FLOW_AGENT_NATIVE_SKILLS_STRICT")):
         return True
+
+    requested_native = _truthy(payload.get("nativeSkills")) or _truthy(os.environ.get("ARIADNE_FLOW_AGENT_NATIVE_SKILLS"))
+    if provider != "openai":
+        return requested_native and _truthy(os.environ.get("ARIADNE_FLOW_AGENT_ALLOW_COMPAT_NATIVE_SKILLS"))
+    if requested_native:
+        return True
+
     parsed = urlparse(base_url)
     host = (parsed.netloc or parsed.path).lower()
-    return provider == "openai" and ("api.openai.com" in host or "api.openai.azure.com" in host)
+    return "api.openai.com" in host or "api.openai.azure.com" in host
 
 
 def _truthy(value: Any) -> bool:
@@ -369,7 +919,7 @@ def _parse_workmemory_shell_command(command: str) -> tuple[str, list[str]] | Non
     if marker + 1 >= len(tokens):
         return None
     action = lowered[marker + 1]
-    if action not in {"status", "refresh", "search", "recent", "timeline", "get", "add-note"}:
+    if action not in {"status", "refresh", "search", "recent", "timeline", "get", "add-note", "todos", "todo-list", "todo-add", "todo-update", "todo-delete"}:
         return None
     args = tokens[marker + 2 :]
     if any(arg.startswith(("/", "\\")) and not arg.startswith("--") for arg in args):

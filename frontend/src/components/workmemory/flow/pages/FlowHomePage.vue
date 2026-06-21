@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, toRefs } from 'vue'
+import { toRefs } from 'vue'
 import { useWorkMemoryFlowContext } from '../context'
 
 const ctx = useWorkMemoryFlowContext()
@@ -9,28 +9,29 @@ const {
   Copy,
   Plus,
   Sparkles,
+  Trash2,
   X,
   activeFlowConversation,
   activeFlowConversationId,
   askFlow,
-  buildCurrentMemoryTaskPackage,
   clearFlowChatSelection,
   closeFlowMessageMenu,
-  copyFlowMessage,
+  copyFlowContextMessage,
   copySelectedFlowMessages,
-  entryFocusTitle,
-  evidenceCounts,
   flowBusy,
   flowCanvasActiveId,
   flowCanvasPrimaryEntry,
   flowChatInputRef,
   flowChatIsEmpty,
   flowChatMessages,
+  flowChatSelectionMode,
   flowChatThreadRef,
+  flowConversationDeleteArmedId,
   flowConversationPreview,
   flowConversationTime,
   flowConversations,
   flowContextMenu,
+  flowContextMenuMessage,
   flowMessageEvidenceLabel,
   flowMessageHtml,
   flowMessageModeClass,
@@ -46,26 +47,20 @@ const {
   isFlowMessageSelectable,
   isFlowMessageSelected,
   memory,
-  openEvidence,
   openFlowMessageMenu,
-  recentEvidence,
+  rememberFlowContextMessage,
   rememberSelectedFlowMessages,
+  removeFlowConversation,
   selectFlowConversation,
-  selectSingleFlowMessage,
   selectedFlowChatMessages,
-  sourceLabel,
   startFlowConversation,
+  startFlowMessageMultiSelect,
   toggleFlowMessageSelection,
   useFlowQuestion,
 } = toRefs(ctx)
 
 void flowChatInputRef
 void flowChatThreadRef
-
-const completedQualityCount = computed(() => {
-  const entries = recentEvidence.value as Array<{ qualityStatus?: string }>
-  return entries.filter((entry) => entry.qualityStatus && entry.qualityStatus !== 'pending').length
-})
 </script>
 
 <template>
@@ -97,6 +92,17 @@ const completedQualityCount = computed(() => {
                     <p>{{ flowConversationPreview(conversation) }}</p>
                     <small>{{ flowConversationTime(conversation) }} · {{ conversation.messageCount }} 条消息</small>
                   </div>
+                  <button
+                    type="button"
+                    class="flow-canvas-history-delete"
+                    :class="{ 'is-delete-armed': flowConversationDeleteArmedId === conversation.id }"
+                    :disabled="memory.isDeletingFlowConversation"
+                    :aria-label="flowConversationDeleteArmedId === conversation.id ? '确认删除对话' : '删除对话'"
+                    :title="flowConversationDeleteArmedId === conversation.id ? '确认删除对话' : '删除对话'"
+                    @click.stop="removeFlowConversation(conversation.id)"
+                  >
+                    <Trash2 :size="13" />
+                  </button>
                 </article>
                 <article v-if="!flowConversations.length" class="flow-canvas-history-item is-empty-state">
                   <span class="flow-canvas-history-dot">AI</span>
@@ -109,7 +115,7 @@ const completedQualityCount = computed(() => {
             </aside>
 
             <main class="flow-cognitive-canvas" aria-label="心流对话">
-              <section ref="flowChatThreadRef" class="flow-chat-dialog" :class="{ 'is-empty': flowChatIsEmpty }" data-no-drag>
+              <section ref="flowChatThreadRef" class="flow-chat-dialog" :class="{ 'is-empty': flowChatIsEmpty, 'is-selection-mode': flowChatSelectionMode }" data-no-drag>
                 <article v-if="flowChatIsEmpty" class="flow-chat-empty">
                   <Sparkles :size="28" />
                   <h2>{{ activeFlowConversation?.title || '开始新的心流对话' }}</h2>
@@ -128,11 +134,11 @@ const completedQualityCount = computed(() => {
                     'is-error': message.error,
                   }"
                   :data-mode="flowMessageModeClass(message)"
-                  @click="handleFlowMessageClick(message, $event); if (message.role === 'assistant') flowCanvasActiveId = message.id"
+                  @click="handleFlowMessageClick(message, $event); if (!flowChatSelectionMode && message.role === 'assistant') flowCanvasActiveId = message.id"
                   @contextmenu="openFlowMessageMenu($event, message)"
                 >
                   <button
-                    v-if="isFlowMessageSelectable(message)"
+                    v-if="flowChatSelectionMode && isFlowMessageSelectable(message)"
                     type="button"
                     class="flow-message-selector"
                     :aria-pressed="isFlowMessageSelected(message)"
@@ -195,45 +201,6 @@ const completedQualityCount = computed(() => {
               </footer>
             </main>
 
-            <aside class="flow-cognitive-inspector flow-agent-inspector" aria-label="Agent Inspector">
-              <header class="flow-agent-inspector-head">
-                <div>
-                  <span>Agent Inspector</span>
-                  <strong>回答面板</strong>
-                </div>
-                <small>本地</small>
-              </header>
-              <section v-if="flowCanvasPrimaryEntry" class="flow-answer-side-panel">
-                <span>当前问题</span>
-                <strong>{{ flowCanvasPrimaryEntry.message.question || flowCanvasPrimaryEntry.message.text.slice(0, 64) }}</strong>
-                <div class="flow-answer-side-meta">
-                  <small>置信度 {{ flowCanvasPrimaryEntry.evidenceEntries.length ? '86%' : '待留痕' }}</small>
-                  <small>{{ flowMessageModeLabel(flowCanvasPrimaryEntry.message) || '本地推理' }}</small>
-                  <small>{{ flowMessageTime(flowCanvasPrimaryEntry.message) }}</small>
-                </div>
-                <div class="flow-answer-actions">
-                  <button type="button" @click.stop="buildCurrentMemoryTaskPackage()">交给代理</button>
-                  <button type="button" :disabled="!flowCanvasPrimaryEntry.evidenceEntries.length" @click.stop="openEvidence(flowCanvasPrimaryEntry.evidenceEntries[0])">
-                    打开留痕
-                  </button>
-                  <button type="button" @click.stop="copyFlowMessage(flowCanvasPrimaryEntry.message)">复制结论</button>
-                  <button type="button" @click.stop="selectSingleFlowMessage(flowCanvasPrimaryEntry.message); rememberSelectedFlowMessages()">加入沉淀</button>
-                </div>
-              </section>
-              <section>
-                <span>最近留痕</span>
-                <button v-for="entry in recentEvidence.slice(0, 5)" :key="entry.id" type="button" @click.stop="openEvidence(entry)">
-                  <strong>{{ entryFocusTitle(entry) }}</strong>
-                  <small>{{ sourceLabel(entry) }} · {{ entry.appName || 'Unknown' }}</small>
-                </button>
-              </section>
-              <section>
-                <span>OCR / 质检</span>
-                <div class="flow-agent-meter"><strong>OCR</strong><small>{{ evidenceCounts.ocr }} 条可检索</small></div>
-                <div class="flow-agent-meter"><strong>质检</strong><small>{{ completedQualityCount }} 条完成</small></div>
-                <div class="flow-agent-meter"><strong>影响</strong><small>引用 {{ flowCanvasPrimaryEntry?.evidenceEntries.length || 0 }} 条留痕</small></div>
-              </section>
-            </aside>
           </section>
 
           <div
@@ -242,15 +209,23 @@ const completedQualityCount = computed(() => {
             :style="{ left: `${flowContextMenu.x}px`, top: `${flowContextMenu.y}px` }"
             @click.stop
           >
-            <button type="button" @click="rememberSelectedFlowMessages()">
+            <button type="button" @click="startFlowMessageMultiSelect(flowContextMenuMessage)">
+              <Check :size="14" />
+              多选
+            </button>
+            <button type="button" @click="selectedFlowChatMessages.length ? rememberSelectedFlowMessages() : rememberFlowContextMessage()">
               <Plus :size="14" />
               加入沉淀
             </button>
-            <button type="button" @click="copySelectedFlowMessages()">
+            <button v-if="selectedFlowChatMessages.length" type="button" @click="copySelectedFlowMessages(); closeFlowMessageMenu()">
               <Copy :size="14" />
               复制选中
             </button>
-            <button type="button" @click="clearFlowChatSelection(); closeFlowMessageMenu()">
+            <button v-else type="button" @click="copyFlowContextMessage()">
+              <Copy :size="14" />
+              复制此消息
+            </button>
+            <button v-if="flowChatSelectionMode || selectedFlowChatMessages.length" type="button" @click="clearFlowChatSelection(); closeFlowMessageMenu()">
               <X :size="14" />
               清除选择
             </button>

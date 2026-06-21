@@ -14,6 +14,8 @@ import (
 
 type memoryState struct {
 	Entries              []Entry
+	SelfAssertions       []SelfAssertion
+	Todos                []TodoItem
 	ExperienceDecisions  map[string]ExperienceDecision
 	AutonomousArtifacts  []AutonomousArtifact
 	AutonomousRejections map[string]AutonomousRejection
@@ -36,6 +38,8 @@ func loadMemoryStateFromSQLite(path string, now func() time.Time) (memoryState, 
 	var legacy struct {
 		Version              int                            `json:"version"`
 		Entries              []Entry                        `json:"entries"`
+		SelfAssertions       []SelfAssertion                `json:"selfAssertions,omitempty"`
+		Todos                []TodoItem                     `json:"todos,omitempty"`
 		ExperienceDecisions  map[string]ExperienceDecision  `json:"experienceDecisions,omitempty"`
 		AutonomousArtifacts  []AutonomousArtifact           `json:"autonomousArtifacts,omitempty"`
 		AutonomousRejections map[string]AutonomousRejection `json:"autonomousRejections,omitempty"`
@@ -46,6 +50,8 @@ func loadMemoryStateFromSQLite(path string, now func() time.Time) (memoryState, 
 	}
 	state = memoryState{
 		Entries:              legacy.Entries,
+		SelfAssertions:       legacy.SelfAssertions,
+		Todos:                legacy.Todos,
 		ExperienceDecisions:  legacy.ExperienceDecisions,
 		AutonomousArtifacts:  legacy.AutonomousArtifacts,
 		AutonomousRejections: legacy.AutonomousRejections,
@@ -71,6 +77,10 @@ func saveMemoryStateToSQLite(path string, state memoryState) error {
 		for _, stmt := range []string{
 			`DELETE FROM work_memory_tags`,
 			`DELETE FROM work_memory_frames`,
+			`DELETE FROM work_memory_self_assertion_evidence`,
+			`DELETE FROM work_memory_self_assertions`,
+			`DELETE FROM work_memory_todo_evidence`,
+			`DELETE FROM work_memory_todos`,
 			`DELETE FROM work_memory_decisions`,
 			`DELETE FROM work_memory_autonomous_artifact_evidence`,
 			`DELETE FROM work_memory_autonomous_artifacts`,
@@ -84,6 +94,16 @@ func saveMemoryStateToSQLite(path string, state memoryState) error {
 		}
 		for _, entry := range state.Entries {
 			if err := insertMemoryEntry(conn, entry); err != nil {
+				return err
+			}
+		}
+		for _, assertion := range state.SelfAssertions {
+			if err := insertSelfAssertion(conn, assertion); err != nil {
+				return err
+			}
+		}
+		for _, item := range state.Todos {
+			if err := insertTodoItem(conn, item); err != nil {
 				return err
 			}
 		}
@@ -165,6 +185,52 @@ CREATE TABLE IF NOT EXISTS work_memory_frames(
   created_at INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(entry_id, position),
   FOREIGN KEY(entry_id) REFERENCES work_memory_entries(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS work_memory_self_assertions(
+  id TEXT PRIMARY KEY,
+  category TEXT NOT NULL DEFAULT '',
+  key TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  privacy TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  confidence REAL NOT NULL DEFAULT 0,
+  prompt_ready INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_work_memory_self_assertions_category ON work_memory_self_assertions(category, status);
+CREATE TABLE IF NOT EXISTS work_memory_self_assertion_evidence(
+  assertion_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY(assertion_id, position),
+  FOREIGN KEY(assertion_id) REFERENCES work_memory_self_assertions(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS work_memory_todos(
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  priority TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  due_at INTEGER NOT NULL DEFAULT 0,
+  remind_at INTEGER NOT NULL DEFAULT 0,
+  completed_at INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_work_memory_todos_status ON work_memory_todos(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_work_memory_todos_scope ON work_memory_todos(scope);
+CREATE TABLE IF NOT EXISTS work_memory_todo_evidence(
+  todo_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY(todo_id, position),
+  FOREIGN KEY(todo_id) REFERENCES work_memory_todos(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS work_memory_decisions(
   insight_id TEXT PRIMARY KEY,
@@ -312,6 +378,16 @@ func readMemoryState(conn *sqlite.Conn, now func() time.Time) (memoryState, bool
 		state.Entries[index].Frames = frames
 		state.Entries[index] = normalizeEntry(state.Entries[index])
 	}
+	assertions, err := readSelfAssertions(conn, now)
+	if err != nil {
+		return memoryState{}, false, err
+	}
+	state.SelfAssertions = assertions
+	todos, err := readTodoItems(conn, now)
+	if err != nil {
+		return memoryState{}, false, err
+	}
+	state.Todos = todos
 	if err := readExperienceDecisions(conn, state.ExperienceDecisions); err != nil {
 		return memoryState{}, false, err
 	}
@@ -338,6 +414,8 @@ func readMemoryState(conn *sqlite.Conn, now func() time.Time) (memoryState, bool
 func hasWorkMemoryRows(conn *sqlite.Conn) (bool, error) {
 	for _, table := range []string{
 		"work_memory_entries",
+		"work_memory_self_assertions",
+		"work_memory_todos",
 		"work_memory_decisions",
 		"work_memory_autonomous_artifacts",
 		"work_memory_autonomous_rejections",
@@ -507,6 +585,31 @@ ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.upda
 	return saved, nil
 }
 
+func deleteFlowConversationFromSQLite(path string, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := ensureWorkMemorySchema(conn); err != nil {
+		return err
+	}
+	return appdb.Immediate(conn, func() error {
+		if err := sqlitex.Execute(conn, `DELETE FROM work_memory_flow_messages WHERE conversation_id = ?1`, &sqlitex.ExecOptions{
+			Args: []any{id},
+		}); err != nil {
+			return err
+		}
+		return sqlitex.Execute(conn, `DELETE FROM work_memory_flow_conversations WHERE id = ?1`, &sqlitex.ExecOptions{
+			Args: []any{id},
+		})
+	})
+}
+
 func appendFlowConversationTurnToSQLite(path string, conversation FlowConversation, userMessage FlowMessage, assistantMessage FlowMessage) (FlowConversation, []FlowMessage, error) {
 	conn, err := appdb.OpenForPath(path)
 	if err != nil {
@@ -620,6 +723,107 @@ func readCaptureFrames(conn *sqlite.Conn, entryID string) ([]CaptureFrame, error
 		},
 	})
 	return normalizeCaptureFrames(frames), err
+}
+
+func insertSelfAssertion(conn *sqlite.Conn, assertion SelfAssertion) error {
+	assertion = normalizeSelfAssertion(assertion, time.Now().Unix())
+	if assertion.ID == "" {
+		return nil
+	}
+	if err := sqlitex.Execute(conn, `INSERT INTO work_memory_self_assertions(id, category, key, label, value, status, privacy, scope, source, confidence, prompt_ready, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`, &sqlitex.ExecOptions{
+		Args: []any{assertion.ID, assertion.Category, assertion.Key, assertion.Label, assertion.Value, assertion.Status, assertion.Privacy, assertion.Scope, assertion.Source, assertion.Confidence, appdb.BoolInt(assertion.PromptReady), assertion.CreatedAt, assertion.UpdatedAt},
+	}); err != nil {
+		return err
+	}
+	return insertWorkMemoryValues(conn, `work_memory_self_assertion_evidence`, `assertion_id`, assertion.ID, assertion.Evidence)
+}
+
+func readSelfAssertions(conn *sqlite.Conn, now func() time.Time) ([]SelfAssertion, error) {
+	assertions := []SelfAssertion{}
+	err := sqlitex.Execute(conn, `SELECT id, category, key, label, value, status, privacy, scope, source, confidence, prompt_ready, created_at, updated_at FROM work_memory_self_assertions ORDER BY updated_at DESC`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			assertions = append(assertions, SelfAssertion{
+				ID:          stmt.ColumnText(0),
+				Category:    stmt.ColumnText(1),
+				Key:         stmt.ColumnText(2),
+				Label:       stmt.ColumnText(3),
+				Value:       stmt.ColumnText(4),
+				Status:      stmt.ColumnText(5),
+				Privacy:     stmt.ColumnText(6),
+				Scope:       stmt.ColumnText(7),
+				Source:      stmt.ColumnText(8),
+				Confidence:  stmt.ColumnFloat(9),
+				PromptReady: appdb.IntBool(stmt.ColumnInt(10)),
+				CreatedAt:   stmt.ColumnInt64(11),
+				UpdatedAt:   stmt.ColumnInt64(12),
+			})
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	for index := range assertions {
+		evidence, err := readWorkMemoryValues(conn, `work_memory_self_assertion_evidence`, `assertion_id`, assertions[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		assertions[index].Evidence = evidence
+		assertions[index] = normalizeSelfAssertion(assertions[index], now().Unix())
+	}
+	sortSelfAssertions(assertions)
+	return assertions, nil
+}
+
+func insertTodoItem(conn *sqlite.Conn, item TodoItem) error {
+	item = normalizeTodoItem(item, time.Now().Unix())
+	if item.ID == "" || item.Title == "" {
+		return nil
+	}
+	if err := sqlitex.Execute(conn, `INSERT INTO work_memory_todos(id, title, note, status, priority, scope, source, due_at, remind_at, completed_at, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`, &sqlitex.ExecOptions{
+		Args: []any{item.ID, item.Title, item.Note, item.Status, item.Priority, item.Scope, item.Source, item.DueAt, item.RemindAt, item.CompletedAt, item.CreatedAt, item.UpdatedAt},
+	}); err != nil {
+		return err
+	}
+	return insertWorkMemoryValues(conn, `work_memory_todo_evidence`, `todo_id`, item.ID, item.Evidence)
+}
+
+func readTodoItems(conn *sqlite.Conn, now func() time.Time) ([]TodoItem, error) {
+	items := []TodoItem{}
+	err := sqlitex.Execute(conn, `SELECT id, title, note, status, priority, scope, source, due_at, remind_at, completed_at, created_at, updated_at FROM work_memory_todos ORDER BY updated_at DESC`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			items = append(items, TodoItem{
+				ID:          stmt.ColumnText(0),
+				Title:       stmt.ColumnText(1),
+				Note:        stmt.ColumnText(2),
+				Status:      stmt.ColumnText(3),
+				Priority:    stmt.ColumnText(4),
+				Scope:       stmt.ColumnText(5),
+				Source:      stmt.ColumnText(6),
+				DueAt:       stmt.ColumnInt64(7),
+				RemindAt:    stmt.ColumnInt64(8),
+				CompletedAt: stmt.ColumnInt64(9),
+				CreatedAt:   stmt.ColumnInt64(10),
+				UpdatedAt:   stmt.ColumnInt64(11),
+			})
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	for index := range items {
+		evidence, err := readWorkMemoryValues(conn, `work_memory_todo_evidence`, `todo_id`, items[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		items[index].Evidence = evidence
+		items[index] = normalizeTodoItem(items[index], now().Unix())
+	}
+	sortTodoItems(items)
+	return items, nil
 }
 
 func insertExperienceDecision(conn *sqlite.Conn, key string, decision ExperienceDecision) error {

@@ -7,6 +7,8 @@ const FlowTimelinePage = defineAsyncComponent(() => import('./pages/FlowTimeline
 const FlowInsightsPage = defineAsyncComponent(() => import('./pages/FlowInsightsPage.vue'))
 const FlowDraftsPage = defineAsyncComponent(() => import('./pages/FlowDraftsPage.vue'))
 const FlowAssetsPage = defineAsyncComponent(() => import('./pages/FlowAssetsPage.vue'))
+const FlowTodosPage = defineAsyncComponent(() => import('./pages/FlowTodosPage.vue'))
+const FlowMePage = defineAsyncComponent(() => import('./pages/FlowMePage.vue'))
 const FlowRulesPage = defineAsyncComponent(() => import('./pages/FlowRulesPage.vue'))
 
 const routeComponents = {
@@ -15,6 +17,8 @@ const routeComponents = {
   insights: FlowInsightsPage,
   drafts: FlowDraftsPage,
   assets: FlowAssetsPage,
+  todos: FlowTodosPage,
+  me: FlowMePage,
   rules: FlowRulesPage,
 }
 

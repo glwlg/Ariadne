@@ -1,6 +1,6 @@
 import type { ExperienceInsight, WorkMemoryEntry, WorkMemoryFlowAskResponse } from '../../../types/ariadne'
 
-export type FlowPage = 'flow' | 'timeline' | 'insights' | 'drafts' | 'assets' | 'rules'
+export type FlowPage = 'flow' | 'timeline' | 'insights' | 'drafts' | 'assets' | 'todos' | 'me' | 'rules'
 export type TimelineSourceFilter = 'all' | 'screenshots' | 'clipboard' | 'notes' | 'ocr'
 export type FlowSettingsTab = 'capture' | 'model' | 'privacy'
 export type FlowChatRole = 'user' | 'assistant'

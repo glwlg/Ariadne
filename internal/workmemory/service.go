@@ -232,9 +232,10 @@ type SemanticSearchResult struct {
 }
 
 type FlowAskRequest struct {
-	Question string `json:"question"`
-	Limit    int    `json:"limit,omitempty"`
-	Since    int64  `json:"since,omitempty"`
+	Question     string                           `json:"question"`
+	Limit        int                              `json:"limit,omitempty"`
+	Since        int64                            `json:"since,omitempty"`
+	Conversation []FlowConversationContextMessage `json:"conversation,omitempty"`
 }
 
 type FlowAskEvidence struct {
@@ -285,6 +286,12 @@ type FlowMessage struct {
 	CreatedAt      int64            `json:"createdAt"`
 }
 
+type FlowConversationContextMessage struct {
+	Role      string `json:"role"`
+	Text      string `json:"text"`
+	CreatedAt int64  `json:"createdAt,omitempty"`
+}
+
 type FlowConversationAskRequest struct {
 	ConversationID string `json:"conversationId,omitempty"`
 	Question       string `json:"question"`
@@ -325,18 +332,20 @@ type FlowAgentEvidence struct {
 }
 
 type FlowAgentJob struct {
-	Question     string              `json:"question"`
-	Intent       string              `json:"intent"`
-	LocalAnswer  string              `json:"localAnswer"`
-	Evidence     []FlowAgentEvidence `json:"evidence"`
-	ToolCommand  string              `json:"toolCommand,omitempty"`
-	Runner       string              `json:"runner"`
-	Provider     string              `json:"provider,omitempty"`
-	BaseURL      string              `json:"baseUrl,omitempty"`
-	Model        string              `json:"model,omitempty"`
-	NativeSkills bool                `json:"nativeSkills,omitempty"`
-	WorkDir      string              `json:"workDir,omitempty"`
-	Now          time.Time           `json:"now"`
+	Question     string                           `json:"question"`
+	Intent       string                           `json:"intent"`
+	LocalAnswer  string                           `json:"localAnswer"`
+	SelfModel    string                           `json:"selfModel,omitempty"`
+	Conversation []FlowConversationContextMessage `json:"conversation,omitempty"`
+	Evidence     []FlowAgentEvidence              `json:"evidence"`
+	ToolCommand  string                           `json:"toolCommand,omitempty"`
+	Runner       string                           `json:"runner"`
+	Provider     string                           `json:"provider,omitempty"`
+	BaseURL      string                           `json:"baseUrl,omitempty"`
+	Model        string                           `json:"model,omitempty"`
+	NativeSkills bool                             `json:"nativeSkills,omitempty"`
+	WorkDir      string                           `json:"workDir,omitempty"`
+	Now          time.Time                        `json:"now"`
 }
 
 type FlowAgentResult struct {
@@ -832,6 +841,8 @@ type Service struct {
 	path                          string
 	status                        Status
 	entries                       []Entry
+	selfAssertions                []SelfAssertion
+	todoItems                     []TodoItem
 	decisions                     map[string]ExperienceDecision
 	autonomousArtifacts           []AutonomousArtifact
 	autonomousRejections          map[string]AutonomousRejection
@@ -1762,11 +1773,13 @@ func (s *Service) AskFlow(request FlowAskRequest) FlowAskResponse {
 
 	s.mu.RLock()
 	entries := cloneEntries(s.entries)
+	selfAssertions := cloneSelfAssertions(s.selfAssertions)
 	decisions := cloneExperienceDecisions(s.decisions)
 	privacyMode := s.status.PrivacyMode
 	flowAgentRunner := s.flowAgentRunner
 	flowAgentPolicy := normalizeFlowAgentPolicy(s.flowAgentPolicy)
 	s.mu.RUnlock()
+	conversationContext := normalizeFlowConversationContext(request.Conversation, 10)
 
 	intent := detectFlowAskIntent(question)
 	base := FlowAskResponse{
@@ -1785,7 +1798,7 @@ func (s *Service) AskFlow(request FlowAskRequest) FlowAskResponse {
 	if flowAgentPolicy.Enabled && flowAgentRunner != nil && !privacyMode {
 		base.Mode = "agent_pending"
 		base.Answer = "请通过 Ariadne Flow Memory skill 查询本地时间线、OCR、剪贴板和窗口上下文后回答。不要直接复述本地兜底摘要。"
-		return completeFlowAnswerWithAgent(base, nil, privacyMode, flowAgentPolicy, flowAgentRunner, now)
+		return s.completeFlowAnswerWithAgent(base, nil, buildSelfModelSummary(selfAssertions).Prompt, conversationContext, privacyMode, flowAgentPolicy, flowAgentRunner, now)
 	}
 
 	var selected []Entry
@@ -1817,7 +1830,7 @@ func (s *Service) AskFlow(request FlowAskRequest) FlowAskResponse {
 		base.Evidence = flowEvidenceFromEntries(selected, scores)
 		base.Answer = renderFlowSearchAnswer(question, selected)
 	}
-	return completeFlowAnswerWithAgent(base, selected, privacyMode, flowAgentPolicy, flowAgentRunner, now)
+	return s.completeFlowAnswerWithAgent(base, selected, buildSelfModelSummary(selfAssertions).Prompt, conversationContext, privacyMode, flowAgentPolicy, flowAgentRunner, now)
 }
 
 func (s *Service) FlowConversations() []FlowConversation {
@@ -1848,6 +1861,31 @@ func (s *Service) FlowMessages(conversationID string) []FlowMessage {
 	return messages
 }
 
+func (s *Service) flowConversationContext(conversationID string, limit int) []FlowConversationContextMessage {
+	if s == nil || s.path == "" || strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+	messages, err := listFlowMessagesFromSQLite(s.path, conversationID)
+	if err != nil || len(messages) == 0 {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if len(messages) > limit {
+		messages = messages[len(messages)-limit:]
+	}
+	context := make([]FlowConversationContextMessage, 0, len(messages))
+	for _, message := range messages {
+		context = append(context, FlowConversationContextMessage{
+			Role:      message.Role,
+			Text:      message.Text,
+			CreatedAt: message.CreatedAt,
+		})
+	}
+	return normalizeFlowConversationContext(context, limit)
+}
+
 func (s *Service) CreateFlowConversation(title string) FlowConversation {
 	if s.path == "" {
 		now := s.now().Unix()
@@ -1875,6 +1913,18 @@ func (s *Service) CreateFlowConversation(title string) FlowConversation {
 	return saved
 }
 
+func (s *Service) DeleteFlowConversation(id string) []FlowConversation {
+	if s.path == "" {
+		return []FlowConversation{}
+	}
+	if err := deleteFlowConversationFromSQLite(s.path, id); err != nil {
+		s.mu.Lock()
+		s.saveError = err.Error()
+		s.mu.Unlock()
+	}
+	return s.FlowConversations()
+}
+
 func (s *Service) AskFlowConversation(request FlowConversationAskRequest) FlowConversationAskResult {
 	question := strings.TrimSpace(request.Question)
 	if question == "" {
@@ -1896,7 +1946,13 @@ func (s *Service) AskFlowConversation(request FlowConversationAskRequest) FlowCo
 			UpdatedAt: now.Unix(),
 		}
 	}
-	response := s.AskFlow(FlowAskRequest{Question: question, Limit: request.Limit, Since: request.Since})
+	conversationContext := s.flowConversationContext(conversation.ID, 10)
+	response := s.AskFlow(FlowAskRequest{
+		Question:     question,
+		Limit:        request.Limit,
+		Since:        request.Since,
+		Conversation: conversationContext,
+	})
 	answer := strings.TrimSpace(firstNonEmpty(response.Answer, response.Message))
 	if answer == "" {
 		if response.OK {
@@ -5115,6 +5171,8 @@ func (s *Service) load() bool {
 		return false
 	}
 	s.entries = nil
+	s.selfAssertions = nil
+	s.todoItems = nil
 	s.decisions = map[string]ExperienceDecision{}
 	s.autonomousArtifacts = nil
 	s.autonomousRejections = map[string]AutonomousRejection{}
@@ -5145,6 +5203,20 @@ func (s *Service) load() bool {
 			s.entries = append(s.entries, entry)
 		}
 	}
+	for _, assertion := range state.SelfAssertions {
+		assertion = normalizeSelfAssertion(assertion, s.now().Unix())
+		if assertion.ID != "" {
+			s.selfAssertions = append(s.selfAssertions, assertion)
+		}
+	}
+	sortSelfAssertions(s.selfAssertions)
+	for _, item := range state.Todos {
+		item = normalizeTodoItem(item, s.now().Unix())
+		if item.ID != "" {
+			s.todoItems = append(s.todoItems, item)
+		}
+	}
+	sortTodoItems(s.todoItems)
 	sortEntries(s.entries)
 	s.trimLocked()
 	return true
@@ -5166,6 +5238,8 @@ func (s *Service) saveLocked() error {
 	}
 	state := memoryState{
 		Entries:              s.entries,
+		SelfAssertions:       cloneSelfAssertions(s.selfAssertions),
+		Todos:                cloneTodoItems(s.todoItems),
 		ExperienceDecisions:  cloneExperienceDecisions(s.decisions),
 		AutonomousArtifacts:  cloneAutonomousArtifacts(s.autonomousArtifacts),
 		AutonomousRejections: cloneAutonomousRejections(s.autonomousRejections),
@@ -7280,7 +7354,7 @@ func flowAgentEvidenceFromEntries(entries []Entry, limit int) []FlowAgentEvidenc
 	return evidence
 }
 
-func completeFlowAnswerWithAgent(base FlowAskResponse, selected []Entry, privacyMode bool, policy FlowAgentPolicy, runner FlowAgentRunner, now time.Time) FlowAskResponse {
+func (s *Service) completeFlowAnswerWithAgent(base FlowAskResponse, selected []Entry, selfModelSummary string, conversationContext []FlowConversationContextMessage, privacyMode bool, policy FlowAgentPolicy, runner FlowAgentRunner, now time.Time) FlowAskResponse {
 	if privacyMode {
 		return base
 	}
@@ -7302,6 +7376,8 @@ func completeFlowAnswerWithAgent(base FlowAskResponse, selected []Entry, privacy
 		Question:     base.Question,
 		Intent:       base.Intent,
 		LocalAnswer:  base.Answer,
+		SelfModel:    strings.TrimSpace(selfModelSummary),
+		Conversation: normalizeFlowConversationContext(conversationContext, 10),
 		Evidence:     evidence,
 		Runner:       policy.Runner,
 		Provider:     policy.Provider,
@@ -7327,11 +7403,33 @@ func completeFlowAnswerWithAgent(base FlowAskResponse, selected []Entry, privacy
 		base.Message = appendFlowMessage(base.Message, "Agent runner 未返回内容")
 		return base
 	}
+	s.syncTodosFromStorage()
 	base.Answer = answer
 	base.UsedAI = true
 	base.Mode = firstNonEmpty(strings.TrimSpace(result.Mode), "agent:"+policy.Runner)
 	base.Message = appendFlowMessage(base.Message, firstNonEmpty(strings.TrimSpace(result.Message), "心流 agent 已基于本地证据生成回答。"))
 	return base
+}
+
+func (s *Service) syncTodosFromStorage() {
+	if s == nil || strings.TrimSpace(s.path) == "" {
+		return
+	}
+	state, ok, err := loadMemoryStateFromSQLite(s.path, s.now)
+	if err != nil || !ok {
+		return
+	}
+	items := make([]TodoItem, 0, len(state.Todos))
+	for _, item := range state.Todos {
+		item = normalizeTodoItem(item, s.now().Unix())
+		if item.ID != "" && item.Title != "" {
+			items = append(items, item)
+		}
+	}
+	sortTodoItems(items)
+	s.mu.Lock()
+	s.todoItems = items
+	s.mu.Unlock()
 }
 
 func flowAgentToolCommand() string {
@@ -7403,7 +7501,7 @@ func renderFlowContactAnswer(entries []Entry, total int) string {
 
 func renderFlowOptimizationAnswer(report ExperienceReport, evidence []FlowAskEvidence) string {
 	if len(report.Insights) == 0 {
-		return "最近还没有形成足够稳定的重复动作或可复用流程。我会继续在后台观察高频截图、OCR、剪贴板和窗口切换；只有真正要转成 Skill、工作流、清单或外部任务包时，才需要你确认。"
+		return "最近还没有形成足够稳定的重复动作或可复用流程。我会继续观察高频截图、OCR、剪贴板和窗口切换；发现可沉淀的流程后，会整理成 Skill、工作流、清单或外部任务包，再向你确认。"
 	}
 	limit := len(report.Insights)
 	if limit > 3 {
@@ -8583,6 +8681,32 @@ func normalizeFlowMessage(message FlowMessage) FlowMessage {
 		message.CreatedAt = time.Now().Unix()
 	}
 	return message
+}
+
+func normalizeFlowConversationContext(messages []FlowConversationContextMessage, limit int) []FlowConversationContextMessage {
+	if limit <= 0 {
+		limit = 10
+	}
+	if len(messages) > limit {
+		messages = messages[len(messages)-limit:]
+	}
+	context := make([]FlowConversationContextMessage, 0, len(messages))
+	for _, message := range messages {
+		role := strings.TrimSpace(strings.ToLower(message.Role))
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		text := strings.TrimSpace(message.Text)
+		if text == "" {
+			continue
+		}
+		context = append(context, FlowConversationContextMessage{
+			Role:      role,
+			Text:      trimTextRunes(text, 1600),
+			CreatedAt: message.CreatedAt,
+		})
+	}
+	return context
 }
 
 func defaultMemoryPath() string {

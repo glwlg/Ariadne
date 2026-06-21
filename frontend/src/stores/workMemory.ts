@@ -21,15 +21,18 @@ import {
   getAutonomousArtifacts,
   getWorkMemoryFlowConversations,
   getWorkMemoryFlowMessages,
+  getWorkMemorySelfModel,
   getScheduledDraftStatus,
   getSemanticStatus,
   getWorkMemoryHealth,
   getWorkMemoryStatus,
   getWorkMemoryTimeline,
+  listWorkMemoryTodos,
   importWorkMemoryMaterials,
   askWorkMemoryFlow,
   askWorkMemoryFlowConversation,
   createWorkMemoryFlowConversation,
+  deleteWorkMemoryFlowConversation,
   polishWorkMemoryDraft,
   refreshEmbeddingIndex,
   rejectAutonomousArtifact as rejectAutonomousArtifactApi,
@@ -40,6 +43,11 @@ import {
   setExperienceInsightDecision,
   setTimeMachineEnabled,
   setWorkMemoryPrivacyMode,
+  upsertWorkMemorySelfAssertion,
+  deleteWorkMemorySelfAssertion,
+  upsertWorkMemoryTodo,
+  updateWorkMemoryTodo,
+  deleteWorkMemoryTodo,
 } from '../services/workMemoryApi'
 import { recognizeWorkMemoryOCR } from '../services/ocrApi'
 import { saveChecklistDraft } from '../services/checklistApi'
@@ -80,7 +88,14 @@ import type {
   WorkMemoryNoteRequest,
   WorkMemorySemanticSearchResult,
   WorkMemorySemanticStatus,
+  WorkMemorySelfAssertion,
+  WorkMemorySelfAssertionRequest,
+  WorkMemorySelfModel,
   WorkMemoryStatus,
+  WorkMemoryTodoItem,
+  WorkMemoryTodoList,
+  WorkMemoryTodoRequest,
+  WorkMemoryTodoUpdateRequest,
 } from '../types/ariadne'
 
 export const useWorkMemoryStore = defineStore('work-memory', () => {
@@ -121,6 +136,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const flowAskResult = ref<WorkMemoryFlowAskResponse | null>(null)
   const flowConversations = ref<WorkMemoryFlowConversation[]>([])
   const flowMessages = ref<WorkMemoryFlowMessage[]>([])
+  const selfModel = ref<WorkMemorySelfModel | null>(null)
+  const todoList = ref<WorkMemoryTodoList | null>(null)
   const activeFlowConversationId = ref('')
   const dailyDraftPolishResult = ref<WorkMemoryDraftPolishResult | null>(null)
   const knowledgeDraftSaveResult = ref<SkillDraftSaveResult | null>(null)
@@ -190,6 +207,9 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const isSemanticSearching = ref(false)
   const isAskingFlow = ref(false)
   const isLoadingFlowConversation = ref(false)
+  const isDeletingFlowConversation = ref(false)
+  const isSavingSelfAssertion = ref(false)
+  const isSavingTodo = ref(false)
   const isDiscoveringExperienceAI = ref(false)
   const isDeletingEntries = ref(false)
   const isBatchRecognizingOCR = ref(false)
@@ -305,7 +325,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   async function load() {
     isLoading.value = true
     try {
-      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth, nextFlowConversations] = await Promise.all([
+      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth, nextFlowConversations, nextSelfModel, nextTodoList] = await Promise.all([
         getWorkMemoryStatus(),
         getWorkMemoryTimeline(),
         getScheduledDraftStatus(),
@@ -313,6 +333,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
         getAutonomousArtifacts(),
         getWorkMemoryHealth(),
         getWorkMemoryFlowConversations(),
+        getWorkMemorySelfModel(),
+        listWorkMemoryTodos({ includeDone: true, limit: 300 }),
       ])
       status.value = nextStatus
       entries.value = nextEntries
@@ -321,6 +343,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       autonomousArtifacts.value = nextAutonomousArtifacts
       health.value = nextHealth
       flowConversations.value = nextFlowConversations
+      selfModel.value = nextSelfModel
+      todoList.value = nextTodoList
       if (!activeFlowConversationId.value && nextFlowConversations.length) {
         activeFlowConversationId.value = nextFlowConversations[0].id
         flowMessages.value = await getWorkMemoryFlowMessages(activeFlowConversationId.value)
@@ -385,7 +409,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     liveRefreshInFlight = true
     try {
       const previousSelectedId = selectedId.value
-      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth, nextFlowConversations] = await Promise.all([
+      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth, nextFlowConversations, nextSelfModel, nextTodoList] = await Promise.all([
         getWorkMemoryStatus(),
         getWorkMemoryTimeline(),
         getScheduledDraftStatus(),
@@ -393,6 +417,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
         getAutonomousArtifacts(),
         getWorkMemoryHealth(),
         getWorkMemoryFlowConversations(),
+        getWorkMemorySelfModel(),
+        listWorkMemoryTodos({ includeDone: true, limit: 300 }),
       ])
       status.value = nextStatus
       entries.value = nextEntries
@@ -401,6 +427,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       autonomousArtifacts.value = nextAutonomousArtifacts
       health.value = nextHealth
       flowConversations.value = nextFlowConversations
+      selfModel.value = nextSelfModel
+      todoList.value = nextTodoList
       if (activeFlowConversationId.value && nextFlowConversations.some((conversation) => conversation.id === activeFlowConversationId.value)) {
         flowMessages.value = await getWorkMemoryFlowMessages(activeFlowConversationId.value)
       } else if (nextFlowConversations.length) {
@@ -467,6 +495,110 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     return conversation
   }
 
+  async function removeFlowConversation(id: string) {
+    const normalized = id.trim()
+    if (!normalized) return
+    isDeletingFlowConversation.value = true
+    try {
+      const nextConversations = await deleteWorkMemoryFlowConversation(normalized)
+      flowConversations.value = nextConversations
+      if (activeFlowConversationId.value === normalized) {
+        activeFlowConversationId.value = nextConversations[0]?.id ?? ''
+        flowMessages.value = activeFlowConversationId.value ? await getWorkMemoryFlowMessages(activeFlowConversationId.value) : []
+        flowAskResult.value = null
+      }
+      showFeedback('对话记录已删除')
+    } catch {
+      showFeedback('对话记录删除失败')
+    } finally {
+      isDeletingFlowConversation.value = false
+    }
+  }
+
+  async function saveSelfAssertion(request: WorkMemorySelfAssertionRequest) {
+    isSavingSelfAssertion.value = true
+    try {
+      selfModel.value = await upsertWorkMemorySelfAssertion(request)
+      showFeedback('我模型已更新')
+      return true
+    } catch {
+      showFeedback('我模型保存失败')
+      return false
+    } finally {
+      isSavingSelfAssertion.value = false
+    }
+  }
+
+  async function removeSelfAssertion(assertion: WorkMemorySelfAssertion) {
+    if (!assertion.id) return
+    isSavingSelfAssertion.value = true
+    try {
+      selfModel.value = await deleteWorkMemorySelfAssertion(assertion.id)
+      showFeedback('我模型已更新')
+    } catch {
+      showFeedback('我模型更新失败')
+    } finally {
+      isSavingSelfAssertion.value = false
+    }
+  }
+
+  async function saveTodo(request: WorkMemoryTodoRequest) {
+    isSavingTodo.value = true
+    try {
+      todoList.value = await upsertWorkMemoryTodo(request)
+      showFeedback('待办已保存')
+      return true
+    } catch {
+      showFeedback('待办保存失败')
+      return false
+    } finally {
+      isSavingTodo.value = false
+    }
+  }
+
+  async function changeTodo(request: WorkMemoryTodoUpdateRequest) {
+    if (!request.id) return false
+    isSavingTodo.value = true
+    try {
+      todoList.value = await updateWorkMemoryTodo(request)
+      showFeedback('待办已更新')
+      return true
+    } catch {
+      showFeedback('待办更新失败')
+      return false
+    } finally {
+      isSavingTodo.value = false
+    }
+  }
+
+  async function removeTodo(todo: WorkMemoryTodoItem) {
+    if (!todo.id) return
+    isSavingTodo.value = true
+    try {
+      todoList.value = await deleteWorkMemoryTodo(todo.id)
+      showFeedback('待办已删除')
+    } catch {
+      showFeedback('待办删除失败')
+    } finally {
+      isSavingTodo.value = false
+    }
+  }
+
+  async function refreshTodos(options: { silent?: boolean } = {}) {
+    try {
+      todoList.value = await listWorkMemoryTodos({ includeDone: true, limit: 300 })
+      if (!options.silent) {
+        showFeedback('待办已刷新')
+      }
+      return true
+    } catch {
+      if (!options.silent) {
+        showFeedback('待办刷新失败')
+      }
+      return false
+    }
+  }
+
   async function askFlow(question: string, limit = 8) {
     const normalized = question.trim()
     if (!normalized) {
@@ -516,6 +648,7 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
             ],
           }))
       }
+      await refreshTodos({ silent: true })
       showFeedback(result.message || (result.ok ? '心流回答已更新' : '心流回答失败'))
       return result
     } catch {
@@ -1797,6 +1930,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     flowAskResult,
     flowConversations,
     flowMessages,
+    selfModel,
+    todoList,
     activeFlowConversationId,
     activeFlowConversation,
     knowledgeDraftSaveResult,
@@ -1846,6 +1981,9 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     isSemanticSearching,
     isAskingFlow,
     isLoadingFlowConversation,
+    isDeletingFlowConversation,
+    isSavingSelfAssertion,
+    isSavingTodo,
     isDiscoveringExperienceAI,
     isDeletingEntries,
     isBatchRecognizingOCR,
@@ -1869,7 +2007,14 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     loadFlowConversations,
     selectFlowConversation,
     startFlowConversation,
+    removeFlowConversation,
     askFlow,
+    refreshTodos,
+    saveSelfAssertion,
+    removeSelfAssertion,
+    saveTodo,
+    changeTodo,
+    removeTodo,
     select,
     isRetrospectiveSelected,
     toggleRetrospectiveSelection,
