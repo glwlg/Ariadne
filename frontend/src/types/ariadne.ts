@@ -1136,6 +1136,126 @@ export interface WorkMemoryAutonomousRunResult {
   createdAt: number
 }
 
+export type FlowCandidateActionStatus = 'pending' | 'accepted' | 'snoozed' | 'ignored' | 'expired' | 'dismissed_by_rule' | 'executed' | 'failed'
+export type FlowCandidateActionType = 'prepare_reply' | 'follow_up_candidate' | 'fact_check_warning' | 'text_polish_hint' | string
+
+export interface FlowAutonomyPolicy {
+  enabled: boolean
+  communicationAssistEnabled: boolean
+  textQualityAssistEnabled: boolean
+  candidateTtlHours: number
+  candidateCooldownMinutes: number
+  defaultSnoozeMinutes: number
+  notifyLowRiskAutomaticAction: boolean
+}
+
+export interface FlowAutonomyExtensionManifest {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  eventSources: string[]
+  readScopes: string[]
+  actionTypes: string[]
+  confirmationPolicy: string
+  ttlSeconds: number
+  cooldownSeconds: number
+}
+
+export interface FlowAutonomyStatus {
+  enabled: boolean
+  privacyMode: boolean
+  lastRunAt?: number
+  lastMessage?: string
+  pending: number
+  snoozed: number
+  expired: number
+  executed: number
+  extensions: FlowAutonomyExtensionManifest[]
+  notifyLowRiskAutomatic: boolean
+  candidateTtlHours: number
+  candidateCooldownMinutes: number
+  defaultSnoozeMinutes: number
+  updatedAt: number
+}
+
+export interface FlowNotificationAction {
+  id: string
+  label: string
+  kind: string
+}
+
+export interface FlowCandidateAction {
+  id: string
+  extensionId: string
+  actionType: FlowCandidateActionType
+  title: string
+  summary: string
+  body: string
+  target?: string
+  status: FlowCandidateActionStatus
+  priority: 'low' | 'normal' | 'high' | 'urgent' | string
+  confirmationPolicy: string
+  notificationActions: FlowNotificationAction[]
+  payload?: Record<string, string>
+  evidence: string[]
+  dedupKey?: string
+  source?: string
+  decisionActionId?: string
+  decisionReason?: string
+  confidence?: number
+  createdAt: number
+  updatedAt?: number
+  expiresAt?: number
+  snoozedUntil?: number
+  decidedAt?: number
+  executedAt?: number
+}
+
+export interface FlowCandidateActionListRequest {
+  status?: FlowCandidateActionStatus | ''
+  includeExpired?: boolean
+  limit?: number
+}
+
+export interface FlowCandidateActionList {
+  items: FlowCandidateAction[]
+  pending: number
+  snoozed: number
+  accepted: number
+  ignored: number
+  expired: number
+  executed: number
+  failed: number
+  updatedAt: number
+}
+
+export interface FlowCandidateActionDecisionRequest {
+  id: string
+  actionId?: string
+  decision?: FlowCandidateActionStatus | ''
+  reason?: string
+  snoozeMinutes?: number
+}
+
+export interface FlowCandidateActionDecisionResult {
+  ok: boolean
+  message: string
+  action?: FlowCandidateAction
+  list: FlowCandidateActionList
+}
+
+export interface FlowAutonomyRunResult {
+  ok: boolean
+  message: string
+  generated: number
+  skipped: number
+  expired: number
+  actions: FlowCandidateAction[]
+  status: FlowAutonomyStatus
+  createdAt: number
+}
+
 export interface WorkMemoryEntry {
   id: string
   source: string
@@ -1590,6 +1710,13 @@ export interface WorkMemorySettings {
   experienceDiscoveryDays: number
   skillSuggestionEnabled: boolean
   workflowSuggestionEnabled: boolean
+  flowAutonomyEnabled: boolean
+  flowCommunicationAssist: boolean
+  flowTextQualityAssist: boolean
+  flowCandidateTtlHours: number
+  flowCandidateCooldownMinutes: number
+  flowDefaultSnoozeMinutes: number
+  flowNotifyLowRiskAutomatic: boolean
   retentionDays: number
   thumbnailRetentionDays: number
   maxStorageMb: number

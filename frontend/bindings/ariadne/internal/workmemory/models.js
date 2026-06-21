@@ -2556,6 +2556,831 @@ export class FlowAskResponse {
     }
 }
 
+export class FlowAutonomyExtensionManifest {
+    /**
+     * Creates a new FlowAutonomyExtensionManifest instance.
+     * @param {Partial<FlowAutonomyExtensionManifest>} [$$source = {}] - The source object to create the FlowAutonomyExtensionManifest.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (!("description" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["description"] = "";
+        }
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("eventSources" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["eventSources"] = [];
+        }
+        if (!("readScopes" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["readScopes"] = [];
+        }
+        if (!("actionTypes" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["actionTypes"] = [];
+        }
+        if (!("confirmationPolicy" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["confirmationPolicy"] = "";
+        }
+        if (!("ttlSeconds" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["ttlSeconds"] = 0;
+        }
+        if (!("cooldownSeconds" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["cooldownSeconds"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowAutonomyExtensionManifest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowAutonomyExtensionManifest}
+     */
+    static createFrom($$source = {}) {
+        const $$createField4_0 = $$createType0;
+        const $$createField5_0 = $$createType0;
+        const $$createField6_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("eventSources" in $$parsedSource) {
+            $$parsedSource["eventSources"] = $$createField4_0($$parsedSource["eventSources"]);
+        }
+        if ("readScopes" in $$parsedSource) {
+            $$parsedSource["readScopes"] = $$createField5_0($$parsedSource["readScopes"]);
+        }
+        if ("actionTypes" in $$parsedSource) {
+            $$parsedSource["actionTypes"] = $$createField6_0($$parsedSource["actionTypes"]);
+        }
+        return new FlowAutonomyExtensionManifest(/** @type {Partial<FlowAutonomyExtensionManifest>} */($$parsedSource));
+    }
+}
+
+export class FlowAutonomyPolicy {
+    /**
+     * Creates a new FlowAutonomyPolicy instance.
+     * @param {Partial<FlowAutonomyPolicy>} [$$source = {}] - The source object to create the FlowAutonomyPolicy.
+     */
+    constructor($$source = {}) {
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("communicationAssistEnabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["communicationAssistEnabled"] = false;
+        }
+        if (!("textQualityAssistEnabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["textQualityAssistEnabled"] = false;
+        }
+        if (!("candidateTtlHours" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["candidateTtlHours"] = 0;
+        }
+        if (!("candidateCooldownMinutes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["candidateCooldownMinutes"] = 0;
+        }
+        if (!("defaultSnoozeMinutes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["defaultSnoozeMinutes"] = 0;
+        }
+        if (!("notifyLowRiskAutomaticAction" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["notifyLowRiskAutomaticAction"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowAutonomyPolicy instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowAutonomyPolicy}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowAutonomyPolicy(/** @type {Partial<FlowAutonomyPolicy>} */($$parsedSource));
+    }
+}
+
+export class FlowAutonomyRunResult {
+    /**
+     * Creates a new FlowAutonomyRunResult instance.
+     * @param {Partial<FlowAutonomyRunResult>} [$$source = {}] - The source object to create the FlowAutonomyRunResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("generated" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["generated"] = 0;
+        }
+        if (!("skipped" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["skipped"] = 0;
+        }
+        if (!("expired" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["expired"] = 0;
+        }
+        if (!("actions" in $$source)) {
+            /**
+             * @member
+             * @type {FlowCandidateAction[]}
+             */
+            this["actions"] = [];
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {FlowAutonomyStatus}
+             */
+            this["status"] = (new FlowAutonomyStatus());
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowAutonomyRunResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowAutonomyRunResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType20;
+        const $$createField6_0 = $$createType21;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("actions" in $$parsedSource) {
+            $$parsedSource["actions"] = $$createField5_0($$parsedSource["actions"]);
+        }
+        if ("status" in $$parsedSource) {
+            $$parsedSource["status"] = $$createField6_0($$parsedSource["status"]);
+        }
+        return new FlowAutonomyRunResult(/** @type {Partial<FlowAutonomyRunResult>} */($$parsedSource));
+    }
+}
+
+export class FlowAutonomyStatus {
+    /**
+     * Creates a new FlowAutonomyStatus instance.
+     * @param {Partial<FlowAutonomyStatus>} [$$source = {}] - The source object to create the FlowAutonomyStatus.
+     */
+    constructor($$source = {}) {
+        if (!("enabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["enabled"] = false;
+        }
+        if (!("privacyMode" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["privacyMode"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["lastRunAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastMessage"] = undefined;
+        }
+        if (!("pending" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["pending"] = 0;
+        }
+        if (!("snoozed" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["snoozed"] = 0;
+        }
+        if (!("expired" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["expired"] = 0;
+        }
+        if (!("executed" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["executed"] = 0;
+        }
+        if (!("extensions" in $$source)) {
+            /**
+             * @member
+             * @type {FlowAutonomyExtensionManifest[]}
+             */
+            this["extensions"] = [];
+        }
+        if (!("notifyLowRiskAutomatic" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["notifyLowRiskAutomatic"] = false;
+        }
+        if (!("candidateTtlHours" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["candidateTtlHours"] = 0;
+        }
+        if (!("candidateCooldownMinutes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["candidateCooldownMinutes"] = 0;
+        }
+        if (!("defaultSnoozeMinutes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["defaultSnoozeMinutes"] = 0;
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["updatedAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowAutonomyStatus instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowAutonomyStatus}
+     */
+    static createFrom($$source = {}) {
+        const $$createField8_0 = $$createType23;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("extensions" in $$parsedSource) {
+            $$parsedSource["extensions"] = $$createField8_0($$parsedSource["extensions"]);
+        }
+        return new FlowAutonomyStatus(/** @type {Partial<FlowAutonomyStatus>} */($$parsedSource));
+    }
+}
+
+export class FlowCandidateAction {
+    /**
+     * Creates a new FlowCandidateAction instance.
+     * @param {Partial<FlowCandidateAction>} [$$source = {}] - The source object to create the FlowCandidateAction.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("extensionId" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["extensionId"] = "";
+        }
+        if (!("actionType" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["actionType"] = "";
+        }
+        if (!("title" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["title"] = "";
+        }
+        if (!("summary" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["summary"] = "";
+        }
+        if (!("body" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["body"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["target"] = undefined;
+        }
+        if (!("status" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["status"] = "";
+        }
+        if (!("priority" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["priority"] = "";
+        }
+        if (!("confirmationPolicy" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["confirmationPolicy"] = "";
+        }
+        if (!("notificationActions" in $$source)) {
+            /**
+             * @member
+             * @type {FlowNotificationAction[]}
+             */
+            this["notificationActions"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {{ [_ in string]?: string } | undefined}
+             */
+            this["payload"] = undefined;
+        }
+        if (!("evidence" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["evidence"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["dedupKey"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["source"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["decisionActionId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["decisionReason"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["confidence"] = undefined;
+        }
+        if (!("createdAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["createdAt"] = 0;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["updatedAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["expiresAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["snoozedUntil"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["decidedAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["executedAt"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowCandidateAction instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowCandidateAction}
+     */
+    static createFrom($$source = {}) {
+        const $$createField10_0 = $$createType25;
+        const $$createField11_0 = $$createType26;
+        const $$createField12_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("notificationActions" in $$parsedSource) {
+            $$parsedSource["notificationActions"] = $$createField10_0($$parsedSource["notificationActions"]);
+        }
+        if ("payload" in $$parsedSource) {
+            $$parsedSource["payload"] = $$createField11_0($$parsedSource["payload"]);
+        }
+        if ("evidence" in $$parsedSource) {
+            $$parsedSource["evidence"] = $$createField12_0($$parsedSource["evidence"]);
+        }
+        return new FlowCandidateAction(/** @type {Partial<FlowCandidateAction>} */($$parsedSource));
+    }
+}
+
+export class FlowCandidateActionDecisionRequest {
+    /**
+     * Creates a new FlowCandidateActionDecisionRequest instance.
+     * @param {Partial<FlowCandidateActionDecisionRequest>} [$$source = {}] - The source object to create the FlowCandidateActionDecisionRequest.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["actionId"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["decision"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["reason"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["snoozeMinutes"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowCandidateActionDecisionRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowCandidateActionDecisionRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowCandidateActionDecisionRequest(/** @type {Partial<FlowCandidateActionDecisionRequest>} */($$parsedSource));
+    }
+}
+
+export class FlowCandidateActionDecisionResult {
+    /**
+     * Creates a new FlowCandidateActionDecisionResult instance.
+     * @param {Partial<FlowCandidateActionDecisionResult>} [$$source = {}] - The source object to create the FlowCandidateActionDecisionResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {FlowCandidateAction | undefined}
+             */
+            this["action"] = undefined;
+        }
+        if (!("list" in $$source)) {
+            /**
+             * @member
+             * @type {FlowCandidateActionList}
+             */
+            this["list"] = (new FlowCandidateActionList());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowCandidateActionDecisionResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowCandidateActionDecisionResult}
+     */
+    static createFrom($$source = {}) {
+        const $$createField2_0 = $$createType19;
+        const $$createField3_0 = $$createType27;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("action" in $$parsedSource) {
+            $$parsedSource["action"] = $$createField2_0($$parsedSource["action"]);
+        }
+        if ("list" in $$parsedSource) {
+            $$parsedSource["list"] = $$createField3_0($$parsedSource["list"]);
+        }
+        return new FlowCandidateActionDecisionResult(/** @type {Partial<FlowCandidateActionDecisionResult>} */($$parsedSource));
+    }
+}
+
+export class FlowCandidateActionList {
+    /**
+     * Creates a new FlowCandidateActionList instance.
+     * @param {Partial<FlowCandidateActionList>} [$$source = {}] - The source object to create the FlowCandidateActionList.
+     */
+    constructor($$source = {}) {
+        if (!("items" in $$source)) {
+            /**
+             * @member
+             * @type {FlowCandidateAction[]}
+             */
+            this["items"] = [];
+        }
+        if (!("pending" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["pending"] = 0;
+        }
+        if (!("snoozed" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["snoozed"] = 0;
+        }
+        if (!("accepted" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["accepted"] = 0;
+        }
+        if (!("ignored" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["ignored"] = 0;
+        }
+        if (!("expired" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["expired"] = 0;
+        }
+        if (!("executed" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["executed"] = 0;
+        }
+        if (!("failed" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["failed"] = 0;
+        }
+        if (!("updatedAt" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["updatedAt"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowCandidateActionList instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowCandidateActionList}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType20;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("items" in $$parsedSource) {
+            $$parsedSource["items"] = $$createField0_0($$parsedSource["items"]);
+        }
+        return new FlowCandidateActionList(/** @type {Partial<FlowCandidateActionList>} */($$parsedSource));
+    }
+}
+
+export class FlowCandidateActionListRequest {
+    /**
+     * Creates a new FlowCandidateActionListRequest instance.
+     * @param {Partial<FlowCandidateActionListRequest>} [$$source = {}] - The source object to create the FlowCandidateActionListRequest.
+     */
+    constructor($$source = {}) {
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["status"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {boolean | undefined}
+             */
+            this["includeExpired"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["limit"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowCandidateActionListRequest instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowCandidateActionListRequest}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowCandidateActionListRequest(/** @type {Partial<FlowCandidateActionListRequest>} */($$parsedSource));
+    }
+}
+
 export class FlowConversation {
     /**
      * Creates a new FlowConversation instance.
@@ -2719,9 +3544,9 @@ export class FlowConversationAskResult {
      * @returns {FlowConversationAskResult}
      */
     static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType19;
-        const $$createField3_0 = $$createType21;
-        const $$createField4_0 = $$createType22;
+        const $$createField2_0 = $$createType28;
+        const $$createField3_0 = $$createType30;
+        const $$createField4_0 = $$createType31;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("conversation" in $$parsedSource) {
             $$parsedSource["conversation"] = $$createField2_0($$parsedSource["conversation"]);
@@ -2850,12 +3675,54 @@ export class FlowMessage {
      * @returns {FlowMessage}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType23;
+        const $$createField5_0 = $$createType32;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("result" in $$parsedSource) {
             $$parsedSource["result"] = $$createField5_0($$parsedSource["result"]);
         }
         return new FlowMessage(/** @type {Partial<FlowMessage>} */($$parsedSource));
+    }
+}
+
+export class FlowNotificationAction {
+    /**
+     * Creates a new FlowNotificationAction instance.
+     * @param {Partial<FlowNotificationAction>} [$$source = {}] - The source object to create the FlowNotificationAction.
+     */
+    constructor($$source = {}) {
+        if (!("id" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["id"] = "";
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("kind" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FlowNotificationAction instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FlowNotificationAction}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FlowNotificationAction(/** @type {Partial<FlowNotificationAction>} */($$parsedSource));
     }
 }
 
@@ -3204,8 +4071,8 @@ export class HealthSummary {
      * @returns {HealthSummary}
      */
     static createFrom($$source = {}) {
-        const $$createField24_0 = $$createType25;
-        const $$createField25_0 = $$createType27;
+        const $$createField24_0 = $$createType34;
+        const $$createField25_0 = $$createType36;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("appStats" in $$parsedSource) {
             $$parsedSource["appStats"] = $$createField24_0($$parsedSource["appStats"]);
@@ -3416,8 +4283,8 @@ export class ImportMaterialResult {
      * @returns {ImportMaterialResult}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType29;
-        const $$createField6_0 = $$createType31;
+        const $$createField5_0 = $$createType38;
+        const $$createField6_0 = $$createType40;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("entries" in $$parsedSource) {
             $$parsedSource["entries"] = $$createField5_0($$parsedSource["entries"]);
@@ -4127,8 +4994,8 @@ export class SelfModel {
      * @returns {SelfModel}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType33;
-        const $$createField1_0 = $$createType34;
+        const $$createField0_0 = $$createType42;
+        const $$createField1_0 = $$createType43;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("assertions" in $$parsedSource) {
             $$parsedSource["assertions"] = $$createField0_0($$parsedSource["assertions"]);
@@ -4184,7 +5051,7 @@ export class SelfModelSummary {
      * @returns {SelfModelSummary}
      */
     static createFrom($$source = {}) {
-        const $$createField1_0 = $$createType33;
+        const $$createField1_0 = $$createType42;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("included" in $$parsedSource) {
             $$parsedSource["included"] = $$createField1_0($$parsedSource["included"]);
@@ -4258,7 +5125,7 @@ export class SemanticSearchResult {
      * @returns {SemanticSearchResult}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType36;
+        const $$createField3_0 = $$createType45;
         const $$createField4_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("results" in $$parsedSource) {
@@ -4848,7 +5715,7 @@ export class TodoList {
      * @returns {TodoList}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType38;
+        const $$createField0_0 = $$createType47;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("items" in $$parsedSource) {
             $$parsedSource["items"] = $$createField0_0($$parsedSource["items"]);
@@ -5203,7 +6070,7 @@ export class WorkflowDraft {
      * @returns {WorkflowDraft}
      */
     static createFrom($$source = {}) {
-        const $$createField4_0 = $$createType40;
+        const $$createField4_0 = $$createType49;
         const $$createField7_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
@@ -5285,25 +6152,34 @@ const $$createType15 = FlowConversationContextMessage.createFrom;
 const $$createType16 = $Create.Array($$createType15);
 const $$createType17 = FlowAskEvidence.createFrom;
 const $$createType18 = $Create.Array($$createType17);
-const $$createType19 = FlowConversation.createFrom;
-const $$createType20 = FlowMessage.createFrom;
-const $$createType21 = $Create.Array($$createType20);
-const $$createType22 = FlowAskResponse.createFrom;
-const $$createType23 = $Create.Nullable($$createType22);
-const $$createType24 = HealthAppStat.createFrom;
+const $$createType19 = FlowCandidateAction.createFrom;
+const $$createType20 = $Create.Array($$createType19);
+const $$createType21 = FlowAutonomyStatus.createFrom;
+const $$createType22 = FlowAutonomyExtensionManifest.createFrom;
+const $$createType23 = $Create.Array($$createType22);
+const $$createType24 = FlowNotificationAction.createFrom;
 const $$createType25 = $Create.Array($$createType24);
-const $$createType26 = HealthRecentEvent.createFrom;
-const $$createType27 = $Create.Array($$createType26);
-const $$createType28 = Entry.createFrom;
-const $$createType29 = $Create.Array($$createType28);
-const $$createType30 = ImportMaterialItemResult.createFrom;
-const $$createType31 = $Create.Array($$createType30);
-const $$createType32 = SelfAssertion.createFrom;
-const $$createType33 = $Create.Array($$createType32);
-const $$createType34 = SelfModelSummary.createFrom;
-const $$createType35 = contracts$0.SearchResult.createFrom;
+const $$createType26 = $Create.Map($Create.Any, $Create.Any);
+const $$createType27 = FlowCandidateActionList.createFrom;
+const $$createType28 = FlowConversation.createFrom;
+const $$createType29 = FlowMessage.createFrom;
+const $$createType30 = $Create.Array($$createType29);
+const $$createType31 = FlowAskResponse.createFrom;
+const $$createType32 = $Create.Nullable($$createType31);
+const $$createType33 = HealthAppStat.createFrom;
+const $$createType34 = $Create.Array($$createType33);
+const $$createType35 = HealthRecentEvent.createFrom;
 const $$createType36 = $Create.Array($$createType35);
-const $$createType37 = TodoItem.createFrom;
+const $$createType37 = Entry.createFrom;
 const $$createType38 = $Create.Array($$createType37);
-const $$createType39 = WorkflowDraftStep.createFrom;
+const $$createType39 = ImportMaterialItemResult.createFrom;
 const $$createType40 = $Create.Array($$createType39);
+const $$createType41 = SelfAssertion.createFrom;
+const $$createType42 = $Create.Array($$createType41);
+const $$createType43 = SelfModelSummary.createFrom;
+const $$createType44 = contracts$0.SearchResult.createFrom;
+const $$createType45 = $Create.Array($$createType44);
+const $$createType46 = TodoItem.createFrom;
+const $$createType47 = $Create.Array($$createType46);
+const $$createType48 = WorkflowDraftStep.createFrom;
+const $$createType49 = $Create.Array($$createType48);

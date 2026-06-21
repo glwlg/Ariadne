@@ -13,13 +13,15 @@ import (
 )
 
 type memoryState struct {
-	Entries              []Entry
-	SelfAssertions       []SelfAssertion
-	Todos                []TodoItem
-	ExperienceDecisions  map[string]ExperienceDecision
-	AutonomousArtifacts  []AutonomousArtifact
-	AutonomousRejections map[string]AutonomousRejection
-	LastAutonomousRunAt  int64
+	Entries               []Entry
+	SelfAssertions        []SelfAssertion
+	Todos                 []TodoItem
+	ExperienceDecisions   map[string]ExperienceDecision
+	AutonomousArtifacts   []AutonomousArtifact
+	AutonomousRejections  map[string]AutonomousRejection
+	LastAutonomousRunAt   int64
+	FlowCandidateActions  []FlowCandidateAction
+	LastFlowAutonomyRunAt int64
 }
 
 func loadMemoryStateFromSQLite(path string, now func() time.Time) (memoryState, bool, error) {
@@ -36,26 +38,30 @@ func loadMemoryStateFromSQLite(path string, now func() time.Time) (memoryState, 
 		return state, ok, err
 	}
 	var legacy struct {
-		Version              int                            `json:"version"`
-		Entries              []Entry                        `json:"entries"`
-		SelfAssertions       []SelfAssertion                `json:"selfAssertions,omitempty"`
-		Todos                []TodoItem                     `json:"todos,omitempty"`
-		ExperienceDecisions  map[string]ExperienceDecision  `json:"experienceDecisions,omitempty"`
-		AutonomousArtifacts  []AutonomousArtifact           `json:"autonomousArtifacts,omitempty"`
-		AutonomousRejections map[string]AutonomousRejection `json:"autonomousRejections,omitempty"`
-		LastAutonomousRunAt  int64                          `json:"lastAutonomousRunAt,omitempty"`
+		Version               int                            `json:"version"`
+		Entries               []Entry                        `json:"entries"`
+		SelfAssertions        []SelfAssertion                `json:"selfAssertions,omitempty"`
+		Todos                 []TodoItem                     `json:"todos,omitempty"`
+		ExperienceDecisions   map[string]ExperienceDecision  `json:"experienceDecisions,omitempty"`
+		AutonomousArtifacts   []AutonomousArtifact           `json:"autonomousArtifacts,omitempty"`
+		AutonomousRejections  map[string]AutonomousRejection `json:"autonomousRejections,omitempty"`
+		LastAutonomousRunAt   int64                          `json:"lastAutonomousRunAt,omitempty"`
+		FlowCandidateActions  []FlowCandidateAction          `json:"flowCandidateActions,omitempty"`
+		LastFlowAutonomyRunAt int64                          `json:"lastFlowAutonomyRunAt,omitempty"`
 	}
 	if loaded, err := appdb.LegacyLoadJSON(path, "work_memory", &legacy); err != nil || !loaded {
 		return memoryState{}, false, err
 	}
 	state = memoryState{
-		Entries:              legacy.Entries,
-		SelfAssertions:       legacy.SelfAssertions,
-		Todos:                legacy.Todos,
-		ExperienceDecisions:  legacy.ExperienceDecisions,
-		AutonomousArtifacts:  legacy.AutonomousArtifacts,
-		AutonomousRejections: legacy.AutonomousRejections,
-		LastAutonomousRunAt:  legacy.LastAutonomousRunAt,
+		Entries:               legacy.Entries,
+		SelfAssertions:        legacy.SelfAssertions,
+		Todos:                 legacy.Todos,
+		ExperienceDecisions:   legacy.ExperienceDecisions,
+		AutonomousArtifacts:   legacy.AutonomousArtifacts,
+		AutonomousRejections:  legacy.AutonomousRejections,
+		LastAutonomousRunAt:   legacy.LastAutonomousRunAt,
+		FlowCandidateActions:  legacy.FlowCandidateActions,
+		LastFlowAutonomyRunAt: legacy.LastFlowAutonomyRunAt,
 	}
 	if err := saveMemoryStateToSQLite(path, state); err != nil {
 		return memoryState{}, false, err
@@ -85,6 +91,8 @@ func saveMemoryStateToSQLite(path string, state memoryState) error {
 			`DELETE FROM work_memory_autonomous_artifact_evidence`,
 			`DELETE FROM work_memory_autonomous_artifacts`,
 			`DELETE FROM work_memory_autonomous_rejections`,
+			`DELETE FROM work_memory_flow_candidate_action_evidence`,
+			`DELETE FROM work_memory_flow_candidate_actions`,
 			`DELETE FROM work_memory_meta`,
 			`DELETE FROM work_memory_entries`,
 		} {
@@ -122,8 +130,18 @@ func saveMemoryStateToSQLite(path string, state memoryState) error {
 				return err
 			}
 		}
-		return sqlitex.Execute(conn, `INSERT INTO work_memory_meta(key, int_value, text_value) VALUES ('last_autonomous_run_at', ?1, '')`, &sqlitex.ExecOptions{
+		for _, action := range state.FlowCandidateActions {
+			if err := insertFlowCandidateAction(conn, action); err != nil {
+				return err
+			}
+		}
+		if err := sqlitex.Execute(conn, `INSERT INTO work_memory_meta(key, int_value, text_value) VALUES ('last_autonomous_run_at', ?1, '')`, &sqlitex.ExecOptions{
 			Args: []any{state.LastAutonomousRunAt},
+		}); err != nil {
+			return err
+		}
+		return sqlitex.Execute(conn, `INSERT INTO work_memory_meta(key, int_value, text_value) VALUES ('last_flow_autonomy_run_at', ?1, '')`, &sqlitex.ExecOptions{
+			Args: []any{state.LastFlowAutonomyRunAt},
 		})
 	})
 }
@@ -270,6 +288,40 @@ CREATE TABLE IF NOT EXISTS work_memory_autonomous_rejections(
   reason TEXT NOT NULL DEFAULT '',
   rejected_at INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS work_memory_flow_candidate_actions(
+  id TEXT PRIMARY KEY,
+  extension_id TEXT NOT NULL DEFAULT '',
+  action_type TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  target TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  priority TEXT NOT NULL DEFAULT '',
+  confirmation_policy TEXT NOT NULL DEFAULT '',
+  notification_actions_json TEXT NOT NULL DEFAULT '',
+  payload_json TEXT NOT NULL DEFAULT '',
+  dedup_key TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  decision_action_id TEXT NOT NULL DEFAULT '',
+  decision_reason TEXT NOT NULL DEFAULT '',
+  confidence REAL NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL DEFAULT 0,
+  snoozed_until INTEGER NOT NULL DEFAULT 0,
+  decided_at INTEGER NOT NULL DEFAULT 0,
+  executed_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_work_memory_flow_candidate_actions_status ON work_memory_flow_candidate_actions(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_work_memory_flow_candidate_actions_dedup ON work_memory_flow_candidate_actions(dedup_key);
+CREATE TABLE IF NOT EXISTS work_memory_flow_candidate_action_evidence(
+  action_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY(action_id, position),
+  FOREIGN KEY(action_id) REFERENCES work_memory_flow_candidate_actions(id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS work_memory_meta(
   key TEXT PRIMARY KEY,
   int_value INTEGER NOT NULL DEFAULT 0,
@@ -399,9 +451,22 @@ func readMemoryState(conn *sqlite.Conn, now func() time.Time) (memoryState, bool
 	if err := readAutonomousRejections(conn, state.AutonomousRejections); err != nil {
 		return memoryState{}, false, err
 	}
+	actions, err := readFlowCandidateActions(conn, now)
+	if err != nil {
+		return memoryState{}, false, err
+	}
+	state.FlowCandidateActions = actions
 	if err := sqlitex.Execute(conn, `SELECT int_value FROM work_memory_meta WHERE key = 'last_autonomous_run_at'`, &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
 			state.LastAutonomousRunAt = stmt.ColumnInt64(0)
+			return nil
+		},
+	}); err != nil {
+		return memoryState{}, false, err
+	}
+	if err := sqlitex.Execute(conn, `SELECT int_value FROM work_memory_meta WHERE key = 'last_flow_autonomy_run_at'`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			state.LastFlowAutonomyRunAt = stmt.ColumnInt64(0)
 			return nil
 		},
 	}); err != nil {
@@ -419,6 +484,7 @@ func hasWorkMemoryRows(conn *sqlite.Conn) (bool, error) {
 		"work_memory_decisions",
 		"work_memory_autonomous_artifacts",
 		"work_memory_autonomous_rejections",
+		"work_memory_flow_candidate_actions",
 		"work_memory_meta",
 	} {
 		count := 0
@@ -933,6 +999,79 @@ func readAutonomousRejections(conn *sqlite.Conn, target map[string]AutonomousRej
 			return nil
 		},
 	})
+}
+
+func insertFlowCandidateAction(conn *sqlite.Conn, action FlowCandidateAction) error {
+	action = normalizeFlowCandidateAction(action, time.Now())
+	if action.ID == "" || action.ExtensionID == "" || action.ActionType == "" {
+		return nil
+	}
+	notificationActionsJSON, err := json.Marshal(action.NotificationActions)
+	if err != nil {
+		return err
+	}
+	payloadJSON, err := json.Marshal(action.Payload)
+	if err != nil {
+		return err
+	}
+	if err := sqlitex.Execute(conn, `INSERT INTO work_memory_flow_candidate_actions(id, extension_id, action_type, title, summary, body, target, status, priority, confirmation_policy, notification_actions_json, payload_json, dedup_key, source, decision_action_id, decision_reason, confidence, created_at, updated_at, expires_at, snoozed_until, decided_at, executed_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`, &sqlitex.ExecOptions{
+		Args: []any{action.ID, action.ExtensionID, action.ActionType, action.Title, action.Summary, action.Body, action.Target, action.Status, action.Priority, action.ConfirmationPolicy, string(notificationActionsJSON), string(payloadJSON), action.DedupKey, action.Source, action.DecisionActionID, action.DecisionReason, action.Confidence, action.CreatedAt, action.UpdatedAt, action.ExpiresAt, action.SnoozedUntil, action.DecidedAt, action.ExecutedAt},
+	}); err != nil {
+		return err
+	}
+	return insertWorkMemoryValues(conn, `work_memory_flow_candidate_action_evidence`, `action_id`, action.ID, action.Evidence)
+}
+
+func readFlowCandidateActions(conn *sqlite.Conn, now func() time.Time) ([]FlowCandidateAction, error) {
+	actions := []FlowCandidateAction{}
+	err := sqlitex.Execute(conn, `SELECT id, extension_id, action_type, title, summary, body, target, status, priority, confirmation_policy, notification_actions_json, payload_json, dedup_key, source, decision_action_id, decision_reason, confidence, created_at, updated_at, expires_at, snoozed_until, decided_at, executed_at FROM work_memory_flow_candidate_actions ORDER BY updated_at DESC, created_at DESC`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			action := FlowCandidateAction{
+				ID:                 stmt.ColumnText(0),
+				ExtensionID:        stmt.ColumnText(1),
+				ActionType:         stmt.ColumnText(2),
+				Title:              stmt.ColumnText(3),
+				Summary:            stmt.ColumnText(4),
+				Body:               stmt.ColumnText(5),
+				Target:             stmt.ColumnText(6),
+				Status:             stmt.ColumnText(7),
+				Priority:           stmt.ColumnText(8),
+				ConfirmationPolicy: stmt.ColumnText(9),
+				DedupKey:           stmt.ColumnText(12),
+				Source:             stmt.ColumnText(13),
+				DecisionActionID:   stmt.ColumnText(14),
+				DecisionReason:     stmt.ColumnText(15),
+				Confidence:         stmt.ColumnFloat(16),
+				CreatedAt:          stmt.ColumnInt64(17),
+				UpdatedAt:          stmt.ColumnInt64(18),
+				ExpiresAt:          stmt.ColumnInt64(19),
+				SnoozedUntil:       stmt.ColumnInt64(20),
+				DecidedAt:          stmt.ColumnInt64(21),
+				ExecutedAt:         stmt.ColumnInt64(22),
+			}
+			if raw := strings.TrimSpace(stmt.ColumnText(10)); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &action.NotificationActions)
+			}
+			if raw := strings.TrimSpace(stmt.ColumnText(11)); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &action.Payload)
+			}
+			actions = append(actions, action)
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	for index := range actions {
+		evidence, err := readWorkMemoryValues(conn, `work_memory_flow_candidate_action_evidence`, `action_id`, actions[index].ID)
+		if err != nil {
+			return nil, err
+		}
+		actions[index].Evidence = evidence
+		actions[index] = normalizeFlowCandidateAction(actions[index], now())
+	}
+	return actions, nil
 }
 
 func insertWorkMemoryValues(conn *sqlite.Conn, table string, idColumn string, id string, values []string) error {

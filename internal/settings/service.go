@@ -89,6 +89,13 @@ type WorkMemorySettings struct {
 	ExperienceDiscoveryDays    int                           `json:"experienceDiscoveryDays"`
 	SkillSuggestionEnabled     bool                          `json:"skillSuggestionEnabled"`
 	WorkflowSuggestionEnabled  bool                          `json:"workflowSuggestionEnabled"`
+	FlowAutonomyEnabled        bool                          `json:"flowAutonomyEnabled"`
+	FlowCommunicationAssist    bool                          `json:"flowCommunicationAssist"`
+	FlowTextQualityAssist      bool                          `json:"flowTextQualityAssist"`
+	FlowCandidateTTLHours      int                           `json:"flowCandidateTtlHours"`
+	FlowCandidateCooldownMin   int                           `json:"flowCandidateCooldownMinutes"`
+	FlowDefaultSnoozeMin       int                           `json:"flowDefaultSnoozeMinutes"`
+	FlowNotifyLowRiskAutomatic bool                          `json:"flowNotifyLowRiskAutomatic"`
 	RetentionDays              int                           `json:"retentionDays"`
 	ThumbnailRetentionDays     int                           `json:"thumbnailRetentionDays"`
 	MaxStorageMB               int                           `json:"maxStorageMb"`
@@ -116,7 +123,7 @@ type PluginSettings struct {
 	Enabled map[string]bool `json:"enabled"`
 }
 
-const currentSettingsVersion = 14
+const currentSettingsVersion = 15
 
 type AppSettings struct {
 	Version    int                `json:"version"`
@@ -628,6 +635,13 @@ func defaultSettings() AppSettings {
 			ExperienceDiscoveryDays:    7,
 			SkillSuggestionEnabled:     true,
 			WorkflowSuggestionEnabled:  true,
+			FlowAutonomyEnabled:        true,
+			FlowCommunicationAssist:    true,
+			FlowTextQualityAssist:      true,
+			FlowCandidateTTLHours:      8,
+			FlowCandidateCooldownMin:   15,
+			FlowDefaultSnoozeMin:       30,
+			FlowNotifyLowRiskAutomatic: false,
 			RetentionDays:              30,
 			ThumbnailRetentionDays:     90,
 			MaxStorageMB:               1024,
@@ -720,6 +734,9 @@ func normalizeSettings(value AppSettings) AppSettings {
 	value.WorkMemory.IdlePauseSeconds = clamp(value.WorkMemory.IdlePauseSeconds, 30, 86400, defaults.WorkMemory.IdlePauseSeconds)
 	value.WorkMemory.DraftScheduleIntervalMin = clamp(value.WorkMemory.DraftScheduleIntervalMin, 15, 1440, defaults.WorkMemory.DraftScheduleIntervalMin)
 	value.WorkMemory.ExperienceDiscoveryDays = clamp(value.WorkMemory.ExperienceDiscoveryDays, 1, 365, defaults.WorkMemory.ExperienceDiscoveryDays)
+	value.WorkMemory.FlowCandidateTTLHours = clamp(value.WorkMemory.FlowCandidateTTLHours, 1, 168, defaults.WorkMemory.FlowCandidateTTLHours)
+	value.WorkMemory.FlowCandidateCooldownMin = clamp(value.WorkMemory.FlowCandidateCooldownMin, 1, 1440, defaults.WorkMemory.FlowCandidateCooldownMin)
+	value.WorkMemory.FlowDefaultSnoozeMin = clamp(value.WorkMemory.FlowDefaultSnoozeMin, 5, 1440, defaults.WorkMemory.FlowDefaultSnoozeMin)
 	value.WorkMemory.RetentionDays = clamp(value.WorkMemory.RetentionDays, 1, 3650, defaults.WorkMemory.RetentionDays)
 	value.WorkMemory.ThumbnailRetentionDays = clamp(value.WorkMemory.ThumbnailRetentionDays, 1, 3650, defaults.WorkMemory.ThumbnailRetentionDays)
 	value.WorkMemory.MaxStorageMB = clamp(value.WorkMemory.MaxStorageMB, 128, 1024*1024, defaults.WorkMemory.MaxStorageMB)
@@ -848,6 +865,10 @@ func migrateSettings(value AppSettings) AppSettings {
 	if value.Version < 14 {
 		defaults := defaultSettings()
 		value.AI.AgentResponsesEnabled = defaults.AI.AgentResponsesEnabled
+	}
+	if value.Version < 15 {
+		defaults := defaultSettings()
+		value.WorkMemory.FlowTextQualityAssist = defaults.WorkMemory.FlowTextQualityAssist
 	}
 	return value
 }

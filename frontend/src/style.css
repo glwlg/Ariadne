@@ -7237,6 +7237,139 @@ html.window-controls-visible .flow-shell {
   background: rgba(219, 234, 254, 0.9);
 }
 
+.flow-action-inbox {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.flow-action-inbox header,
+.flow-action-kicker,
+.flow-action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.flow-action-inbox header div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.flow-action-inbox header span,
+.flow-action-kicker span {
+  color: #020617;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.flow-action-inbox header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-action-inbox header button {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.9);
+  color: #334155;
+}
+
+.flow-action-inbox header button:disabled,
+.flow-action-buttons button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.flow-action-list {
+  max-height: 250px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.flow-action-item {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  padding: 9px;
+  background: rgba(248, 250, 252, 0.74);
+}
+
+.flow-action-kicker small,
+.flow-action-empty {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.flow-action-item strong,
+.flow-action-item p,
+.flow-action-empty {
+  min-width: 0;
+  margin: 0;
+}
+
+.flow-action-item strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-action-item p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.flow-action-buttons {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.flow-action-buttons button {
+  min-height: 28px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  padding: 0 9px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 740;
+}
+
+.flow-action-buttons button.is-primary {
+  border-color: rgba(20, 184, 166, 0.28);
+  background: rgba(20, 184, 166, 0.1);
+  color: #0f766e;
+}
+
+.flow-action-buttons button.is-quiet {
+  color: #64748b;
+}
+
 .flow-canvas-history {
   flex: 1 1 auto;
   min-height: 0;

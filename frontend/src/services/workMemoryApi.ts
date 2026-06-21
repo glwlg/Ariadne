@@ -5,6 +5,16 @@ import type {
   ExperienceDiscoveryRequest,
   ExperienceDiscoveryResult,
   ExperienceReport,
+  FlowAutonomyRunResult,
+  FlowAutonomyStatus,
+  FlowCandidateAction,
+  FlowCandidateActionDecisionRequest,
+  FlowCandidateActionDecisionResult,
+  FlowCandidateActionList,
+  FlowCandidateActionListRequest,
+  FlowCandidateActionStatus,
+  FlowCandidateActionType,
+  FlowNotificationAction,
   SearchResult,
   ScheduledDraftStatus,
   WorkflowDraft,
@@ -186,6 +196,74 @@ let fallbackAutonomousArtifacts: WorkMemoryAutonomousArtifact[] = [
   },
 ]
 
+let fallbackFlowAutonomyStatus: FlowAutonomyStatus = {
+  enabled: true,
+  privacyMode: false,
+  pending: 1,
+  snoozed: 0,
+  expired: 0,
+  executed: 0,
+  extensions: [
+    {
+      id: 'flow.communication_assist',
+      name: '沟通辅助',
+      description: '从沟通留痕、OCR 和剪贴板生成待确认动作。',
+      enabled: true,
+      eventSources: ['work_memory.entry_upserted', 'clipboard.entry', 'ocr.text_ready'],
+      readScopes: ['communication_window_trace', 'clipboard_text', 'ocr_text'],
+      actionTypes: ['prepare_reply', 'follow_up_candidate', 'fact_check_warning'],
+      confirmationPolicy: 'confirm_before_user_visible_change',
+      ttlSeconds: 28800,
+      cooldownSeconds: 900,
+    },
+    {
+      id: 'flow.text_quality',
+      name: '表达检查',
+      description: '识别沟通文本里的明显重复和标点问题。',
+      enabled: true,
+      eventSources: ['work_memory.entry_upserted', 'clipboard.entry', 'ocr.text_ready'],
+      readScopes: ['communication_window_trace', 'clipboard_text', 'ocr_text'],
+      actionTypes: ['text_polish_hint'],
+      confirmationPolicy: 'confirm_before_user_visible_change',
+      ttlSeconds: 7200,
+      cooldownSeconds: 900,
+    },
+  ],
+  notifyLowRiskAutomatic: false,
+  candidateTtlHours: 8,
+  candidateCooldownMinutes: 15,
+  defaultSnoozeMinutes: 30,
+  updatedAt: fallbackEntry.createdAt,
+}
+
+let fallbackFlowCandidateActions: FlowCandidateAction[] = [
+  {
+    id: 'flow-action-fallback-follow-up',
+    extensionId: 'flow.communication_assist',
+    actionType: 'follow_up_candidate',
+    title: '跟进：我稍后确认网关配置',
+    summary: '发现一条可能需要跟进的沟通承诺。',
+    body: '我稍后确认网关配置并同步结果。',
+    target: '沟通跟进',
+    status: 'pending',
+    priority: 'normal',
+    confirmationPolicy: 'confirm',
+    notificationActions: [
+      { id: 'add', label: '添加', kind: 'primary' },
+      { id: 'later', label: '稍后', kind: 'secondary' },
+      { id: 'ignore', label: '忽略', kind: 'quiet' },
+    ],
+    payload: { entryId: fallbackEntry.id, todoTitle: '跟进：我稍后确认网关配置' },
+    evidence: [fallbackEntry.id],
+    dedupKey: 'fallback-follow-up',
+    source: 'fallback',
+    confidence: 0.62,
+    createdAt: fallbackEntry.createdAt,
+    updatedAt: fallbackEntry.createdAt,
+    expiresAt: fallbackEntry.createdAt + 8 * 3600,
+  },
+]
+
 let fallbackSemanticStatus: WorkMemorySemanticStatus = {
   enabled: true,
   provider: 'sqlite_fts5+local_term_vector',
@@ -267,6 +345,62 @@ export async function getAutonomousArtifacts(): Promise<WorkMemoryAutonomousArti
     }
   }
   return fallbackAutonomousArtifacts
+}
+
+export async function getFlowAutonomyStatus(): Promise<FlowAutonomyStatus> {
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowAutonomyStatus(await binding.FlowAutonomyStatus())
+    } catch {
+      return normalizeFlowAutonomyStatus(fallbackFlowAutonomyStatus)
+    }
+  }
+  return normalizeFlowAutonomyStatus(fallbackFlowAutonomyStatus)
+}
+
+export async function listFlowCandidateActions(request: FlowCandidateActionListRequest = {}): Promise<FlowCandidateActionList> {
+  const normalized = normalizeFlowCandidateActionListRequest(request)
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowCandidateActionList(await binding.FlowCandidateActions(normalized))
+    } catch {
+      return fallbackFlowCandidateActionList(normalized)
+    }
+  }
+  return fallbackFlowCandidateActionList(normalized)
+}
+
+export async function runFlowAutonomyNow(): Promise<FlowAutonomyRunResult> {
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowAutonomyRunResult(await binding.RunFlowAutonomyNow())
+    } catch {
+      return fallbackRunFlowAutonomy()
+    }
+  }
+  return fallbackRunFlowAutonomy()
+}
+
+export async function decideFlowCandidateAction(request: FlowCandidateActionDecisionRequest): Promise<FlowCandidateActionDecisionResult> {
+  const normalized: FlowCandidateActionDecisionRequest = {
+    id: request.id.trim(),
+    actionId: request.actionId?.trim() || '',
+    decision: normalizeFlowCandidateStatus(request.decision),
+    reason: request.reason?.trim() || '',
+    snoozeMinutes: Number(request.snoozeMinutes ?? 0),
+  }
+  const binding = await tryWorkMemoryBinding()
+  if (binding) {
+    try {
+      return normalizeFlowCandidateActionDecisionResult(await binding.DecideFlowCandidateAction(normalized))
+    } catch {
+      return fallbackDecideFlowCandidateAction(normalized)
+    }
+  }
+  return fallbackDecideFlowCandidateAction(normalized)
 }
 
 export async function runAutonomousFlowNow(): Promise<WorkMemoryAutonomousRunResult> {
@@ -1774,6 +1908,268 @@ function normalizeAutonomousRejectResult(result: WorkMemoryAutonomousRejectResul
       ...(result?.status ?? fallbackScheduledDraftStatus),
       autonomousGenerated: Number(result?.status?.autonomousGenerated ?? 0),
     },
+  }
+}
+
+function normalizeFlowAutonomyStatus(status: FlowAutonomyStatus): FlowAutonomyStatus {
+  const extensions = Array.isArray(status?.extensions)
+    ? status.extensions.map((extension) => ({
+        id: extension?.id || '',
+        name: extension?.name || extension?.id || '',
+        description: extension?.description || '',
+        enabled: Boolean(extension?.enabled),
+        eventSources: Array.isArray(extension?.eventSources) ? extension.eventSources.map(String).filter(Boolean) : [],
+        readScopes: Array.isArray(extension?.readScopes) ? extension.readScopes.map(String).filter(Boolean) : [],
+        actionTypes: Array.isArray(extension?.actionTypes) ? extension.actionTypes.map(String).filter(Boolean) : [],
+        confirmationPolicy: extension?.confirmationPolicy || 'confirm',
+        ttlSeconds: Number(extension?.ttlSeconds ?? 0),
+        cooldownSeconds: Number(extension?.cooldownSeconds ?? 0),
+      }))
+    : []
+  return {
+    enabled: Boolean(status?.enabled),
+    privacyMode: Boolean(status?.privacyMode),
+    lastRunAt: Number(status?.lastRunAt ?? 0),
+    lastMessage: status?.lastMessage || '',
+    pending: Number(status?.pending ?? 0),
+    snoozed: Number(status?.snoozed ?? 0),
+    expired: Number(status?.expired ?? 0),
+    executed: Number(status?.executed ?? 0),
+    extensions,
+    notifyLowRiskAutomatic: Boolean(status?.notifyLowRiskAutomatic),
+    candidateTtlHours: Number(status?.candidateTtlHours ?? fallbackFlowAutonomyStatus.candidateTtlHours),
+    candidateCooldownMinutes: Number(status?.candidateCooldownMinutes ?? fallbackFlowAutonomyStatus.candidateCooldownMinutes),
+    defaultSnoozeMinutes: Number(status?.defaultSnoozeMinutes ?? fallbackFlowAutonomyStatus.defaultSnoozeMinutes),
+    updatedAt: Number(status?.updatedAt ?? Math.floor(Date.now() / 1000)),
+  }
+}
+
+function normalizeFlowCandidateActionListRequest(request: FlowCandidateActionListRequest): FlowCandidateActionListRequest {
+  return {
+    status: normalizeFlowCandidateStatus(request.status),
+    includeExpired: Boolean(request.includeExpired),
+    limit: Number(request.limit ?? 50),
+  }
+}
+
+function normalizeFlowCandidateStatus(value?: string): FlowCandidateActionStatus | '' {
+  const normalized = String(value || '').trim() as FlowCandidateActionStatus | ''
+  return normalized === 'pending' ||
+    normalized === 'accepted' ||
+    normalized === 'snoozed' ||
+    normalized === 'ignored' ||
+    normalized === 'expired' ||
+    normalized === 'dismissed_by_rule' ||
+    normalized === 'executed' ||
+    normalized === 'failed'
+    ? normalized
+    : ''
+}
+
+function normalizeFlowCandidateActionType(value?: string): FlowCandidateActionType {
+  const normalized = String(value || '').trim()
+  return normalized || 'prepare_reply'
+}
+
+function normalizeFlowNotificationActions(actions: FlowNotificationAction[] | undefined): FlowNotificationAction[] {
+  if (!Array.isArray(actions)) {
+    return [{ id: 'open_flow', label: '打开心流', kind: 'secondary' }]
+  }
+  const normalized = actions
+    .map((action) => ({
+      id: String(action?.id || '').trim(),
+      label: String(action?.label || '').trim(),
+      kind: String(action?.kind || 'secondary').trim(),
+    }))
+    .filter((action) => action.id && action.label)
+  return normalized.length ? normalized : [{ id: 'open_flow', label: '打开心流', kind: 'secondary' }]
+}
+
+function normalizeFlowCandidateAction(action: FlowCandidateAction): FlowCandidateAction {
+  const now = Math.floor(Date.now() / 1000)
+  return {
+    id: action?.id || '',
+    extensionId: action?.extensionId || '',
+    actionType: normalizeFlowCandidateActionType(action?.actionType),
+    title: action?.title || '待确认动作',
+    summary: action?.summary || '',
+    body: action?.body || '',
+    target: action?.target || '',
+    status: normalizeFlowCandidateStatus(action?.status) || 'pending',
+    priority: action?.priority || 'normal',
+    confirmationPolicy: action?.confirmationPolicy || 'confirm',
+    notificationActions: normalizeFlowNotificationActions(action?.notificationActions),
+    payload: action?.payload && typeof action.payload === 'object' ? Object.fromEntries(Object.entries(action.payload).map(([key, value]) => [key, String(value)])) : undefined,
+    evidence: Array.isArray(action?.evidence) ? action.evidence.map(String).filter(Boolean) : [],
+    dedupKey: action?.dedupKey || '',
+    source: action?.source || '',
+    decisionActionId: action?.decisionActionId || '',
+    decisionReason: action?.decisionReason || '',
+    confidence: Number(action?.confidence ?? 0),
+    createdAt: Number(action?.createdAt ?? now),
+    updatedAt: Number(action?.updatedAt ?? action?.createdAt ?? now),
+    expiresAt: Number(action?.expiresAt ?? 0),
+    snoozedUntil: Number(action?.snoozedUntil ?? 0),
+    decidedAt: Number(action?.decidedAt ?? 0),
+    executedAt: Number(action?.executedAt ?? 0),
+  }
+}
+
+function normalizeFlowCandidateActionList(list: FlowCandidateActionList): FlowCandidateActionList {
+  return {
+    items: Array.isArray(list?.items) ? list.items.map(normalizeFlowCandidateAction).filter((action) => action.id) : [],
+    pending: Number(list?.pending ?? 0),
+    snoozed: Number(list?.snoozed ?? 0),
+    accepted: Number(list?.accepted ?? 0),
+    ignored: Number(list?.ignored ?? 0),
+    expired: Number(list?.expired ?? 0),
+    executed: Number(list?.executed ?? 0),
+    failed: Number(list?.failed ?? 0),
+    updatedAt: Number(list?.updatedAt ?? Math.floor(Date.now() / 1000)),
+  }
+}
+
+function normalizeFlowAutonomyRunResult(result: FlowAutonomyRunResult): FlowAutonomyRunResult {
+  return {
+    ok: Boolean(result?.ok),
+    message: result?.message || '',
+    generated: Number(result?.generated ?? 0),
+    skipped: Number(result?.skipped ?? 0),
+    expired: Number(result?.expired ?? 0),
+    actions: Array.isArray(result?.actions) ? result.actions.map(normalizeFlowCandidateAction).filter((action) => action.id) : [],
+    status: normalizeFlowAutonomyStatus(result?.status ?? fallbackFlowAutonomyStatus),
+    createdAt: Number(result?.createdAt ?? Math.floor(Date.now() / 1000)),
+  }
+}
+
+function normalizeFlowCandidateActionDecisionResult(result: FlowCandidateActionDecisionResult): FlowCandidateActionDecisionResult {
+  return {
+    ok: Boolean(result?.ok),
+    message: result?.message || '',
+    action: result?.action ? normalizeFlowCandidateAction(result.action) : undefined,
+    list: normalizeFlowCandidateActionList(result?.list ?? fallbackFlowCandidateActionList({})),
+  }
+}
+
+function fallbackFlowCandidateActionList(request: FlowCandidateActionListRequest): FlowCandidateActionList {
+  const now = Math.floor(Date.now() / 1000)
+  const actions = fallbackFlowCandidateActions.map(normalizeFlowCandidateAction).map((action) => {
+    if ((action.status === 'pending' || action.status === 'snoozed') && action.expiresAt && action.expiresAt <= now) {
+      return { ...action, status: 'expired' as FlowCandidateActionStatus, updatedAt: now }
+    }
+    if (action.status === 'snoozed' && action.snoozedUntil && action.snoozedUntil <= now) {
+      return { ...action, status: 'pending' as FlowCandidateActionStatus, snoozedUntil: 0, updatedAt: now }
+    }
+    return action
+  })
+  fallbackFlowCandidateActions = actions
+  const list: FlowCandidateActionList = {
+    items: [],
+    pending: actions.filter((action) => action.status === 'pending').length,
+    snoozed: actions.filter((action) => action.status === 'snoozed').length,
+    accepted: actions.filter((action) => action.status === 'accepted').length,
+    ignored: actions.filter((action) => action.status === 'ignored' || action.status === 'dismissed_by_rule').length,
+    expired: actions.filter((action) => action.status === 'expired').length,
+    executed: actions.filter((action) => action.status === 'executed').length,
+    failed: actions.filter((action) => action.status === 'failed').length,
+    updatedAt: now,
+  }
+  const status = normalizeFlowCandidateStatus(request.status)
+  const limit = Math.max(1, Number(request.limit ?? 50))
+  list.items = actions
+    .filter((action) => (status ? action.status === status : action.status === 'pending'))
+    .filter((action) => request.includeExpired || action.status !== 'expired')
+    .slice(0, limit)
+  fallbackFlowAutonomyStatus = {
+    ...fallbackFlowAutonomyStatus,
+    pending: list.pending,
+    snoozed: list.snoozed,
+    expired: list.expired,
+    executed: list.executed,
+    updatedAt: now,
+  }
+  return list
+}
+
+function fallbackRunFlowAutonomy(): FlowAutonomyRunResult {
+  const now = Math.floor(Date.now() / 1000)
+  const list = fallbackFlowCandidateActionList({})
+  fallbackFlowAutonomyStatus = {
+    ...fallbackFlowAutonomyStatus,
+    lastRunAt: now,
+    lastMessage: list.pending ? `有 ${list.pending} 个待确认动作` : '暂无待确认动作',
+    updatedAt: now,
+  }
+  return {
+    ok: true,
+    message: fallbackFlowAutonomyStatus.lastMessage || '',
+    generated: list.pending,
+    skipped: 0,
+    expired: list.expired,
+    actions: list.items,
+    status: fallbackFlowAutonomyStatus,
+    createdAt: now,
+  }
+}
+
+function fallbackDecideFlowCandidateAction(request: FlowCandidateActionDecisionRequest): FlowCandidateActionDecisionResult {
+  const now = Math.floor(Date.now() / 1000)
+  const index = fallbackFlowCandidateActions.findIndex((action) => action.id === request.id)
+  if (index < 0) {
+    return {
+      ok: false,
+      message: '未找到待确认动作',
+      list: fallbackFlowCandidateActionList({}),
+    }
+  }
+  const current = normalizeFlowCandidateAction(fallbackFlowCandidateActions[index])
+  const actionId = request.actionId || ''
+  let nextStatus: FlowCandidateActionStatus = 'accepted'
+  let message = '已接受'
+  if (actionId === 'later' || request.decision === 'snoozed') {
+    nextStatus = 'snoozed'
+    message = '已稍后提醒'
+  } else if (actionId === 'ignore' || request.decision === 'ignored') {
+    nextStatus = 'ignored'
+    message = '已忽略'
+  } else if (actionId === 'dismiss_rule' || request.decision === 'dismissed_by_rule') {
+    nextStatus = 'dismissed_by_rule'
+    message = '已关闭此类提示'
+  } else if (actionId === 'add' && current.actionType === 'follow_up_candidate') {
+    nextStatus = 'executed'
+    message = '已添加待办'
+    fallbackTodos = [
+      {
+        id: `todo-flow-${now}`,
+        title: current.payload?.todoTitle || current.title,
+        note: current.body || current.summary,
+        status: 'open',
+        priority: 'normal',
+        scope: current.target || '沟通跟进',
+        source: 'flow_autonomy',
+        evidence: current.evidence,
+        createdAt: now,
+        updatedAt: now,
+      },
+      ...fallbackTodos,
+    ]
+  }
+  const updated: FlowCandidateAction = {
+    ...current,
+    status: nextStatus,
+    decisionActionId: actionId,
+    decisionReason: request.reason || '',
+    snoozedUntil: nextStatus === 'snoozed' ? now + Math.max(5, Number(request.snoozeMinutes || fallbackFlowAutonomyStatus.defaultSnoozeMinutes)) * 60 : 0,
+    decidedAt: now,
+    executedAt: nextStatus === 'executed' ? now : 0,
+    updatedAt: now,
+  }
+  fallbackFlowCandidateActions[index] = updated
+  return {
+    ok: true,
+    message,
+    action: updated,
+    list: fallbackFlowCandidateActionList({}),
   }
 }
 

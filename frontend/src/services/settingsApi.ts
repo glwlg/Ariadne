@@ -1,7 +1,7 @@
 import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/ariadne'
 
 const fallbackSettings: AppSettings = {
-  version: 13,
+  version: 15,
   general: {
     theme: 'light',
     runOnStartup: false,
@@ -49,6 +49,13 @@ const fallbackSettings: AppSettings = {
     experienceDiscoveryDays: 7,
     skillSuggestionEnabled: true,
     workflowSuggestionEnabled: true,
+    flowAutonomyEnabled: true,
+    flowCommunicationAssist: true,
+    flowTextQualityAssist: true,
+    flowCandidateTtlHours: 8,
+    flowCandidateCooldownMinutes: 15,
+    flowDefaultSnoozeMinutes: 30,
+    flowNotifyLowRiskAutomatic: false,
     retentionDays: 30,
     thumbnailRetentionDays: 90,
     maxStorageMb: 1024,

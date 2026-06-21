@@ -2718,6 +2718,250 @@ func TestAutonomousFlowRunsOncePerDayWithoutForcing(t *testing.T) {
 	}
 }
 
+func TestFlowAutonomyGeneratesCommunicationCandidateBeforeTodo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work_memory.json")
+	now := time.Date(2026, 6, 21, 10, 0, 0, 0, time.Local)
+	service := NewServiceWithPath(path, nil)
+	defer service.Stop()
+	events := make(chan ChangeEvent, 4)
+	RegisterChangeObserver(service, func(event ChangeEvent) {
+		events <- event
+	})
+	service.now = func() time.Time { return now }
+	service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
+		Enabled:                    true,
+		CommunicationAssistEnabled: true,
+		CandidateTTLHours:          8,
+		CandidateCooldownMinutes:   1,
+		DefaultSnoozeMinutes:       30,
+	})
+
+	service.addEntry(Entry{
+		ID:          "memory-chat-follow-up",
+		Source:      "clipboard",
+		ContentType: "text",
+		Title:       "企业微信消息",
+		Summary:     "我稍后把接口文档发你",
+		Text:        "我稍后把接口文档发你",
+		WindowTitle: "企业微信 - 项目群",
+		AppName:     "WXWork.exe",
+		CreatedAt:   now.Unix(),
+	})
+	createdEvent := waitChangeEventForTest(t, events, "flow_candidate_created", "")
+	if createdEvent.FlowCandidateID == "" || createdEvent.FlowCandidateAction == nil {
+		t.Fatalf("expected flow candidate event payload, got %#v", createdEvent)
+	}
+
+	candidates := service.FlowCandidateActions(FlowCandidateActionListRequest{})
+	if candidates.Pending != 1 || len(candidates.Items) != 1 {
+		t.Fatalf("expected one pending candidate, got %#v", candidates)
+	}
+	if candidates.Items[0].ActionType != flowCandidateActionFollowUp {
+		t.Fatalf("expected follow-up candidate, got %#v", candidates.Items[0])
+	}
+	if todos := service.Todos(TodoListRequest{IncludeDone: true}); len(todos.Items) != 0 {
+		t.Fatalf("candidate should not enter formal todos before accept: %#v", todos.Items)
+	}
+
+	accepted := service.DecideFlowCandidateAction(FlowCandidateActionDecisionRequest{
+		ID:       candidates.Items[0].ID,
+		ActionID: "add",
+	})
+	if !accepted.OK || accepted.Action.Status != flowCandidateStatusExecuted {
+		t.Fatalf("expected executed accepted candidate, got %#v", accepted)
+	}
+	todos := service.Todos(TodoListRequest{IncludeDone: true})
+	if len(todos.Items) != 1 || todos.Items[0].Source != "flow_autonomy" {
+		t.Fatalf("accepted follow-up should create one flow autonomy todo, got %#v", todos.Items)
+	}
+	service.Stop()
+
+	reloaded := NewServiceWithPath(path, nil)
+	defer reloaded.Stop()
+	reloadedTodos := reloaded.Todos(TodoListRequest{IncludeDone: true})
+	if len(reloadedTodos.Items) != 1 || reloadedTodos.Items[0].Title != todos.Items[0].Title {
+		t.Fatalf("expected persisted autonomy todo, got %#v", reloadedTodos.Items)
+	}
+	allActions := reloaded.FlowCandidateActions(FlowCandidateActionListRequest{Status: flowCandidateStatusExecuted, IncludeExpired: true})
+	if len(allActions.Items) != 1 || allActions.Items[0].Status != flowCandidateStatusExecuted {
+		t.Fatalf("expected persisted executed candidate, got %#v", allActions)
+	}
+}
+
+func TestFlowAutonomyCandidateExpiresWithoutTodoClutter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work_memory.json")
+	now := time.Date(2026, 6, 21, 10, 0, 0, 0, time.Local)
+	service := NewServiceWithPath(path, nil)
+	defer service.Stop()
+	service.now = func() time.Time { return now }
+	service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
+		Enabled:                    true,
+		CommunicationAssistEnabled: true,
+		CandidateTTLHours:          1,
+		CandidateCooldownMinutes:   1,
+		DefaultSnoozeMinutes:       30,
+	})
+
+	service.addEntry(Entry{
+		ID:          "memory-chat-expiring-follow-up",
+		Source:      "clipboard",
+		ContentType: "text",
+		Title:       "飞书消息",
+		Summary:     "我一会确认这个部署窗口",
+		Text:        "我一会确认这个部署窗口",
+		WindowTitle: "飞书 - 运维群",
+		AppName:     "Lark.exe",
+		CreatedAt:   now.Unix(),
+	})
+	if list := service.FlowCandidateActions(FlowCandidateActionListRequest{}); list.Pending != 1 {
+		t.Fatalf("expected pending candidate before expiry, got %#v", list)
+	}
+
+	now = now.Add(2 * time.Hour)
+	active := service.FlowCandidateActions(FlowCandidateActionListRequest{})
+	if active.Pending != 0 || len(active.Items) != 0 {
+		t.Fatalf("expired candidate should leave active list, got %#v", active)
+	}
+	history := service.FlowCandidateActions(FlowCandidateActionListRequest{Status: flowCandidateStatusExpired, IncludeExpired: true})
+	if history.Expired != 1 || len(history.Items) != 1 {
+		t.Fatalf("expired candidate should remain in history, got %#v", history)
+	}
+	if todos := service.Todos(TodoListRequest{IncludeDone: true}); len(todos.Items) != 0 {
+		t.Fatalf("expired candidate should not create todos, got %#v", todos.Items)
+	}
+}
+
+func TestFlowAutonomyCommunicationAssistExtensionCanBeDisabled(t *testing.T) {
+	now := time.Date(2026, 6, 21, 10, 0, 0, 0, time.Local)
+	service := NewServiceWithPath("", nil)
+	defer service.Stop()
+	service.now = func() time.Time { return now }
+	status := service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
+		Enabled:                    true,
+		CommunicationAssistEnabled: false,
+		TextQualityAssistEnabled:   true,
+		CandidateTTLHours:          8,
+		CandidateCooldownMinutes:   1,
+		DefaultSnoozeMinutes:       30,
+	})
+	if manifest, ok := flowAutonomyManifestByID(status.Extensions, flowAutonomyExtensionCommunicationAssist); !ok || manifest.Enabled {
+		t.Fatalf("expected disabled communication extension manifest, got %#v", status.Extensions)
+	}
+
+	service.addEntry(Entry{
+		ID:          "memory-chat-disabled-follow-up",
+		Source:      "clipboard",
+		ContentType: "text",
+		Title:       "企业微信消息",
+		Summary:     "我稍后把接口文档发你",
+		Text:        "我稍后把接口文档发你",
+		WindowTitle: "企业微信 - 项目群",
+		AppName:     "WXWork.exe",
+		CreatedAt:   now.Unix(),
+	})
+	if list := service.FlowCandidateActions(FlowCandidateActionListRequest{}); list.Pending != 0 || len(list.Items) != 0 {
+		t.Fatalf("disabled communication extension should not generate candidates, got %#v", list)
+	}
+}
+
+func TestFlowAutonomyTextQualityGeneratesPolishHint(t *testing.T) {
+	now := time.Date(2026, 6, 21, 10, 0, 0, 0, time.Local)
+	service := NewServiceWithPath("", nil)
+	defer service.Stop()
+	service.now = func() time.Time { return now }
+	service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
+		Enabled:                    true,
+		CommunicationAssistEnabled: false,
+		TextQualityAssistEnabled:   true,
+		CandidateTTLHours:          8,
+		CandidateCooldownMinutes:   1,
+		DefaultSnoozeMinutes:       30,
+	})
+
+	service.addEntry(Entry{
+		ID:          "memory-chat-polish",
+		Source:      "clipboard",
+		ContentType: "text",
+		Title:       "企业微信消息",
+		Summary:     "麻烦你帮我看下下这个接口？？",
+		Text:        "麻烦你帮我看下下这个接口？？",
+		WindowTitle: "企业微信 - 项目群",
+		AppName:     "WXWork.exe",
+		CreatedAt:   now.Unix(),
+	})
+
+	list := service.FlowCandidateActions(FlowCandidateActionListRequest{})
+	if list.Pending != 1 || len(list.Items) != 1 {
+		t.Fatalf("expected one text quality candidate, got %#v", list)
+	}
+	action := list.Items[0]
+	if action.ExtensionID != flowAutonomyExtensionTextQuality || action.ActionType != flowCandidateActionTextPolishHint {
+		t.Fatalf("expected text polish candidate, got %#v", action)
+	}
+	if strings.Contains(action.Payload["suggestedText"], "下下") || strings.Contains(action.Payload["suggestedText"], "？？") {
+		t.Fatalf("expected corrected suggestion, got %#v", action.Payload)
+	}
+}
+
+func TestFlowAutonomyTextQualityCanBeDisabled(t *testing.T) {
+	now := time.Date(2026, 6, 21, 10, 0, 0, 0, time.Local)
+	service := NewServiceWithPath("", nil)
+	defer service.Stop()
+	service.now = func() time.Time { return now }
+	status := service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
+		Enabled:                    true,
+		CommunicationAssistEnabled: false,
+		TextQualityAssistEnabled:   false,
+		CandidateTTLHours:          8,
+		CandidateCooldownMinutes:   1,
+		DefaultSnoozeMinutes:       30,
+	})
+	if manifest, ok := flowAutonomyManifestByID(status.Extensions, flowAutonomyExtensionTextQuality); !ok || manifest.Enabled {
+		t.Fatalf("expected disabled text quality extension manifest, got %#v", status.Extensions)
+	}
+
+	service.addEntry(Entry{
+		ID:          "memory-chat-polish-disabled",
+		Source:      "clipboard",
+		ContentType: "text",
+		Title:       "企业微信消息",
+		Summary:     "麻烦你帮我看下下这个接口？？",
+		Text:        "麻烦你帮我看下下这个接口？？",
+		WindowTitle: "企业微信 - 项目群",
+		AppName:     "WXWork.exe",
+		CreatedAt:   now.Unix(),
+	})
+	if list := service.FlowCandidateActions(FlowCandidateActionListRequest{}); list.Pending != 0 || len(list.Items) != 0 {
+		t.Fatalf("disabled text quality extension should not generate candidates, got %#v", list)
+	}
+}
+
+func TestFlowAutonomyAllowsExtensionActionTypes(t *testing.T) {
+	action := normalizeFlowCandidateAction(FlowCandidateAction{
+		ExtensionID:        "flow.custom_extension",
+		ActionType:         "custom.check_fact",
+		Title:              "检查事实",
+		Status:             flowCandidateStatusPending,
+		ConfirmationPolicy: "confirm",
+		DedupKey:           "flow.custom_extension:custom.check_fact:abc",
+	}, time.Date(2026, 6, 21, 10, 0, 0, 0, time.Local))
+	if action.ActionType != "custom.check_fact" {
+		t.Fatalf("expected custom extension action type to survive normalization, got %#v", action)
+	}
+	if normalizeFlowCandidateActionType("bad action!") != "" {
+		t.Fatal("invalid action type should still be rejected")
+	}
+}
+
+func flowAutonomyManifestByID(manifests []FlowAutonomyExtensionManifest, id string) (FlowAutonomyExtensionManifest, bool) {
+	for _, manifest := range manifests {
+		if manifest.ID == id {
+			return manifest, true
+		}
+	}
+	return FlowAutonomyExtensionManifest{}, false
+}
+
 func TestSemanticSearchFindsRelatedTechnicalMemory(t *testing.T) {
 	service := NewServiceWithPath("", nil)
 	service.addEntry(Entry{

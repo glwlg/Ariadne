@@ -1,0 +1,9 @@
+# Flow autonomy uses configurable built-in extensions
+
+Ariadne Flow should move from passive conversation toward controllable autonomous execution: it should reduce context switches by noticing local work signals and, when allowed, preparing or performing low-risk actions instead of waiting for the user to ask. The Flow Autonomy Core owns only runtime boundaries, including event intake, permission policy, scheduling, cooldowns, candidate-action lifecycle, notifications, expiry, execution dispatch, and decision logs; specific capabilities must live in configurable Flow extensions declared by manifests, with third-party scripts deferred. The first built-in extension is communication assistance over communication-window traces, OCR, and clipboard context, producing actions such as `prepare_reply`, `follow_up_candidate`, `fact_check_warning`, and `text_polish_hint`, while excluding send interception, automatic sending, excluded apps, and permission bypass.
+
+**Consequences**
+
+Each extension needs a manifest for its switch, subscribed event sources, read scope, action types, confirmation policy, TTL, cooldown, and notification actions. Candidate actions move through `pending`, `accepted`, `snoozed`, `ignored`, `expired`, `dismissed_by_rule`, `executed`, or `failed`, and pending items should auto-expire instead of becoming permanent todo clutter. Low-risk automatic work is logged silently by default; system notifications are reserved for communication-related actions, user decisions, failures, or unusual repeated behavior, and every notification keeps a `打开心流` fallback.
+
+Work Memory remains the context and trace source, while Flow Autonomy schedules extensions and enforces policy. The agent may help interpret context or prepare content, but it cannot bypass extension manifests, user settings, or local permission policy.

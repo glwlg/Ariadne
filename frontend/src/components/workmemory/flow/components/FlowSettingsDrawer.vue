@@ -40,7 +40,7 @@ const {
               <div>
                 <span>FLOW SETTINGS</span>
                 <h2>心流设置</h2>
-                <p>采集、索引、模型和隐私边界只在这里维护，通用设置中心不再重复展示。</p>
+                <p>管理采集、索引、模型和隐私边界。</p>
               </div>
               <button type="button" class="flow-icon-button" aria-label="关闭心流设置" @click="flowSettingsOpen = false">
                 <X :size="16" />
@@ -125,6 +125,30 @@ const {
                     <strong>经验发现</strong>
                     <small>后台归纳重复问题和可优化流程。</small>
                   </label>
+                  <label class="flow-setting-switch">
+                    <input v-model="settings.settings.workMemory.flowAutonomyEnabled" type="checkbox" />
+                    <span />
+                    <strong>主动动作</strong>
+                    <small>从本地留痕生成待确认动作，可接受、稍后或忽略。</small>
+                  </label>
+                  <label class="flow-setting-switch">
+                    <input v-model="settings.settings.workMemory.flowCommunicationAssist" type="checkbox" />
+                    <span />
+                    <strong>沟通辅助</strong>
+                    <small>识别沟通中的待回复和跟进线索。</small>
+                  </label>
+                  <label class="flow-setting-switch">
+                    <input v-model="settings.settings.workMemory.flowTextQualityAssist" type="checkbox" />
+                    <span />
+                    <strong>表达检查</strong>
+                    <small>识别沟通文本里的明显重复和标点问题。</small>
+                  </label>
+                  <label class="flow-setting-switch">
+                    <input v-model="settings.settings.workMemory.flowNotifyLowRiskAutomatic" type="checkbox" />
+                    <span />
+                    <strong>低风险动作通知</strong>
+                    <small>低风险动作完成后也显示通知。</small>
+                  </label>
                 </div>
 
                 <div class="flow-settings-field-grid">
@@ -139,6 +163,18 @@ const {
                   <label class="flow-setting-field">
                     <span>整理间隔分钟</span>
                     <input v-model.number="settings.settings.workMemory.draftScheduleIntervalMinutes" type="number" min="15" />
+                  </label>
+                  <label class="flow-setting-field">
+                    <span>主动动作过期小时</span>
+                    <input v-model.number="settings.settings.workMemory.flowCandidateTtlHours" type="number" min="1" max="168" />
+                  </label>
+                  <label class="flow-setting-field">
+                    <span>主动动作冷却分钟</span>
+                    <input v-model.number="settings.settings.workMemory.flowCandidateCooldownMinutes" type="number" min="1" max="1440" />
+                  </label>
+                  <label class="flow-setting-field">
+                    <span>稍后提醒分钟</span>
+                    <input v-model.number="settings.settings.workMemory.flowDefaultSnoozeMinutes" type="number" min="5" max="1440" />
                   </label>
                   <label class="flow-setting-field">
                     <span>截图质量</span>

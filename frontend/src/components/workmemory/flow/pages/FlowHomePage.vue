@@ -8,6 +8,7 @@ const {
   Check,
   Copy,
   Plus,
+  RefreshCw,
   Sparkles,
   Trash2,
   X,
@@ -21,6 +22,9 @@ const {
   flowBusy,
   flowCanvasActiveId,
   flowCanvasPrimaryEntry,
+  flowCandidateActionLabel,
+  flowCandidateInboxSummary,
+  flowCandidateTimeLabel,
   flowChatInputRef,
   flowChatIsEmpty,
   flowChatMessages,
@@ -43,6 +47,7 @@ const {
   flowSelectionLabel,
   flowSuggestedQuestions,
   focusFlowChatInput,
+  handleFlowCandidateAction,
   handleFlowMessageClick,
   isFlowMessageSelectable,
   isFlowMessageSelected,
@@ -51,6 +56,7 @@ const {
   rememberFlowContextMessage,
   rememberSelectedFlowMessages,
   removeFlowConversation,
+  runFlowAutonomy,
   selectFlowConversation,
   selectedFlowChatMessages,
   startFlowConversation,
@@ -76,6 +82,40 @@ void flowChatThreadRef
                 <Plus :size="15" />
                 新对话
               </button>
+              <section class="flow-action-inbox" aria-label="主动动作">
+                <header>
+                  <div>
+                    <span>主动动作</span>
+                    <strong>{{ flowCandidateInboxSummary() }}</strong>
+                  </div>
+                  <button type="button" :disabled="memory.isRunningFlowAutonomy" title="检查主动动作" @click.stop="runFlowAutonomy()">
+                    <RefreshCw :size="14" />
+                  </button>
+                </header>
+                <div v-if="memory.flowCandidateActions?.items.length" class="flow-action-list">
+                  <article v-for="action in memory.flowCandidateActions.items.slice(0, 3)" :key="action.id" class="flow-action-item">
+                    <div class="flow-action-kicker">
+                      <span>{{ flowCandidateActionLabel(action.actionType) }}</span>
+                      <small>{{ flowCandidateTimeLabel(action) }}</small>
+                    </div>
+                    <strong>{{ action.title }}</strong>
+                    <p>{{ action.summary }}</p>
+                    <div class="flow-action-buttons">
+                      <button
+                        v-for="notificationAction in action.notificationActions"
+                        :key="notificationAction.id"
+                        type="button"
+                        :class="`is-${notificationAction.kind || 'secondary'}`"
+                        :disabled="memory.isDecidingFlowCandidate"
+                        @click.stop="handleFlowCandidateAction(action, notificationAction)"
+                      >
+                        {{ notificationAction.label }}
+                      </button>
+                    </div>
+                  </article>
+                </div>
+                <p v-else class="flow-action-empty">暂无待确认动作。</p>
+              </section>
               <div class="flow-canvas-history" :class="{ 'is-empty': !flowConversations.length }" data-no-drag>
                 <article
                   v-for="conversation in flowConversations"

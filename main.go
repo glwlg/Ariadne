@@ -18,6 +18,7 @@ import (
 	"ariadne/internal/clipboardhistory"
 	"ariadne/internal/contracts"
 	"ariadne/internal/filesearch"
+	"ariadne/internal/flownotify"
 	"ariadne/internal/hosts"
 	"ariadne/internal/imageindex"
 	"ariadne/internal/jsoncompare"
@@ -41,6 +42,7 @@ import (
 	"ariadne/internal/workmemorycli"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 //go:embed all:frontend/dist
@@ -207,6 +209,12 @@ func main() {
 			return appLogStatus(logService.Status())
 		}),
 	)
+	notificationService := notifications.New()
+	flowNotificationDispatcher := flownotify.New(workMemoryService, notificationService, func() {
+		if result := toolWindowService.Open("work-memory"); !result.OK {
+			log.Printf("open flow from notification: %s", result.Message)
+		}
+	})
 
 	app := application.New(application.Options{
 		Name:        "Ariadne",
@@ -252,6 +260,7 @@ func main() {
 			application.NewService(settingsService),
 			application.NewService(workMemoryService),
 			application.NewService(platformService),
+			application.NewService(notificationService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -259,6 +268,7 @@ func main() {
 	})
 	workmemory.RegisterChangeObserver(workMemoryService, func(event workmemory.ChangeEvent) {
 		app.Event.Emit("ariadne:work-memory-changed", event)
+		flowNotificationDispatcher.HandleWorkMemoryEvent(event)
 	})
 	captureOverlayService.Attach(app)
 	pinnedImageService.Attach(app)
@@ -455,6 +465,15 @@ func applyWorkMemoryRuntime(service *workmemory.Service, config settings.WorkMem
 		RetrospectiveEnabled:    config.RetroDraftScheduleEnabled,
 		ExperienceReportEnabled: config.ExperienceScheduleEnabled,
 		ExperiencePeriodDays:    config.ExperienceDiscoveryDays,
+	})
+	service.ApplyFlowAutonomyPolicy(workmemory.FlowAutonomyPolicy{
+		Enabled:                      config.FlowAutonomyEnabled,
+		CommunicationAssistEnabled:   config.FlowCommunicationAssist,
+		TextQualityAssistEnabled:     config.FlowTextQualityAssist,
+		CandidateTTLHours:            config.FlowCandidateTTLHours,
+		CandidateCooldownMinutes:     config.FlowCandidateCooldownMin,
+		DefaultSnoozeMinutes:         config.FlowDefaultSnoozeMin,
+		NotifyLowRiskAutomaticAction: config.FlowNotifyLowRiskAutomatic,
 	})
 }
 

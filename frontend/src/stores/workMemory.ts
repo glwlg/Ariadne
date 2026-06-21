@@ -7,6 +7,7 @@ import {
   captureCurrentScreen,
   captureTimeMachineNow,
   clearUnpinnedWorkMemory,
+  decideFlowCandidateAction,
   deleteWorkMemoryEntry,
   discoverExperiences,
   discoverExperiencesAI,
@@ -19,6 +20,7 @@ import {
   generateRetrospectiveDraft,
   generateWorkflowDraft,
   getAutonomousArtifacts,
+  getFlowAutonomyStatus,
   getWorkMemoryFlowConversations,
   getWorkMemoryFlowMessages,
   getWorkMemorySelfModel,
@@ -28,6 +30,7 @@ import {
   getWorkMemoryStatus,
   getWorkMemoryTimeline,
   listWorkMemoryTodos,
+  listFlowCandidateActions,
   importWorkMemoryMaterials,
   askWorkMemoryFlow,
   askWorkMemoryFlowConversation,
@@ -37,6 +40,7 @@ import {
   refreshEmbeddingIndex,
   rejectAutonomousArtifact as rejectAutonomousArtifactApi,
   runAutonomousFlowNow,
+  runFlowAutonomyNow,
   runScheduledDraftsNow,
   searchWorkMemory,
   semanticSearchExternal,
@@ -63,6 +67,12 @@ import type {
   ExperienceInsight,
   ExperienceDiscoveryResult,
   ExperienceReport,
+  FlowAutonomyRunResult,
+  FlowAutonomyStatus,
+  FlowCandidateAction,
+  FlowCandidateActionDecisionResult,
+  FlowCandidateActionList,
+  FlowNotificationAction,
   OCRResult,
   SearchResult,
   ScheduledDraftStatus,
@@ -129,6 +139,10 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const scheduledDraftStatus = ref<ScheduledDraftStatus | null>(null)
   const autonomousArtifacts = ref<WorkMemoryAutonomousArtifact[]>([])
   const autonomousRunResult = ref<WorkMemoryAutonomousRunResult | null>(null)
+  const flowAutonomyStatus = ref<FlowAutonomyStatus | null>(null)
+  const flowCandidateActions = ref<FlowCandidateActionList | null>(null)
+  const flowAutonomyRunResult = ref<FlowAutonomyRunResult | null>(null)
+  const flowCandidateDecisionResult = ref<FlowCandidateActionDecisionResult | null>(null)
   const health = ref<WorkMemoryHealthSummary | null>(null)
   const semanticStatus = ref<WorkMemorySemanticStatus | null>(null)
   const embeddingRefreshResult = ref<WorkMemoryEmbeddingRefreshResult | null>(null)
@@ -202,6 +216,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   const isSavingExclusions = ref(false)
   const isRunningScheduledDrafts = ref(false)
   const isRunningAutonomousFlow = ref(false)
+  const isRunningFlowAutonomy = ref(false)
+  const isDecidingFlowCandidate = ref(false)
   const isPolishingDailyDraft = ref(false)
   const isRefreshingEmbedding = ref(false)
   const isSemanticSearching = ref(false)
@@ -325,12 +341,26 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
   async function load() {
     isLoading.value = true
     try {
-      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth, nextFlowConversations, nextSelfModel, nextTodoList] = await Promise.all([
+      const [
+        nextStatus,
+        nextEntries,
+        nextScheduledDrafts,
+        nextSemanticStatus,
+        nextAutonomousArtifacts,
+        nextFlowAutonomyStatus,
+        nextFlowCandidateActions,
+        nextHealth,
+        nextFlowConversations,
+        nextSelfModel,
+        nextTodoList,
+      ] = await Promise.all([
         getWorkMemoryStatus(),
         getWorkMemoryTimeline(),
         getScheduledDraftStatus(),
         getSemanticStatus(),
         getAutonomousArtifacts(),
+        getFlowAutonomyStatus(),
+        listFlowCandidateActions({ limit: 20 }),
         getWorkMemoryHealth(),
         getWorkMemoryFlowConversations(),
         getWorkMemorySelfModel(),
@@ -341,6 +371,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       scheduledDraftStatus.value = nextScheduledDrafts
       semanticStatus.value = nextSemanticStatus
       autonomousArtifacts.value = nextAutonomousArtifacts
+      flowAutonomyStatus.value = nextFlowAutonomyStatus
+      flowCandidateActions.value = nextFlowCandidateActions
       health.value = nextHealth
       flowConversations.value = nextFlowConversations
       selfModel.value = nextSelfModel
@@ -409,12 +441,26 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     liveRefreshInFlight = true
     try {
       const previousSelectedId = selectedId.value
-      const [nextStatus, nextEntries, nextScheduledDrafts, nextSemanticStatus, nextAutonomousArtifacts, nextHealth, nextFlowConversations, nextSelfModel, nextTodoList] = await Promise.all([
+      const [
+        nextStatus,
+        nextEntries,
+        nextScheduledDrafts,
+        nextSemanticStatus,
+        nextAutonomousArtifacts,
+        nextFlowAutonomyStatus,
+        nextFlowCandidateActions,
+        nextHealth,
+        nextFlowConversations,
+        nextSelfModel,
+        nextTodoList,
+      ] = await Promise.all([
         getWorkMemoryStatus(),
         getWorkMemoryTimeline(),
         getScheduledDraftStatus(),
         getSemanticStatus(),
         getAutonomousArtifacts(),
+        getFlowAutonomyStatus(),
+        listFlowCandidateActions({ limit: 20 }),
         getWorkMemoryHealth(),
         getWorkMemoryFlowConversations(),
         getWorkMemorySelfModel(),
@@ -425,6 +471,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       scheduledDraftStatus.value = nextScheduledDrafts
       semanticStatus.value = nextSemanticStatus
       autonomousArtifacts.value = nextAutonomousArtifacts
+      flowAutonomyStatus.value = nextFlowAutonomyStatus
+      flowCandidateActions.value = nextFlowCandidateActions
       health.value = nextHealth
       flowConversations.value = nextFlowConversations
       selfModel.value = nextSelfModel
@@ -957,6 +1005,75 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
       return null
     } finally {
       isRunningAutonomousFlow.value = false
+    }
+  }
+
+  async function refreshFlowCandidateActions() {
+    try {
+      const [nextStatus, nextActions] = await Promise.all([getFlowAutonomyStatus(), listFlowCandidateActions({ limit: 20 })])
+      flowAutonomyStatus.value = nextStatus
+      flowCandidateActions.value = nextActions
+      return nextActions
+    } catch {
+      showFeedback('主动动作刷新失败')
+      return null
+    }
+  }
+
+  async function runFlowAutonomy() {
+    isRunningFlowAutonomy.value = true
+    try {
+      const result = await runFlowAutonomyNow()
+      flowAutonomyRunResult.value = result
+      flowAutonomyStatus.value = result.status
+      flowCandidateActions.value = await listFlowCandidateActions({ limit: 20 })
+      showFeedback(result.message || (result.generated ? `已生成 ${result.generated} 个待确认动作` : '暂无待确认动作'))
+      return result
+    } catch {
+      showFeedback('主动动作扫描失败')
+      return null
+    } finally {
+      isRunningFlowAutonomy.value = false
+    }
+  }
+
+  async function handleFlowCandidateAction(action: FlowCandidateAction, notificationAction: FlowNotificationAction) {
+    const actionId = notificationAction.id
+    if (actionId === 'open' || actionId === 'view' || actionId === 'open_flow') {
+      const entryId = action.evidence[0] || action.payload?.entryId || ''
+      if (entryId) {
+        selectedId.value = entryId
+        await loadSelectedImage()
+      }
+      showFeedback(entryId ? '已打开关联留痕' : '已停留在心流')
+      return null
+    }
+    if (actionId === 'copy' || actionId === 'copy_revision') {
+      const text = action.payload?.copyText || action.body || action.summary || action.title
+      if (text) {
+        await Clipboard.SetText(text)
+      }
+    }
+    isDecidingFlowCandidate.value = true
+    try {
+      const result = await decideFlowCandidateAction({
+        id: action.id,
+        actionId,
+        snoozeMinutes: flowAutonomyStatus.value?.defaultSnoozeMinutes ?? 30,
+      })
+      flowCandidateDecisionResult.value = result
+      flowCandidateActions.value = result.list
+      flowAutonomyStatus.value = await getFlowAutonomyStatus()
+      if (actionId === 'add' && result.ok) {
+        todoList.value = await listWorkMemoryTodos({ includeDone: true, limit: 300 })
+      }
+      showFeedback(result.message || (result.ok ? '主动动作已处理' : '主动动作处理失败'))
+      return result
+    } catch {
+      showFeedback('主动动作处理失败')
+      return null
+    } finally {
+      isDecidingFlowCandidate.value = false
     }
   }
 
@@ -1923,6 +2040,10 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     scheduledDraftStatus,
     autonomousArtifacts,
     autonomousRunResult,
+    flowAutonomyStatus,
+    flowCandidateActions,
+    flowAutonomyRunResult,
+    flowCandidateDecisionResult,
     health,
     semanticStatus,
     embeddingRefreshResult,
@@ -1976,6 +2097,8 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     isSavingExclusions,
     isRunningScheduledDrafts,
     isRunningAutonomousFlow,
+    isRunningFlowAutonomy,
+    isDecidingFlowCandidate,
     isPolishingDailyDraft,
     isRefreshingEmbedding,
     isSemanticSearching,
@@ -2031,6 +2154,9 @@ export const useWorkMemoryStore = defineStore('work-memory', () => {
     polishDailyDraft,
     runScheduledDrafts,
     runAutonomousFlow,
+    refreshFlowCandidateActions,
+    runFlowAutonomy,
+    handleFlowCandidateAction,
     rejectAutonomousArtifact,
     refreshEmbedding,
     runSemanticSearch,

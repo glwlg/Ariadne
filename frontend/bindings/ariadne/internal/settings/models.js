@@ -948,6 +948,55 @@ export class WorkMemorySettings {
              */
             this["workflowSuggestionEnabled"] = false;
         }
+        if (!("flowAutonomyEnabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["flowAutonomyEnabled"] = false;
+        }
+        if (!("flowCommunicationAssist" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["flowCommunicationAssist"] = false;
+        }
+        if (!("flowTextQualityAssist" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["flowTextQualityAssist"] = false;
+        }
+        if (!("flowCandidateTtlHours" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["flowCandidateTtlHours"] = 0;
+        }
+        if (!("flowCandidateCooldownMinutes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["flowCandidateCooldownMinutes"] = 0;
+        }
+        if (!("flowDefaultSnoozeMinutes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["flowDefaultSnoozeMinutes"] = 0;
+        }
+        if (!("flowNotifyLowRiskAutomatic" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["flowNotifyLowRiskAutomatic"] = false;
+        }
         if (!("retentionDays" in $$source)) {
             /**
              * @member
@@ -1036,29 +1085,29 @@ export class WorkMemorySettings {
      */
     static createFrom($$source = {}) {
         const $$createField5_0 = $$createType9;
-        const $$createField32_0 = $$createType6;
-        const $$createField33_0 = $$createType6;
-        const $$createField34_0 = $$createType6;
-        const $$createField35_0 = $$createType6;
-        const $$createField36_0 = $$createType6;
+        const $$createField39_0 = $$createType6;
+        const $$createField40_0 = $$createType6;
+        const $$createField41_0 = $$createType6;
+        const $$createField42_0 = $$createType6;
+        const $$createField43_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("appCaptureProfiles" in $$parsedSource) {
             $$parsedSource["appCaptureProfiles"] = $$createField5_0($$parsedSource["appCaptureProfiles"]);
         }
         if ("excludeApps" in $$parsedSource) {
-            $$parsedSource["excludeApps"] = $$createField32_0($$parsedSource["excludeApps"]);
+            $$parsedSource["excludeApps"] = $$createField39_0($$parsedSource["excludeApps"]);
         }
         if ("excludeWindowKeywords" in $$parsedSource) {
-            $$parsedSource["excludeWindowKeywords"] = $$createField33_0($$parsedSource["excludeWindowKeywords"]);
+            $$parsedSource["excludeWindowKeywords"] = $$createField40_0($$parsedSource["excludeWindowKeywords"]);
         }
         if ("excludePaths" in $$parsedSource) {
-            $$parsedSource["excludePaths"] = $$createField34_0($$parsedSource["excludePaths"]);
+            $$parsedSource["excludePaths"] = $$createField41_0($$parsedSource["excludePaths"]);
         }
         if ("excludeUrls" in $$parsedSource) {
-            $$parsedSource["excludeUrls"] = $$createField35_0($$parsedSource["excludeUrls"]);
+            $$parsedSource["excludeUrls"] = $$createField42_0($$parsedSource["excludeUrls"]);
         }
         if ("excludeContentPatterns" in $$parsedSource) {
-            $$parsedSource["excludeContentPatterns"] = $$createField36_0($$parsedSource["excludeContentPatterns"]);
+            $$parsedSource["excludeContentPatterns"] = $$createField43_0($$parsedSource["excludeContentPatterns"]);
         }
         return new WorkMemorySettings(/** @type {Partial<WorkMemorySettings>} */($$parsedSource));
     }

@@ -811,11 +811,13 @@ type AutoOCRProcessor func(Entry) Entry
 type ChangeObserver func(ChangeEvent)
 
 type ChangeEvent struct {
-	Kind       string `json:"kind"`
-	EntryID    string `json:"entryId,omitempty"`
-	Source     string `json:"source,omitempty"`
-	EntryCount int    `json:"entryCount"`
-	CreatedAt  int64  `json:"createdAt"`
+	Kind                string               `json:"kind"`
+	EntryID             string               `json:"entryId,omitempty"`
+	Source              string               `json:"source,omitempty"`
+	EntryCount          int                  `json:"entryCount"`
+	CreatedAt           int64                `json:"createdAt"`
+	FlowCandidateID     string               `json:"flowCandidateId,omitempty"`
+	FlowCandidateAction *FlowCandidateAction `json:"flowCandidateAction,omitempty"`
 }
 
 type embeddingRecord struct {
@@ -847,6 +849,9 @@ type Service struct {
 	autonomousArtifacts           []AutonomousArtifact
 	autonomousRejections          map[string]AutonomousRejection
 	lastAutonomousRunAt           int64
+	flowAutonomyPolicy            FlowAutonomyPolicy
+	flowCandidateActions          []FlowCandidateAction
+	lastFlowAutonomyRunAt         int64
 	capturer                      ScreenCapturer
 	maxEntries                    int
 	interval                      time.Duration
@@ -919,6 +924,7 @@ func NewServiceWithPath(path string, capturer ScreenCapturer) *Service {
 			ExperiencePeriodDays:    7,
 		},
 		draftScheduleInterval: 240 * time.Minute,
+		flowAutonomyPolicy:    defaultFlowAutonomyPolicy(),
 		now:                   time.Now,
 		context:               defaultWindowContextProvider(),
 		activity:              defaultActivityProvider(),
@@ -986,6 +992,18 @@ func (s *Service) changeEventForEntryLocked(kind string, entry Entry) ChangeEven
 		Source:     strings.TrimSpace(entry.Source),
 		EntryCount: len(s.entries),
 		CreatedAt:  firstPositiveInt64(entry.LastMergedAt, entry.CreatedAt, s.now().Unix()),
+	}
+}
+
+func (s *Service) changeEventForFlowCandidateLocked(kind string, action FlowCandidateAction) ChangeEvent {
+	action = cloneFlowCandidateAction(action)
+	return ChangeEvent{
+		Kind:                strings.TrimSpace(kind),
+		Source:              strings.TrimSpace(action.Source),
+		EntryCount:          len(s.entries),
+		CreatedAt:           firstPositiveInt64(action.UpdatedAt, action.CreatedAt, s.now().Unix()),
+		FlowCandidateID:     strings.TrimSpace(action.ID),
+		FlowCandidateAction: &action,
 	}
 }
 
@@ -3948,8 +3966,12 @@ func (s *Service) addEntry(entry Entry) Entry {
 			s.currentWindowSessionEntryID = entry.ID
 		}
 	}
+	flowAutonomyResult := s.maybeRunFlowAutonomyForNewEntryLocked(entry)
 	s.refreshEntryCountLocked()
 	s.saveLockedWithStatus()
+	for _, action := range flowAutonomyResult.Actions {
+		s.notifyChangeObservers(s.changeEventForFlowCandidateLocked("flow_candidate_created", action))
+	}
 	s.notifyChangeObservers(s.changeEventForEntryLocked("entry_upserted", entry))
 	return entry
 }
@@ -5176,6 +5198,7 @@ func (s *Service) load() bool {
 	s.decisions = map[string]ExperienceDecision{}
 	s.autonomousArtifacts = nil
 	s.autonomousRejections = map[string]AutonomousRejection{}
+	s.flowCandidateActions = nil
 	for key, decision := range state.ExperienceDecisions {
 		decision = normalizeExperienceDecision(key, decision)
 		if decision.InsightID != "" && decision.Status != "" {
@@ -5197,6 +5220,13 @@ func (s *Service) load() bool {
 		s.autonomousRejections[key] = rejection
 	}
 	s.lastAutonomousRunAt = state.LastAutonomousRunAt
+	s.lastFlowAutonomyRunAt = state.LastFlowAutonomyRunAt
+	for _, action := range state.FlowCandidateActions {
+		action = normalizeFlowCandidateAction(action, s.now())
+		if action.ID != "" {
+			s.flowCandidateActions = append(s.flowCandidateActions, action)
+		}
+	}
 	for _, entry := range state.Entries {
 		entry = normalizeEntry(entry)
 		if entry.ID != "" {
@@ -5237,13 +5267,15 @@ func (s *Service) saveLocked() error {
 		return nil
 	}
 	state := memoryState{
-		Entries:              s.entries,
-		SelfAssertions:       cloneSelfAssertions(s.selfAssertions),
-		Todos:                cloneTodoItems(s.todoItems),
-		ExperienceDecisions:  cloneExperienceDecisions(s.decisions),
-		AutonomousArtifacts:  cloneAutonomousArtifacts(s.autonomousArtifacts),
-		AutonomousRejections: cloneAutonomousRejections(s.autonomousRejections),
-		LastAutonomousRunAt:  s.lastAutonomousRunAt,
+		Entries:               s.entries,
+		SelfAssertions:        cloneSelfAssertions(s.selfAssertions),
+		Todos:                 cloneTodoItems(s.todoItems),
+		ExperienceDecisions:   cloneExperienceDecisions(s.decisions),
+		AutonomousArtifacts:   cloneAutonomousArtifacts(s.autonomousArtifacts),
+		AutonomousRejections:  cloneAutonomousRejections(s.autonomousRejections),
+		LastAutonomousRunAt:   s.lastAutonomousRunAt,
+		FlowCandidateActions:  cloneFlowCandidateActions(s.flowCandidateActions),
+		LastFlowAutonomyRunAt: s.lastFlowAutonomyRunAt,
 	}
 	return saveMemoryStateToSQLite(s.path, state)
 }

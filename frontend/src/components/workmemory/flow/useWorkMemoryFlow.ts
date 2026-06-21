@@ -39,6 +39,8 @@ import { getCaptureThumbnailDataURL } from '../../../services/captureApi'
 import type {
   AgentTaskPackage,
   ExperienceInsight,
+  FlowCandidateAction,
+  FlowNotificationAction,
   WorkMemoryAppCaptureProfile,
   WorkMemoryAutonomousArtifact,
   WorkMemoryEntry,
@@ -1482,6 +1484,42 @@ export function useWorkMemoryFlow() {
   async function runAutonomousFlow() {
     await memory.runAutonomousFlow()
   }
+
+  function flowCandidateActionLabel(type: string) {
+    const labels: Record<string, string> = {
+      prepare_reply: '回复',
+      follow_up_candidate: '跟进',
+      fact_check_warning: '核对',
+      text_polish_hint: '润色',
+    }
+    return labels[type] ?? '动作'
+  }
+
+  function flowCandidateInboxSummary() {
+    const pending = memory.flowCandidateActions?.pending ?? 0
+    const snoozed = memory.flowCandidateActions?.snoozed ?? 0
+    if (pending && snoozed) return `${pending} 个待确认 · ${snoozed} 个稍后`
+    if (pending) return `${pending} 个待确认`
+    if (snoozed) return `${snoozed} 个稍后`
+    return '暂无待确认动作'
+  }
+
+  function flowCandidateTimeLabel(action: FlowCandidateAction) {
+    const expiresAt = action.expiresAt || 0
+    if (!expiresAt) return '不过期'
+    const seconds = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
+    if (seconds <= 0) return '已过期'
+    if (seconds < 3600) return `${Math.ceil(seconds / 60)} 分钟后过期`
+    return `${Math.ceil(seconds / 3600)} 小时后过期`
+  }
+
+  async function handleFlowCandidateAction(action: FlowCandidateAction, notificationAction: FlowNotificationAction) {
+    await memory.handleFlowCandidateAction(action, notificationAction)
+  }
+
+  async function runFlowAutonomy() {
+    await memory.runFlowAutonomy()
+  }
   
   function decisionLabel(status?: string) {
     const labels: Record<string, string> = {
@@ -2317,6 +2355,9 @@ export function useWorkMemoryFlow() {
     flowBusy,
     flowCanvasActiveId,
     flowCanvasPrimaryEntry,
+    flowCandidateActionLabel,
+    flowCandidateInboxSummary,
+    flowCandidateTimeLabel,
     flowChatInputRef,
     flowChatIsEmpty,
     flowChatMessages,
@@ -2359,6 +2400,7 @@ export function useWorkMemoryFlow() {
     formatTimelineClock,
     globalFlowSearch,
     globalSearchPlaceholder,
+    handleFlowCandidateAction,
     handleFlowMessageClick,
     handoffInsightToAgent,
     insightEvidencePreview,
@@ -2395,6 +2437,7 @@ export function useWorkMemoryFlow() {
     rulesImpactStats,
     rulesPipelineStatus,
     runAutonomousFlow,
+    runFlowAutonomy,
     runGlobalFlowSearch,
     runTimelineBatchOCR,
     runtimeStatusText,
