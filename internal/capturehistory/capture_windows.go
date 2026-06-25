@@ -100,6 +100,12 @@ func CaptureScreenPNG() ([]byte, ScreenBounds, error) {
 	return data, bounds, err
 }
 
+func CaptureScreenPNGFast() ([]byte, ScreenBounds, error) {
+	bounds := virtualScreenBounds()
+	data, _, _, err := captureRegionPNGWithCompression(bounds.X, bounds.Y, bounds.Width, bounds.Height, png.BestSpeed)
+	return data, bounds, err
+}
+
 func captureScreenPNGs(options CaptureOptions) ([]capturedScreen, error) {
 	options = normalizeCaptureOptions(options)
 	bounds, err := captureBoundsForOptions(options)
@@ -128,6 +134,10 @@ func CaptureRegionPNG(x int, y int, width int, height int) ([]byte, int, int, er
 	return captureRegionPNG(x, y, width, height)
 }
 
+func CaptureRegionPNGFast(x int, y int, width int, height int) ([]byte, int, int, error) {
+	return captureRegionPNGWithCompression(x, y, width, height, png.BestSpeed)
+}
+
 func VirtualScreenBounds() ScreenBounds {
 	return virtualScreenBounds()
 }
@@ -137,6 +147,10 @@ func MonitorBounds() []ScreenBounds {
 }
 
 func captureRegionPNG(x int, y int, width int, height int) ([]byte, int, int, error) {
+	return captureRegionPNGWithCompression(x, y, width, height, png.DefaultCompression)
+}
+
+func captureRegionPNGWithCompression(x int, y int, width int, height int, compression png.CompressionLevel) ([]byte, int, int, error) {
 	if width <= 0 || height <= 0 {
 		return nil, 0, 0, fmt.Errorf("截图区域尺寸无效")
 	}
@@ -229,10 +243,18 @@ func captureRegionPNG(x int, y int, width int, height int) ([]byte, int, int, er
 	}
 
 	var out bytes.Buffer
-	if err := png.Encode(&out, img); err != nil {
+	if err := encodePNG(&out, img, compression); err != nil {
 		return nil, 0, 0, err
 	}
 	return out.Bytes(), width, height, nil
+}
+
+func encodePNG(out *bytes.Buffer, img image.Image, compression png.CompressionLevel) error {
+	if compression == png.DefaultCompression {
+		return png.Encode(out, img)
+	}
+	encoder := png.Encoder{CompressionLevel: compression}
+	return encoder.Encode(out, img)
 }
 
 func virtualScreenBounds() ScreenBounds {

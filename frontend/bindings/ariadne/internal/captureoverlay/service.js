@@ -69,6 +69,16 @@ export function Open() {
     }));
 }
 
+/**
+ * @param {$models.SelectionRequest} request
+ * @returns {$CancellablePromise<$models.CaptureResult>}
+ */
+export function PrepareSelectionRedaction(request) {
+    return $Call.ByID(37989261, request).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
 // Private type creation functions
 const $$createType0 = $models.CaptureResult.createFrom;
 const $$createType1 = $models.Session.createFrom;

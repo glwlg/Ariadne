@@ -10831,6 +10831,9 @@ html.capture-overlay-document body {
 
 .capture-overlay-image {
   object-fit: fill;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 .capture-overlay-dim {
@@ -11032,6 +11035,14 @@ html.capture-overlay-document body {
 }
 
 .capture-annotation-interaction-canvas.is-moving-annotation {
+  cursor: grabbing;
+}
+
+.capture-annotation-canvas.is-hovering-annotation {
+  cursor: move;
+}
+
+.capture-annotation-canvas.is-moving-annotation {
   cursor: grabbing;
 }
 

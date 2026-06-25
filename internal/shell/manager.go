@@ -77,10 +77,8 @@ func (m *Manager) SingleInstanceOptions() *application.SingleInstanceOptions {
 	m.mu.Unlock()
 
 	return &application.SingleInstanceOptions{
-		UniqueID: "com.glwlg.ariadne",
-		OnSecondInstanceLaunch: func(application.SecondInstanceData) {
-			m.OpenWorkMemory()
-		},
+		UniqueID:               "com.glwlg.ariadne",
+		OnSecondInstanceLaunch: func(application.SecondInstanceData) {},
 	}
 }
 
@@ -90,16 +88,18 @@ func (m *Manager) Attach(app *application.App, window application.Window, icon [
 	m.window = window
 	m.mu.Unlock()
 
-	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
-		m.mu.RLock()
-		quitting := m.quitting
-		m.mu.RUnlock()
-		if quitting {
-			return
-		}
-		event.Cancel()
-		window.Hide()
-	})
+	if window != nil {
+		window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+			m.mu.RLock()
+			quitting := m.quitting
+			m.mu.RUnlock()
+			if quitting {
+				return
+			}
+			event.Cancel()
+			window.Hide()
+		})
+	}
 
 	m.configureTray(icon)
 	m.registerHotkeys()
@@ -292,9 +292,8 @@ func (m *Manager) Status() Status {
 func (m *Manager) configureTray(icon []byte) {
 	m.mu.RLock()
 	app := m.app
-	window := m.window
 	m.mu.RUnlock()
-	if app == nil || window == nil {
+	if app == nil {
 		return
 	}
 
@@ -313,7 +312,6 @@ func (m *Manager) configureTray(icon []byte) {
 	menu.Add("退出 Ariadne").OnClick(func(*application.Context) { m.Quit() })
 
 	tray := app.SystemTray.New()
-	tray.AttachWindow(window)
 	tray.SetMenu(menu)
 	tray.SetTooltip("Ariadne")
 	if len(icon) > 0 {
@@ -455,10 +453,7 @@ func (m *Manager) openPinClipboard() {
 }
 
 func (m *Manager) openView(view string) {
-	if view == "launcher" && m.toolOpener != nil && m.toolOpener(view) {
-		return
-	}
-	if view != "launcher" && view != "work-memory" && m.toolOpener != nil && m.toolOpener(view) {
+	if m.toolOpener != nil && m.toolOpener(view) {
 		return
 	}
 	m.mu.RLock()

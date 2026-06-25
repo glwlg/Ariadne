@@ -27,12 +27,15 @@ type Hotkeys struct {
 }
 
 type ScreenshotSettings struct {
-	AutoCopy         bool   `json:"autoCopy"`
-	AutoPin          bool   `json:"autoPin"`
-	AutoSave         bool   `json:"autoSave"`
-	SaveDir          string `json:"saveDir"`
-	FilenameTemplate string `json:"filenameTemplate"`
-	Quality          int    `json:"quality"`
+	AutoCopy         bool     `json:"autoCopy"`
+	AutoPin          bool     `json:"autoPin"`
+	AutoSave         bool     `json:"autoSave"`
+	SaveDir          string   `json:"saveDir"`
+	FilenameTemplate string   `json:"filenameTemplate"`
+	Quality          int      `json:"quality"`
+	AutoRedact       bool     `json:"autoRedact"`
+	RedactPhones     bool     `json:"redactPhones"`
+	RedactKeywords   []string `json:"redactKeywords"`
 }
 
 type AISettings struct {
@@ -123,7 +126,7 @@ type PluginSettings struct {
 	Enabled map[string]bool `json:"enabled"`
 }
 
-const currentSettingsVersion = 15
+const currentSettingsVersion = 16
 
 type AppSettings struct {
 	Version    int                `json:"version"`
@@ -606,6 +609,9 @@ func defaultSettings() AppSettings {
 			SaveDir:          filepath.Join(home, "Pictures", "Ariadne"),
 			FilenameTemplate: "ariadne_{date}_{time}",
 			Quality:          90,
+			AutoRedact:       false,
+			RedactPhones:     true,
+			RedactKeywords:   []string{},
 		},
 		WorkMemory: WorkMemorySettings{
 			Enabled:                    true,
@@ -724,6 +730,7 @@ func normalizeSettings(value AppSettings) AppSettings {
 	value.Screenshot.SaveDir = firstNonEmpty(value.Screenshot.SaveDir, defaults.Screenshot.SaveDir)
 	value.Screenshot.FilenameTemplate = firstNonEmpty(value.Screenshot.FilenameTemplate, defaults.Screenshot.FilenameTemplate)
 	value.Screenshot.Quality = clamp(value.Screenshot.Quality, 1, 100, defaults.Screenshot.Quality)
+	value.Screenshot.RedactKeywords = cleanList(value.Screenshot.RedactKeywords, nil)
 
 	value.WorkMemory.AutoCaptureIntervalSeconds = clamp(value.WorkMemory.AutoCaptureIntervalSeconds, 10, 86400, defaults.WorkMemory.AutoCaptureIntervalSeconds)
 	value.WorkMemory.WindowSwitchCooldownSecs = clamp(value.WorkMemory.WindowSwitchCooldownSecs, 3, 3600, defaults.WorkMemory.WindowSwitchCooldownSecs)
@@ -869,6 +876,11 @@ func migrateSettings(value AppSettings) AppSettings {
 	if value.Version < 15 {
 		defaults := defaultSettings()
 		value.WorkMemory.FlowTextQualityAssist = defaults.WorkMemory.FlowTextQualityAssist
+	}
+	if value.Version < 16 {
+		defaults := defaultSettings()
+		value.Screenshot.RedactPhones = defaults.Screenshot.RedactPhones
+		value.Screenshot.RedactKeywords = defaults.Screenshot.RedactKeywords
 	}
 	return value
 }

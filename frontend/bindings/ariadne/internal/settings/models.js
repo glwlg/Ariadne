@@ -503,6 +503,27 @@ export class ScreenshotSettings {
              */
             this["quality"] = 0;
         }
+        if (!("autoRedact" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["autoRedact"] = false;
+        }
+        if (!("redactPhones" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["redactPhones"] = false;
+        }
+        if (!("redactKeywords" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["redactKeywords"] = [];
+        }
 
         Object.assign(this, $$source);
     }
@@ -513,7 +534,11 @@ export class ScreenshotSettings {
      * @returns {ScreenshotSettings}
      */
     static createFrom($$source = {}) {
+        const $$createField8_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("redactKeywords" in $$parsedSource) {
+            $$parsedSource["redactKeywords"] = $$createField8_0($$parsedSource["redactKeywords"]);
+        }
         return new ScreenshotSettings(/** @type {Partial<ScreenshotSettings>} */($$parsedSource));
     }
 }

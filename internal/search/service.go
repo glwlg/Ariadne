@@ -310,37 +310,6 @@ func appendTag(tags []string, next string) []string {
 func seedResults() []contracts.SearchResult {
 	return []contracts.SearchResult{
 		{
-			ID:       "memory-gateway",
-			Type:     contracts.ResultMemory,
-			Title:    "网关代理异常排查记录",
-			Subtitle: "工作记忆 · 今天 14:21 · Windows Terminal",
-			Detail:   "Cloudflare Tunnel 入口正常，OpenWrt 网关疑似仍指向 192.168.1.1。",
-			Icon:     "memory",
-			Tags:     []string{"工作记忆", "网络", "证据"},
-			Preview: contracts.PreviewDescriptor{
-				Kind:      contracts.PreviewMemory,
-				Title:     "网关代理异常排查记录",
-				Subtitle:  "今天 14:21 · Windows Terminal",
-				Text:      "用户复制过一段诊断结论：WiFi 代理失败优先确认默认网关是否仍为 192.168.1.1，而不是 OpenWrt 192.168.1.10。",
-				ImageHint: "终端截图",
-				Meta: []contracts.LabelValue{
-					{Label: "来源", Value: "剪贴板 + 窗口上下文"},
-					{Label: "应用", Value: "Windows Terminal"},
-					{Label: "类型", Value: "问题处理记录"},
-				},
-				Evidence: []contracts.LabelValue{
-					{Label: "命中", Value: "gateway, proxy, 192.168.1.10"},
-					{Label: "隐私", Value: "允许本地检索，未发送给 AI"},
-				},
-			},
-			Actions: []contracts.PreviewAction{
-				contracts.CopyAction("copy_summary", "复制摘要", "WiFi 代理失败时优先确认默认网关是否指向 OpenWrt 192.168.1.10。", "Enter"),
-				{ID: "open_memory", Label: "打开记忆", Icon: "open", Kind: contracts.ActionOpen, Shortcut: "Ctrl+O"},
-				{ID: "remember", Label: "加入复盘", Icon: "remember", Kind: contracts.ActionRemember},
-				{ID: "task", Label: "生成任务包", Icon: "workflow", Kind: contracts.ActionPlugin},
-			},
-		},
-		{
 			ID:       "file-readme",
 			Type:     contracts.ResultFile,
 			Title:    "README.md",

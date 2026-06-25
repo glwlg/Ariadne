@@ -108,7 +108,7 @@ function pluginCapabilitiesLabel(capabilities: string[]) {
 
 function secretSourceLabel(source: string) {
   const labels: Record<string, string> = {
-    environment: '环境变量优先',
+    environment: '环境变量',
     credential_manager: '安全存储',
     missing: '未配置',
   }
@@ -726,6 +726,30 @@ onMounted(() => {
                 <span />
                 <strong>截图后自动保存</strong>
                 <small>区域截图完成后按保存目录和文件名模板写入 PNG。</small>
+              </label>
+
+              <label v-if="activeSettingsPage === 'screenshot'" class="settings-toggle">
+                <input v-model="settings.settings.screenshot.autoRedact" type="checkbox" />
+                <span />
+                <strong>自动打码</strong>
+                <small>复制、保存、贴图前遮盖命中的文字区域。</small>
+              </label>
+
+              <label v-if="activeSettingsPage === 'screenshot'" class="settings-toggle">
+                <input v-model="settings.settings.screenshot.redactPhones" type="checkbox" />
+                <span />
+                <strong>手机号</strong>
+                <small>自动打码开启后，遮盖识别到的手机号码。</small>
+              </label>
+
+              <label v-if="activeSettingsPage === 'screenshot'" class="settings-field">
+                <span>打码关键字</span>
+                <textarea
+                  class="settings-textarea"
+                  :value="settings.screenshotRedactKeywordsText()"
+                  placeholder="每行一个关键字"
+                  @input="settings.setScreenshotRedactKeywords(($event.target as HTMLTextAreaElement).value)"
+                ></textarea>
               </label>
 
               <label v-if="activeSettingsPage === 'screenshot'" class="settings-field">

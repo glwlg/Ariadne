@@ -88,6 +88,7 @@ type Service struct {
 	networkMiniError   string
 	monitorStop        chan struct{}
 	networkMiniLayerAt time.Time
+	networkMiniLayout  string
 }
 
 func NewService() *Service {
@@ -425,7 +426,7 @@ func (s *Service) showMainWorkMemory() error {
 	}
 	main, ok := app.Window.Get("main")
 	if !ok {
-		return errors.New("心流主窗口不存在")
+		main = s.createMainWorkMemoryWindow(app)
 	}
 	main.Restore()
 	main.SetAlwaysOnTop(false)
@@ -434,6 +435,30 @@ func (s *Service) showMainWorkMemory() error {
 	main.EmitEvent("ariadne:navigate", "work-memory")
 	main.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:navigate", { detail: "work-memory" }));`)
 	return nil
+}
+
+func (s *Service) createMainWorkMemoryWindow(app *application.App) application.Window {
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:             "main",
+		Title:            "Ariadne - 心流",
+		Width:            1280,
+		Height:           820,
+		MinWidth:         1040,
+		MinHeight:        640,
+		AlwaysOnTop:      false,
+		Frameless:        false,
+		DisableResize:    false,
+		BackgroundColour: application.NewRGB(244, 244, 245),
+		InitialPosition:  application.WindowCentered,
+		Windows: application.WindowsWindow{
+			Theme:                             application.Light,
+			DisableIcon:                       false,
+			DisableFramelessWindowDecorations: false,
+			HiddenOnTaskbar:                   false,
+		},
+	})
+	s.applyOrdinaryWindowPolicy(window)
+	return window
 }
 
 func focusLauncher(window application.Window) {
@@ -829,10 +854,21 @@ func (s *Service) startNetworkMiniMonitorLocked() {
 func (s *Service) runNetworkMiniMonitor(stop <-chan struct{}) {
 	ticker := time.NewTicker(900 * time.Millisecond)
 	defer ticker.Stop()
+	taskbarEvents := make(chan struct{}, 1)
+	go func() {
+		_ = watchNetworkMiniTaskbarForeground(stop, func() {
+			select {
+			case taskbarEvents <- struct{}{}:
+			default:
+			}
+		})
+	}()
 	for {
 		select {
 		case <-stop:
 			return
+		case <-taskbarEvents:
+			s.refreshNetworkMiniTaskbarLayerNow()
 		case <-ticker.C:
 			s.tickNetworkMiniAutoHide()
 		}
@@ -876,8 +912,8 @@ func (s *Service) tickNetworkMiniAutoHide() {
 		if wasAutoHidden || !window.IsVisible() {
 			s.applyNetworkMiniPlacement(window, app)
 			window.SetAlwaysOnTop(true).Show()
-		} else if s.shouldRefreshNetworkMiniLayer() {
-			refreshNetworkMiniTaskbarLayer(window)
+		} else if window.IsVisible() {
+			s.refreshVisibleNetworkMini(window, app)
 		}
 		s.mu.Lock()
 		s.networkMiniHidden = false
@@ -901,8 +937,8 @@ func (s *Service) tickNetworkMiniAutoHide() {
 		s.mu.Unlock()
 		return
 	}
-	if window.IsVisible() && s.shouldRefreshNetworkMiniLayer() {
-		refreshNetworkMiniTaskbarLayer(window)
+	if window.IsVisible() {
+		s.refreshVisibleNetworkMini(window, app)
 	}
 }
 
@@ -949,7 +985,63 @@ func (s *Service) applyNetworkMiniPlacement(window application.Window, app *appl
 	x, y := networkMiniAbsolutePosition(screen, frame)
 	window.SetPosition(x, y)
 	applyNetworkMiniTaskbarOwner(window)
+	s.markNetworkMiniLayoutRefreshed(app)
 	s.markNetworkMiniLayerRefreshed()
+}
+
+func (s *Service) refreshVisibleNetworkMini(window application.Window, app *application.App) {
+	if s.shouldReapplyNetworkMiniPlacement(app) {
+		s.applyNetworkMiniPlacement(window, app)
+		return
+	}
+	if s.shouldRefreshNetworkMiniLayerNow(networkMiniTaskbarForegroundActive()) {
+		refreshNetworkMiniTaskbarLayer(window)
+	}
+}
+
+func (s *Service) refreshNetworkMiniTaskbarLayerNow() {
+	s.mu.RLock()
+	app := s.app
+	s.mu.RUnlock()
+	if app == nil {
+		return
+	}
+	window, ok := app.Window.Get("tool-" + networkMiniView)
+	if !ok || !window.IsVisible() {
+		return
+	}
+	refreshNetworkMiniTaskbarLayer(window)
+	s.markNetworkMiniLayerRefreshed()
+}
+
+func (s *Service) shouldReapplyNetworkMiniPlacement(app *application.App) bool {
+	if app == nil {
+		return false
+	}
+	return s.shouldReapplyNetworkMiniPlacementForLayout(networkMiniScreenLayoutSignature(app.Screen.GetAll(), app.Screen.GetPrimary()))
+}
+
+func (s *Service) shouldReapplyNetworkMiniPlacementForLayout(layout string) bool {
+	if layout == "" {
+		return false
+	}
+	s.mu.RLock()
+	previous := s.networkMiniLayout
+	s.mu.RUnlock()
+	return previous != "" && previous != layout
+}
+
+func (s *Service) markNetworkMiniLayoutRefreshed(app *application.App) {
+	if app == nil {
+		return
+	}
+	layout := networkMiniScreenLayoutSignature(app.Screen.GetAll(), app.Screen.GetPrimary())
+	if layout == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.networkMiniLayout = layout
 }
 
 func (s *Service) shouldRefreshNetworkMiniLayer() bool {
@@ -961,6 +1053,14 @@ func (s *Service) shouldRefreshNetworkMiniLayer() bool {
 	}
 	s.networkMiniLayerAt = now
 	return true
+}
+
+func (s *Service) shouldRefreshNetworkMiniLayerNow(taskbarForeground bool) bool {
+	if taskbarForeground {
+		s.markNetworkMiniLayerRefreshed()
+		return true
+	}
+	return s.shouldRefreshNetworkMiniLayer()
 }
 
 func (s *Service) markNetworkMiniLayerRefreshed() {
@@ -998,6 +1098,39 @@ func networkMiniAbsolutePosition(screen *application.Screen, frame networkMiniWi
 	bounds := usableScreenBounds(screen)
 	work := usableWorkArea(screen, bounds)
 	return work.X + frame.X, work.Y + frame.Y
+}
+
+func networkMiniScreenLayoutSignature(screens []*application.Screen, primary *application.Screen) string {
+	if len(screens) == 0 && primary == nil {
+		return ""
+	}
+	var builder strings.Builder
+	if primary != nil {
+		builder.WriteString("primary=")
+		builder.WriteString(primary.ID)
+	}
+	for _, screen := range screens {
+		if screen == nil {
+			continue
+		}
+		bounds := usableScreenBounds(screen)
+		work := usableWorkArea(screen, bounds)
+		builder.WriteString("|screen=")
+		builder.WriteString(firstNonEmpty(screen.ID, screen.Name))
+		builder.WriteString(fmt.Sprintf(
+			":%t:%d,%d,%d,%d:%d,%d,%d,%d:%d,%d,%d,%d:%d,%d,%d,%d",
+			screen.IsPrimary,
+			bounds.X, bounds.Y, bounds.Width, bounds.Height,
+			work.X, work.Y, work.Width, work.Height,
+			screen.PhysicalBounds.X, screen.PhysicalBounds.Y, screen.PhysicalBounds.Width, screen.PhysicalBounds.Height,
+			screen.PhysicalWorkArea.X, screen.PhysicalWorkArea.Y, screen.PhysicalWorkArea.Width, screen.PhysicalWorkArea.Height,
+		))
+	}
+	signature := builder.String()
+	if strings.TrimSpace(signature) == "" {
+		return ""
+	}
+	return signature
 }
 
 func (s *Service) markNetworkMiniVisible() {

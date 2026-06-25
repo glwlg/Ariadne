@@ -1,7 +1,7 @@
 import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/ariadne'
 
 const fallbackSettings: AppSettings = {
-  version: 15,
+  version: 16,
   general: {
     theme: 'light',
     runOnStartup: false,
@@ -19,6 +19,9 @@ const fallbackSettings: AppSettings = {
     saveDir: '~/Pictures/Ariadne',
     filenameTemplate: 'ariadne_{date}_{time}',
     quality: 90,
+    autoRedact: false,
+    redactPhones: true,
+    redactKeywords: [],
   },
   workMemory: {
     enabled: true,
@@ -218,6 +221,9 @@ function normalizeFallback(settings: AppSettings): AppSettings {
   next.version = Math.max(next.version || 0, fallbackSettings.version)
   next.general.theme = normalizeTheme(next.general.theme)
   next.screenshot.quality = clamp(next.screenshot.quality, 1, 100)
+  next.screenshot.autoRedact = Boolean(next.screenshot.autoRedact)
+  next.screenshot.redactPhones = next.screenshot.redactPhones !== false
+  next.screenshot.redactKeywords = cleanList(next.screenshot.redactKeywords)
   next.workMemory.autoCaptureIntervalSeconds = clamp(next.workMemory.autoCaptureIntervalSeconds, 10, 86400)
   next.workMemory.windowSwitchCooldownSeconds = clamp(next.workMemory.windowSwitchCooldownSeconds, 3, 3600)
   next.workMemory.appCaptureProfiles = cleanAppCaptureProfiles(next.workMemory.appCaptureProfiles)

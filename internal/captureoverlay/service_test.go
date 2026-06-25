@@ -6,15 +6,44 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"ariadne/internal/capturehistory"
+	"ariadne/internal/ocr"
 	"ariadne/internal/pinnedimage"
 )
 
 type failingPinService struct{}
+
+type fakeOCRProvider struct {
+	mu     sync.Mutex
+	result ocr.Result
+	paths  []string
+	delay  time.Duration
+}
+
+func (f *fakeOCRProvider) RecognizeImagePath(path string) ocr.Result {
+	if f.delay > 0 {
+		time.Sleep(f.delay)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.paths = append(f.paths, path)
+	return f.result
+}
+
+func (f *fakeOCRProvider) pathCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.paths)
+}
 
 func (f failingPinService) OpenCapture(id string) pinnedimage.OpenResult {
 	return pinnedimage.OpenResult{OK: false, Message: "pin failed", PinID: id}
@@ -349,6 +378,123 @@ func TestOverlaySessionsSplitAndCropPerDisplay(t *testing.T) {
 	}
 }
 
+func TestOverlaySessionsCaptureEachDisplayDirectly(t *testing.T) {
+	service := NewService(nil, nil)
+	displays := []capturehistory.ScreenBounds{
+		{X: -100, Y: 0, Width: 100, Height: 80},
+		{X: 0, Y: 0, Width: 200, Height: 80},
+	}
+	calls := []capturehistory.ScreenBounds{}
+	originalCapture := captureOverlayRegionPNG
+	captureOverlayRegionPNG = func(x int, y int, width int, height int) ([]byte, int, int, error) {
+		calls = append(calls, capturehistory.ScreenBounds{X: x, Y: y, Width: width, Height: height})
+		return testOverlayPNG(t, width, height), width, height, nil
+	}
+	defer func() {
+		captureOverlayRegionPNG = originalCapture
+	}()
+
+	sessions, err := service.overlaySessionsForCapturedDisplays(nil, displays, true)
+	if err != nil {
+		t.Fatalf("expected captured display sessions: %v", err)
+	}
+	if len(sessions) != 2 || len(calls) != 2 {
+		t.Fatalf("expected two display captures, sessions=%d calls=%d", len(sessions), len(calls))
+	}
+	for index := range displays {
+		if calls[index] != displays[index] {
+			t.Fatalf("expected direct display capture %d to use %#v, got %#v", index, displays[index], calls[index])
+		}
+		if sessions[index].Native != displays[index] || sessions[index].Bounds != displays[index] {
+			t.Fatalf("expected session bounds to match display %d, got %#v", index, sessions[index])
+		}
+		if !strings.HasPrefix(sessions[index].ImageURL, "/capture-overlay-image/") {
+			t.Fatalf("expected lightweight asset URL, got %q", sessions[index].ImageURL)
+		}
+		img := decodePNGBytes(t, sessions[index].pngBytes)
+		if img.Bounds().Dx() != displays[index].Width || img.Bounds().Dy() != displays[index].Height {
+			t.Fatalf("expected captured display image size %dx%d, got %v", displays[index].Width, displays[index].Height, img.Bounds())
+		}
+	}
+	if !sessions[0].restoreMain || sessions[1].restoreMain {
+		t.Fatalf("expected only the first display session to restore main, got %#v %#v", sessions[0], sessions[1])
+	}
+}
+
+func TestOpenGuardRejectsConcurrentOpen(t *testing.T) {
+	service := NewService(nil, nil)
+
+	if !service.tryBeginOpen() {
+		t.Fatal("first open should acquire the guard")
+	}
+	if service.tryBeginOpen() {
+		t.Fatal("concurrent open should not acquire the guard")
+	}
+	service.finishOpen()
+	if !service.tryBeginOpen() {
+		t.Fatal("guard should be reusable after finishing open")
+	}
+	service.finishOpen()
+}
+
+func TestOverlaySessionsReuseVirtualPNGForSingleDisplay(t *testing.T) {
+	service := NewService(nil, nil)
+	virtual := capturehistory.ScreenBounds{X: 0, Y: 0, Width: 1280, Height: 720}
+	raw := []byte("already-encoded-png")
+
+	sessions, err := service.overlaySessionsForDisplayBounds(nil, raw, virtual, []capturehistory.ScreenBounds{virtual}, false)
+	if err != nil {
+		t.Fatalf("expected single-display session to reuse existing PNG: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected one display session, got %d", len(sessions))
+	}
+	if !bytes.Equal(sessions[0].pngBytes, raw) {
+		t.Fatal("expected single-display session to reuse the source PNG bytes")
+	}
+	if strings.HasPrefix(sessions[0].ImageURL, "data:image/") || strings.Contains(sessions[0].ImageURL, base64.StdEncoding.EncodeToString(raw)) {
+		t.Fatalf("expected lightweight asset URL, got embedded image URL %q", sessions[0].ImageURL)
+	}
+	if !strings.HasPrefix(sessions[0].ImageURL, "/capture-overlay-image/") {
+		t.Fatalf("expected capture overlay asset URL, got %q", sessions[0].ImageURL)
+	}
+
+	service.mu.Lock()
+	service.sessions[sessions[0].ID] = sessions[0]
+	service.mu.Unlock()
+
+	handler := CaptureOverlayAssetHandler(service, http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodGet, sessions[0].ImageURL, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected overlay image asset response, got status %d", response.Code)
+	}
+	if !bytes.Equal(response.Body.Bytes(), raw) {
+		t.Fatal("expected overlay image asset response to serve the session PNG bytes")
+	}
+}
+
+func BenchmarkOverlaySessionsForSingleDisplay(b *testing.B) {
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(b.TempDir(), "capture_history.json"), filepath.Join(b.TempDir(), "capture_images"))
+	service := NewService(captures, nil)
+	virtual := capturehistory.ScreenBounds{X: 0, Y: 0, Width: 1280, Height: 720}
+	raw := testOverlayPNG(b, virtual.Width, virtual.Height)
+	displays := []capturehistory.ScreenBounds{virtual}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sessions, err := service.overlaySessionsForDisplayBounds(nil, raw, virtual, displays, false)
+		if err != nil {
+			b.Fatalf("expected display sessions: %v", err)
+		}
+		if len(sessions) != 1 || len(sessions[0].pngBytes) == 0 {
+			b.Fatalf("expected one populated session, got %#v", sessions)
+		}
+	}
+}
+
 func TestDisplayNativeBoundsFallsBackToVirtualScreen(t *testing.T) {
 	virtual := capturehistory.ScreenBounds{X: -50, Y: 20, Width: 120, Height: 90}
 	displays := displayNativeBounds(virtual, nil)
@@ -458,20 +604,13 @@ func TestCaptureSelectionCopiesToClipboardAndSavesHistory(t *testing.T) {
 	service := NewService(captures, nil)
 	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 4, Height: 3})
 
-	var copiedPath string
-	previousWriter := writeImageToClipboard
-	writeImageToClipboard = func(path string) error {
-		copiedPath = path
-		return nil
-	}
-	defer func() { writeImageToClipboard = previousWriter }()
-
+	copiedPath := stubImageClipboardWriter(t)
 	result := service.CaptureSelection(SelectionRequest{SessionID: session.ID, X: 0, Y: 0, Width: 3, Height: 2, Action: "copy"})
 	if !result.OK || result.CaptureID == "" {
 		t.Fatalf("expected copied capture, got %#v", result)
 	}
-	if copiedPath != result.ImagePath {
-		t.Fatalf("expected copied image path %q, got %q", result.ImagePath, copiedPath)
+	if *copiedPath != result.ImagePath {
+		t.Fatalf("expected copied image path %q, got %q", result.ImagePath, *copiedPath)
 	}
 	entry := captures.Entry(result.CaptureID)
 	if !containsString(entry.Actions, "copy") {
@@ -617,6 +756,276 @@ func TestCaptureSelectionMosaicAndSaveAs(t *testing.T) {
 	}
 }
 
+func TestCaptureSelectionRedactsPhoneMatchesBeforeSaving(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "联系电话 13800138000", Rect: ocr.Rect{X: 2, Y: 2, Width: 5, Height: 4}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: true, RedactPhones: true})
+	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 12, Height: 8})
+
+	result := service.CaptureSelection(SelectionRequest{
+		SessionID: session.ID,
+		X:         0,
+		Y:         0,
+		Width:     12,
+		Height:    8,
+		Action:    "capture",
+	})
+
+	if !result.OK || !strings.Contains(result.Message, "已打码") {
+		t.Fatalf("expected redacted capture, got %#v", result)
+	}
+	img := readPNG(t, result.ImagePath)
+	if !sameRGBA(img.At(3, 3), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("expected redacted pixel, got %#v", img.At(3, 3))
+	}
+	entry := captures.Entry(result.CaptureID)
+	if !containsString(entry.Actions, "redacted") {
+		t.Fatalf("expected redacted metadata, got %#v", entry.Actions)
+	}
+}
+
+func TestCaptureSelectionRedactsKeywordMatches(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "TOKEN=abcdef", Rect: ocr.Rect{X: 6, Y: 1, Width: 4, Height: 3}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: true, RedactKeywords: []string{"token"}})
+	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 12, Height: 8})
+
+	result := service.CaptureSelection(SelectionRequest{
+		SessionID: session.ID,
+		X:         0,
+		Y:         0,
+		Width:     12,
+		Height:    8,
+		Action:    "capture",
+	})
+
+	if !result.OK {
+		t.Fatalf("expected keyword redaction capture, got %#v", result)
+	}
+	img := readPNG(t, result.ImagePath)
+	if !sameRGBA(img.At(7, 2), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("expected keyword redacted pixel, got %#v", img.At(7, 2))
+	}
+}
+
+func TestCaptureSelectionRedactsOnlyKeywordSegment(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "数字国联整体架构图", Rect: ocr.Rect{X: 0, Y: 0, Width: 90, Height: 10}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: false, RedactKeywords: []string{"国联"}})
+	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 12})
+	stubImageClipboardWriter(t)
+
+	result := service.CaptureSelection(SelectionRequest{
+		SessionID: session.ID,
+		X:         0,
+		Y:         0,
+		Width:     90,
+		Height:    12,
+		Action:    "redact_copy",
+	})
+
+	if !result.OK {
+		t.Fatalf("expected keyword redaction capture, got %#v", result)
+	}
+	img := readPNG(t, result.ImagePath)
+	if sameRGBA(img.At(8, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("non-matching text should not be redacted, got %#v", img.At(8, 5))
+	}
+	if !sameRGBA(img.At(35, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("keyword segment should be redacted, got %#v", img.At(35, 5))
+	}
+	if sameRGBA(img.At(75, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("text after keyword should not be redacted, got %#v", img.At(75, 5))
+	}
+}
+
+func TestCaptureSelectionRedactsKeywordSplitAcrossAdjacentOCRLines(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "数字国", Rect: ocr.Rect{X: 0, Y: 0, Width: 60, Height: 10}},
+				{Text: "联APP", Rect: ocr.Rect{X: 0, Y: 12, Width: 80, Height: 10}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: false, RedactKeywords: []string{"国联"}})
+	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 28})
+	stubImageClipboardWriter(t)
+
+	result := service.CaptureSelection(SelectionRequest{
+		SessionID: session.ID,
+		X:         0,
+		Y:         0,
+		Width:     90,
+		Height:    28,
+		Action:    "redact_copy",
+	})
+
+	if !result.OK {
+		t.Fatalf("expected split keyword redaction capture, got %#v", result)
+	}
+	img := readPNG(t, result.ImagePath)
+	if sameRGBA(img.At(10, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("first line prefix should not be redacted, got %#v", img.At(10, 5))
+	}
+	if !sameRGBA(img.At(50, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("first line split keyword segment should be redacted, got %#v", img.At(50, 5))
+	}
+	if !sameRGBA(img.At(10, 17), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("second line split keyword segment should be redacted, got %#v", img.At(10, 17))
+	}
+	if sameRGBA(img.At(50, 17), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("second line suffix should not be redacted, got %#v", img.At(50, 17))
+	}
+}
+
+func TestCaptureSelectionPlainCopyBypassesRedactionPolicy(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "数字国联整体架构图", Rect: ocr.Rect{X: 0, Y: 0, Width: 90, Height: 10}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: true, RedactKeywords: []string{"国联"}})
+	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 12})
+	stubImageClipboardWriter(t)
+
+	result := service.CaptureSelection(SelectionRequest{
+		SessionID: session.ID,
+		X:         0,
+		Y:         0,
+		Width:     90,
+		Height:    12,
+		Action:    "copy",
+	})
+
+	if !result.OK {
+		t.Fatalf("expected plain copy capture, got %#v", result)
+	}
+	if ocrProvider.pathCount() != 0 {
+		t.Fatalf("plain copy should not call OCR, got %d OCR calls", ocrProvider.pathCount())
+	}
+	img := readPNG(t, result.ImagePath)
+	if !sameRGBA(img.At(35, 5), color.RGBA{R: 35, G: 5, B: 120, A: 255}) {
+		t.Fatalf("plain copy should keep original pixels, got %#v", img.At(35, 5))
+	}
+	entry := captures.Entry(result.CaptureID)
+	if containsString(entry.Actions, "redacted") {
+		t.Fatalf("plain copy should not record redacted action, got %#v", entry.Actions)
+	}
+}
+
+func TestPrepareSelectionRedactionWarmsOCRForRedactCopy(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "数字国联整体架构图", Rect: ocr.Rect{X: 0, Y: 0, Width: 90, Height: 10}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: false, RedactKeywords: []string{"国联"}})
+	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 12})
+	stubImageClipboardWriter(t)
+	request := SelectionRequest{
+		SessionID: session.ID,
+		X:         0,
+		Y:         0,
+		Width:     90,
+		Height:    12,
+		Action:    "redact_copy",
+	}
+
+	prepared := service.PrepareSelectionRedaction(request)
+	if !prepared.OK {
+		t.Fatalf("expected redaction prepare to start, got %#v", prepared)
+	}
+	waitForCondition(t, time.Second, func() bool {
+		return ocrProvider.pathCount() == 1
+	})
+
+	result := service.CaptureSelection(request)
+	if !result.OK {
+		t.Fatalf("expected redacted copy to use warmed OCR, got %#v", result)
+	}
+	if ocrProvider.pathCount() != 1 {
+		t.Fatalf("redacted copy should reuse warmed OCR, got %d OCR calls", ocrProvider.pathCount())
+	}
+	img := readPNG(t, result.ImagePath)
+	if !sameRGBA(img.At(35, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("keyword segment should be redacted from warmed OCR, got %#v", img.At(35, 5))
+	}
+}
+
+func TestCaptureSelectionRedactionFailsWhenOCRHasNoGeometry(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK:    true,
+			Lines: []ocr.Line{{Text: "联系电话 13800138000"}},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: true, RedactPhones: true})
+	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 12, Height: 8})
+
+	result := service.CaptureSelection(SelectionRequest{
+		SessionID: session.ID,
+		X:         0,
+		Y:         0,
+		Width:     12,
+		Height:    8,
+		Action:    "capture",
+	})
+
+	if result.OK || !strings.Contains(result.Message, "OCR 未返回可打码位置") {
+		t.Fatalf("expected missing geometry error, got %#v", result)
+	}
+	if service.GetSession(session.ID).ID == "" {
+		t.Fatal("failed redaction should keep the overlay session open")
+	}
+}
+
 func (s *Service) stageTestSession(t *testing.T, bounds capturehistory.ScreenBounds) Session {
 	return s.stageTestSessionWithNative(t, bounds, bounds)
 }
@@ -640,7 +1049,7 @@ func (s *Service) stageTestSessionWithNative(t *testing.T, bounds capturehistory
 	return session.Session
 }
 
-func testOverlayPNG(t *testing.T, width int, height int) []byte {
+func testOverlayPNG(t testing.TB, width int, height int) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	for y := 0; y < height; y++ {
@@ -678,6 +1087,20 @@ func decodePNGBytes(t *testing.T, data []byte) image.Image {
 	return img
 }
 
+func stubImageClipboardWriter(t *testing.T) *string {
+	t.Helper()
+	previousWriter := writeImageToClipboard
+	copiedPath := ""
+	writeImageToClipboard = func(path string) error {
+		copiedPath = path
+		return nil
+	}
+	t.Cleanup(func() {
+		writeImageToClipboard = previousWriter
+	})
+	return &copiedPath
+}
+
 func containsString(items []string, value string) bool {
 	for _, item := range items {
 		if item == value {
@@ -685,6 +1108,18 @@ func containsString(items []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func waitForCondition(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("condition was not met before timeout")
 }
 
 func sameRGBA(a color.Color, b color.RGBA) bool {

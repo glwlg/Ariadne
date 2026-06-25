@@ -42,6 +42,9 @@ func TestDefaultSettingsEnableAutonomousFlowWithoutStartingCapture(t *testing.T)
 	if settings.WorkMemory.AllowSensitiveExport {
 		t.Fatal("sensitive export should be disabled by default")
 	}
+	if settings.Screenshot.AutoRedact || !settings.Screenshot.RedactPhones || len(settings.Screenshot.RedactKeywords) != 0 {
+		t.Fatalf("screenshot redaction should be opt-in with phone rule ready: %#v", settings.Screenshot)
+	}
 	if !contains(settings.WorkMemory.ExcludeApps, "mstsc.exe") {
 		t.Fatalf("default excluded apps should include remote desktop: %#v", settings.WorkMemory.ExcludeApps)
 	}
@@ -67,6 +70,7 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	next := service.GetSettings()
 	next.General.Theme = "Light"
 	next.Screenshot.Quality = 150
+	next.Screenshot.RedactKeywords = []string{" 手机号 ", "手机号", "Token"}
 	next.WorkMemory.AutoCaptureIntervalSeconds = 1
 	next.WorkMemory.WindowSwitchCooldownSecs = 1
 	next.WorkMemory.DraftScheduleIntervalMin = 1
@@ -89,6 +93,9 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	}
 	if updated.Screenshot.Quality != 100 {
 		t.Fatalf("quality should clamp to 100, got %d", updated.Screenshot.Quality)
+	}
+	if len(updated.Screenshot.RedactKeywords) != 2 || updated.Screenshot.RedactKeywords[0] != "手机号" || updated.Screenshot.RedactKeywords[1] != "Token" {
+		t.Fatalf("screenshot redact keywords should be trimmed and deduplicated: %#v", updated.Screenshot.RedactKeywords)
 	}
 	if updated.WorkMemory.AutoCaptureIntervalSeconds != 10 {
 		t.Fatalf("interval should clamp to 10, got %d", updated.WorkMemory.AutoCaptureIntervalSeconds)
@@ -129,6 +136,9 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	if reloaded.General.Theme != "light" {
 		t.Fatalf("persisted settings not reloaded: %#v", reloaded.General)
 	}
+	if len(reloaded.Screenshot.RedactKeywords) != 2 || reloaded.Screenshot.RedactKeywords[0] != "手机号" || reloaded.Screenshot.RedactKeywords[1] != "Token" {
+		t.Fatalf("persisted screenshot redact keywords not reloaded: %#v", reloaded.Screenshot.RedactKeywords)
+	}
 
 	storage := service.StorageStatus()
 	expectedStoragePath := appdb.DatabasePathForPath(configPath)
@@ -168,6 +178,9 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 	}
 	if !migrated.WorkMemory.DraftScheduleEnabled || migrated.WorkMemory.DraftScheduleIntervalMin != 240 || !migrated.WorkMemory.DailyDraftScheduleEnabled || !migrated.WorkMemory.RetroDraftScheduleEnabled || !migrated.WorkMemory.ExperienceScheduleEnabled {
 		t.Fatalf("legacy settings should get safe draft schedule defaults: %#v", migrated.WorkMemory)
+	}
+	if !migrated.Screenshot.RedactPhones || len(migrated.Screenshot.RedactKeywords) != 0 {
+		t.Fatalf("legacy screenshot settings should get redaction defaults: %#v", migrated.Screenshot)
 	}
 
 	persisted := NewServiceWithPaths(configPath, "").GetSettings()

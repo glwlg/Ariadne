@@ -41,6 +41,14 @@ export async function captureOverlaySelection(request: CaptureOverlaySelectionRe
   return { ok: false, message: '开发态未连接截图覆盖层服务' }
 }
 
+export async function prepareCaptureOverlaySelectionRedaction(request: CaptureOverlaySelectionRequest): Promise<CaptureOverlayResult> {
+  const binding = await tryCaptureOverlayBinding()
+  if (binding?.PrepareSelectionRedaction) {
+    return normalizeCaptureResult(await binding.PrepareSelectionRedaction(request))
+  }
+  return { ok: false, message: '开发态未连接截图覆盖层服务' }
+}
+
 export async function cancelCaptureOverlay(sessionId: string): Promise<CaptureOverlayResult> {
   const binding = await tryCaptureOverlayBinding()
   if (binding) {

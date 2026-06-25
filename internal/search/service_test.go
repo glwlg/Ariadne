@@ -12,30 +12,19 @@ import (
 	"ariadne/internal/contracts"
 	"ariadne/internal/plugins"
 	"ariadne/internal/workflows"
-	"ariadne/internal/workmemory"
 )
 
-func TestSearchAggregatesPluginsAndWorkMemory(t *testing.T) {
-	pluginService := plugins.NewService()
-	memoryService := workmemory.NewService()
-	service := NewService(pluginService, memoryService)
+func TestSearchSeedResultsExcludeWorkMemoryContent(t *testing.T) {
+	service := NewServiceWithState(NewStateStore(""))
 
-	response := service.Search(context.Background(), "gateway")
-	if len(response.Results) == 0 {
-		t.Fatal("expected gateway results")
-	}
+	response := service.Search(context.Background(), "OpenWrt")
 	if err := contracts.ValidateActionSurfaces(response.Results); err != nil {
 		t.Fatalf("invalid action surface: %v", err)
 	}
-
-	foundMemory := false
 	for _, result := range response.Results {
-		if result.ID == "memory-gateway" {
-			foundMemory = true
+		if result.Type == contracts.ResultMemory || result.ID == "memory-gateway" {
+			t.Fatalf("launcher seed search should not expose work memory content: %#v", result)
 		}
-	}
-	if !foundMemory {
-		t.Fatal("expected work memory result")
 	}
 }
 
@@ -418,17 +407,21 @@ func TestSearchUsageStateCanBeCleared(t *testing.T) {
 }
 
 func TestSearchDoesNotDuplicateProviderResults(t *testing.T) {
-	service := NewService(workmemory.NewService())
-	response := service.Search(context.Background(), "gateway")
+	duplicate := scoredResult("file-readme", "README.md", 10)
+	service := NewService(
+		fakeProvider{results: []contracts.SearchResult{duplicate}},
+		fakeProvider{results: []contracts.SearchResult{duplicate}},
+	)
+	response := service.Search(context.Background(), "readme")
 
 	count := 0
 	for _, result := range response.Results {
-		if result.ID == "memory-gateway" {
+		if result.ID == "file-readme" {
 			count++
 		}
 	}
 	if count != 1 {
-		t.Fatalf("expected one memory-gateway result, got %d", count)
+		t.Fatalf("expected one file-readme result, got %d", count)
 	}
 }
 

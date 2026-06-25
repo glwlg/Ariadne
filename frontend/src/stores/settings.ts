@@ -38,6 +38,8 @@ import type {
   SettingsStorageStatus,
 } from '../types/ariadne'
 
+type WorkMemoryListPath = 'excludeApps' | 'excludeWindowKeywords' | 'excludePaths' | 'excludeUrls' | 'excludeContentPatterns'
+
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<AppSettings | null>(null)
   const legacyStatus = ref<LegacyConfigStatus | null>(null)
@@ -65,6 +67,14 @@ export const useSettingsStore = defineStore('settings', () => {
   const launcherDeleteArmedId = ref('')
   const searchUsageClearArmed = ref(false)
   const secretClearArmedKind = ref('')
+  const workMemoryListDrafts = ref<Record<WorkMemoryListPath, string>>({
+    excludeApps: '',
+    excludeWindowKeywords: '',
+    excludePaths: '',
+    excludeUrls: '',
+    excludeContentPatterns: '',
+  })
+  const screenshotRedactKeywordsDraft = ref('')
   const feedback = ref('')
   const isLoading = ref(false)
   const isSaving = ref(false)
@@ -118,6 +128,7 @@ export const useSettingsStore = defineStore('settings', () => {
       releaseBackupStatus.value = nextReleaseBackup
       secretStatus.value = nextSecrets
       pluginManifests.value = nextPlugins
+      syncTextDraftsFromSettings()
       if (!launcherDraft.value.name && nextLaunchers.items[0]) {
         editLauncher(nextLaunchers.items[0])
       }
@@ -138,6 +149,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     try {
       settings.value = await updateSettings(settings.value)
+      syncTextDraftsFromSettings()
       publishTheme(settings.value.general.theme)
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
@@ -161,6 +173,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     try {
       settings.value = await updateSettings(settings.value)
+      syncTextDraftsFromSettings()
       publishTheme(settings.value.general.theme)
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
@@ -181,6 +194,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     try {
       settings.value = await resetSettings()
+      syncTextDraftsFromSettings()
       publishTheme(settings.value.general.theme)
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
@@ -196,6 +210,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     try {
       settings.value = await importLegacyConfig()
+      syncTextDraftsFromSettings()
       publishTheme(settings.value.general.theme)
       legacyStatus.value = await getLegacyConfigStatus()
       storageStatus.value = await getSettingsStorageStatus()
@@ -315,18 +330,42 @@ export const useSettingsStore = defineStore('settings', () => {
       ...patch,
     }
     settings.value = await updateSettings(next)
+    syncTextDraftsFromSettings()
     applyTheme(settings.value.general.theme)
     storageStatus.value = await getSettingsStorageStatus()
     return settings.value.workMemory
   }
 
-  function setList(path: 'excludeApps' | 'excludeWindowKeywords' | 'excludePaths' | 'excludeUrls' | 'excludeContentPatterns', value: string) {
+  function setList(path: WorkMemoryListPath, value: string) {
     if (!settings.value) return
+    workMemoryListDrafts.value[path] = value
     settings.value.workMemory[path] = linesToList(value)
   }
 
-  function listText(path: 'excludeApps' | 'excludeWindowKeywords' | 'excludePaths' | 'excludeUrls' | 'excludeContentPatterns') {
-    return settings.value?.workMemory[path].join('\n') ?? ''
+  function listText(path: WorkMemoryListPath) {
+    return workMemoryListDrafts.value[path]
+  }
+
+  function setScreenshotRedactKeywords(value: string) {
+    if (!settings.value) return
+    screenshotRedactKeywordsDraft.value = value
+    settings.value.screenshot.redactKeywords = linesToList(value)
+  }
+
+  function screenshotRedactKeywordsText() {
+    return screenshotRedactKeywordsDraft.value
+  }
+
+  function syncTextDraftsFromSettings() {
+    const memory = settings.value?.workMemory
+    workMemoryListDrafts.value = {
+      excludeApps: memory?.excludeApps.join('\n') ?? '',
+      excludeWindowKeywords: memory?.excludeWindowKeywords.join('\n') ?? '',
+      excludePaths: memory?.excludePaths.join('\n') ?? '',
+      excludeUrls: memory?.excludeUrls.join('\n') ?? '',
+      excludeContentPatterns: memory?.excludeContentPatterns.join('\n') ?? '',
+    }
+    screenshotRedactKeywordsDraft.value = settings.value?.screenshot.redactKeywords.join('\n') ?? ''
   }
 
   function setMemorySource(key: string, enabled: boolean) {
@@ -568,6 +607,8 @@ export const useSettingsStore = defineStore('settings', () => {
     updateWorkMemoryRuntime,
     setList,
     listText,
+    setScreenshotRedactKeywords,
+    screenshotRedactKeywordsText,
     setMemorySource,
     pluginEnabled,
     setPluginEnabled,

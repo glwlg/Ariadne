@@ -371,6 +371,27 @@ export class ScreenshotPolicy {
              */
             this["FilenameTemplate"] = "";
         }
+        if (!("AutoRedact" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["AutoRedact"] = false;
+        }
+        if (!("RedactPhones" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["RedactPhones"] = false;
+        }
+        if (!("RedactKeywords" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["RedactKeywords"] = [];
+        }
 
         Object.assign(this, $$source);
     }
@@ -381,7 +402,11 @@ export class ScreenshotPolicy {
      * @returns {ScreenshotPolicy}
      */
     static createFrom($$source = {}) {
+        const $$createField7_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("RedactKeywords" in $$parsedSource) {
+            $$parsedSource["RedactKeywords"] = $$createField7_0($$parsedSource["RedactKeywords"]);
+        }
         return new ScreenshotPolicy(/** @type {Partial<ScreenshotPolicy>} */($$parsedSource));
     }
 }
@@ -507,7 +532,7 @@ export class SelectionRequest {
      * @returns {SelectionRequest}
      */
     static createFrom($$source = {}) {
-        const $$createField13_0 = $$createType8;
+        const $$createField13_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("operations" in $$parsedSource) {
             $$parsedSource["operations"] = $$createField13_0($$parsedSource["operations"]);
@@ -588,5 +613,6 @@ const $$createType3 = $Create.Nullable($$createType2);
 const $$createType4 = pinnedimage$0.OpenResult.createFrom;
 const $$createType5 = $Create.Nullable($$createType4);
 const $$createType6 = capturehistory$0.ScreenBounds.createFrom;
-const $$createType7 = AnnotationOperation.createFrom;
-const $$createType8 = $Create.Array($$createType7);
+const $$createType7 = $Create.Array($Create.Any);
+const $$createType8 = AnnotationOperation.createFrom;
+const $$createType9 = $Create.Array($$createType8);

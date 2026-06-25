@@ -72,7 +72,6 @@ func main() {
 	captureService := capturehistory.NewService()
 	clipboardService := clipboardhistory.NewService(captureService)
 	pinnedImageService := pinnedimage.NewService(captureService, clipboardService)
-	captureOverlayService := captureoverlay.NewService(captureService, pinnedImageService)
 	hostsService := hosts.NewService()
 	jsonCompareService := jsoncompare.NewService()
 	networkMonitorService := networkmonitor.NewService()
@@ -129,6 +128,7 @@ func main() {
 	releaseService := release.NewService()
 	ocrService := ocr.NewService(captureService, clipboardService, workMemoryService)
 	ocr.RegisterAIClient(ocrService, aiclient.NewOpenAICompatibleImageOCR())
+	captureOverlayService := captureoverlay.NewService(captureService, pinnedImageService, ocrService)
 	workmemory.RegisterAutoOCRProcessor(workMemoryService, func(entry workmemory.Entry) workmemory.Entry {
 		result := ocrService.RecognizeWorkMemory(entry.ID)
 		if result.WorkMemory == nil {
@@ -142,7 +142,7 @@ func main() {
 	workmemory.RegisterExperienceDiscoverer(workMemoryService, aiclient.NewOpenAICompatibleExperienceDiscoverer())
 	workmemory.RegisterEmbeddingClient(workMemoryService, aiclient.NewOpenAICompatibleEmbedder())
 	imageIndexService := imageindex.NewService(captureService, clipboardService, ocrService)
-	searchService := search.NewService(fileSearchService, appService, launcherService, clipboardService, captureService, imageIndexService, workflowService, pluginService, workMemoryService)
+	searchService := search.NewService(fileSearchService, appService, launcherService, clipboardService, captureService, imageIndexService, workflowService, pluginService)
 	toolWindowService := toolwindows.NewService()
 	toolWindowService.SetWindowIcon(appIcon)
 	initialHotkeys := settingsService.GetSettings().Hotkeys
@@ -263,7 +263,7 @@ func main() {
 			application.NewService(notificationService),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler: captureoverlay.CaptureOverlayAssetHandler(captureOverlayService, application.AssetFileServerFS(assets)),
 		},
 	})
 	workmemory.RegisterChangeObserver(workMemoryService, func(event workmemory.ChangeEvent) {
@@ -292,33 +292,11 @@ func main() {
 	applyOCRAIRuntime(ocrService, initialSettings.AI)
 	applyWorkMemoryAIRuntime(workMemoryService, initialSettings.AI, initialSettings.WorkMemory)
 
-	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             "main",
-		Title:            "Ariadne - 心流",
-		Width:            1280,
-		Height:           820,
-		MinWidth:         1040,
-		MinHeight:        640,
-		AlwaysOnTop:      false,
-		Frameless:        false,
-		DisableResize:    false,
-		BackgroundColour: application.NewRGB(244, 244, 245),
-		InitialPosition:  application.WindowCentered,
-		Hidden:           shouldStartHidden(),
-		Windows: application.WindowsWindow{
-			Theme:                             application.Light,
-			DisableIcon:                       false,
-			DisableFramelessWindowDecorations: false,
-			HiddenOnTaskbar:                   false,
-		},
-	})
-	toolWindowService.ApplyMainWindowPolicy()
-	shellManager.Attach(app, mainWindow, trayIcon)
+	shellManager.Attach(app, nil, trayIcon)
 	if err := shellManager.ApplyAutostart(settingsService.GetSettings().General.RunOnStartup); err != nil {
 		log.Printf("apply autostart: %v", err)
 	}
 	deferStartupMaintenance(func() {
-		toolWindowService.ApplyMainWindowPolicy()
 		latest := settingsService.GetSettings()
 		applyOCRAIRuntime(ocrService, latest.AI)
 		applyWorkMemoryRuntime(workMemoryService, latest.WorkMemory)
@@ -367,15 +345,6 @@ func appLogStatus(status applog.Status) platform.LogStatus {
 	}
 }
 
-func shouldStartHidden() bool {
-	for _, arg := range os.Args[1:] {
-		if arg == "--hidden" || arg == "/hidden" {
-			return true
-		}
-	}
-	return false
-}
-
 func deferStartupMaintenance(fn func()) {
 	go func() {
 		time.Sleep(1500 * time.Millisecond)
@@ -404,6 +373,9 @@ func applyCaptureOverlayRuntime(service *captureoverlay.Service, config settings
 		AutoSave:         config.AutoSave,
 		SaveDir:          config.SaveDir,
 		FilenameTemplate: config.FilenameTemplate,
+		AutoRedact:       config.AutoRedact,
+		RedactPhones:     config.RedactPhones,
+		RedactKeywords:   config.RedactKeywords,
 	})
 }
 

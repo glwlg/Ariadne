@@ -142,7 +142,7 @@ export interface CaptureOverlaySelectionRequest {
   coordinateSpace?: 'visual' | 'session' | 'native'
   displayWidth?: number
   displayHeight?: number
-  action: 'capture' | 'copy' | 'pin' | 'qr' | 'save_as'
+  action: 'capture' | 'copy' | 'redact_copy' | 'pin' | 'qr' | 'save_as'
   savedPath?: string
   pinPositioned?: boolean
   pinX?: number
@@ -1654,6 +1654,9 @@ export interface ScreenshotSettings {
   saveDir: string
   filenameTemplate: string
   quality: number
+  autoRedact: boolean
+  redactPhones: boolean
+  redactKeywords: string[]
 }
 
 export interface AISettings {

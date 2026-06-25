@@ -152,6 +152,7 @@ func writeSettingsScalars(conn *sqlite.Conn, scope string, value AppSettings) er
 
 func writeSettingsStringLists(conn *sqlite.Conn, scope string, value AppSettings) error {
 	lists := map[string][]string{
+		"screenshot.redactKeywords":         value.Screenshot.RedactKeywords,
 		"workMemory.excludeApps":            value.WorkMemory.ExcludeApps,
 		"workMemory.excludeWindowKeywords":  value.WorkMemory.ExcludeWindowKeywords,
 		"workMemory.excludePaths":           value.WorkMemory.ExcludePaths,
@@ -234,6 +235,7 @@ func readSettingsRows(conn *sqlite.Conn, scope string, target *AppSettings) erro
 	}); err != nil {
 		return err
 	}
+	target.Screenshot.RedactKeywords = lists["screenshot.redactKeywords"]
 	target.WorkMemory.ExcludeApps = lists["workMemory.excludeApps"]
 	target.WorkMemory.ExcludeWindowKeywords = lists["workMemory.excludeWindowKeywords"]
 	target.WorkMemory.ExcludePaths = lists["workMemory.excludePaths"]

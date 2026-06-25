@@ -19,7 +19,15 @@ func CaptureScreenPNG() ([]byte, ScreenBounds, error) {
 	return nil, ScreenBounds{}, fmt.Errorf("当前平台尚未接入屏幕捕获")
 }
 
+func CaptureScreenPNGFast() ([]byte, ScreenBounds, error) {
+	return nil, ScreenBounds{}, fmt.Errorf("当前平台尚未接入屏幕捕获")
+}
+
 func CaptureRegionPNG(x int, y int, width int, height int) ([]byte, int, int, error) {
+	return nil, 0, 0, fmt.Errorf("当前平台尚未接入屏幕捕获")
+}
+
+func CaptureRegionPNGFast(x int, y int, width int, height int) ([]byte, int, int, error) {
 	return nil, 0, 0, fmt.Errorf("当前平台尚未接入屏幕捕获")
 }
 

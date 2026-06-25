@@ -11,9 +11,11 @@ import (
 	"image/draw"
 	"image/png"
 	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +24,7 @@ import (
 
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
+	"ariadne/internal/ocr"
 	"ariadne/internal/pinnedimage"
 	"ariadne/internal/qrscan"
 
@@ -36,6 +39,10 @@ type PinService interface {
 	OpenCapture(id string) pinnedimage.OpenResult
 }
 
+type OCRProvider interface {
+	RecognizeImagePath(path string) ocr.Result
+}
+
 type PositionedPinService interface {
 	OpenCaptureAt(id string, x int, y int) pinnedimage.OpenResult
 }
@@ -46,6 +53,9 @@ type ScreenshotPolicy struct {
 	AutoSave         bool
 	SaveDir          string
 	FilenameTemplate string
+	AutoRedact       bool
+	RedactPhones     bool
+	RedactKeywords   []string
 }
 
 type OpenResult struct {
@@ -125,22 +135,44 @@ type overlaySession struct {
 	restoreWindowNames []string
 }
 
+type redactionCacheEntry struct {
+	done            chan struct{}
+	rects           []image.Rectangle
+	missingGeometry bool
+	err             string
+	createdAt       time.Time
+}
+
 var writeImageToClipboard = clipboardhistory.WriteImageToSystemClipboard
+
+const captureOverlayImagePathPrefix = "/capture-overlay-image/"
+
+var captureOverlayRegionPNG = capturehistory.CaptureRegionPNGFast
+var mobilePhonePattern = regexp.MustCompile(`1[3-9]\d{9}`)
 
 type Service struct {
 	mu       sync.RWMutex
 	app      *application.App
 	captures CaptureSink
 	pins     PinService
+	ocr      OCRProvider
 	sessions map[string]overlaySession
+	redact   map[string]*redactionCacheEntry
 	policy   ScreenshotPolicy
+	opening  bool
 }
 
-func NewService(captures CaptureSink, pins PinService) *Service {
+func NewService(captures CaptureSink, pins PinService, ocrProviders ...OCRProvider) *Service {
+	var provider OCRProvider
+	if len(ocrProviders) > 0 {
+		provider = ocrProviders[0]
+	}
 	return &Service{
 		captures: captures,
 		pins:     pins,
+		ocr:      provider,
 		sessions: map[string]overlaySession{},
+		redact:   map[string]*redactionCacheEntry{},
 	}
 }
 
@@ -163,16 +195,17 @@ func (s *Service) Open() OpenResult {
 	if app == nil {
 		return OpenResult{OK: false, Message: "截图覆盖层服务尚未就绪"}
 	}
-
-	data, bounds, err := capturehistory.CaptureScreenPNG()
-	if err != nil {
-		return OpenResult{OK: false, Message: err.Error()}
+	if !s.tryBeginOpen() {
+		return OpenResult{OK: true, Message: "截图覆盖层正在打开"}
 	}
+	defer s.finishOpen()
+
+	bounds := capturehistory.VirtualScreenBounds()
 	if bounds.Width <= 0 || bounds.Height <= 0 {
 		return OpenResult{OK: false, Message: "虚拟屏幕尺寸无效"}
 	}
 
-	sessions, err := s.overlaySessionsForDisplays(app, data, bounds, false)
+	sessions, err := s.overlaySessionsForCapturedDisplays(app, displayNativeBounds(bounds, capturehistory.MonitorBounds()), false)
 	if err != nil {
 		return OpenResult{OK: false, Message: err.Error()}
 	}
@@ -201,6 +234,22 @@ func (s *Service) Open() OpenResult {
 	return OpenResult{OK: true, Message: message, SessionID: first.ID, Bounds: first.Bounds, Native: first.Native}
 }
 
+func (s *Service) tryBeginOpen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.opening {
+		return false
+	}
+	s.opening = true
+	return true
+}
+
+func (s *Service) finishOpen() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.opening = false
+}
+
 func (s *Service) GetSession(id string) Session {
 	id = strings.TrimSpace(id)
 	s.mu.RLock()
@@ -216,6 +265,46 @@ func (s *Service) Cancel(id string) CaptureResult {
 	}
 	s.finishSession(id)
 	return CaptureResult{OK: true, Message: "已取消截图"}
+}
+
+func (s *Service) PrepareSelectionRedaction(request SelectionRequest) CaptureResult {
+	session, ok := s.session(request.SessionID)
+	if !ok {
+		return CaptureResult{OK: false, Message: "截图覆盖层会话已失效"}
+	}
+	cropSelection, cropBounds, _, err := resolveSelection(request, session)
+	if err != nil {
+		return CaptureResult{OK: false, Message: err.Error()}
+	}
+	if cropSelection.Empty() || cropSelection.Dx() < 2 || cropSelection.Dy() < 2 {
+		return CaptureResult{OK: false, Message: "截图区域太小"}
+	}
+	policy := normalizeScreenshotPolicy(s.screenshotPolicy())
+	policy.AutoRedact = true
+	if !redactionPolicyEnabled(policy) {
+		return CaptureResult{OK: true, Message: "无需准备打码"}
+	}
+	key := redactionCacheKey(request.SessionID, cropSelection, policy)
+	entry, started := s.beginRedactionPrepare(key)
+	if !started {
+		return CaptureResult{OK: true, Message: "正在准备打码"}
+	}
+	source := append([]byte(nil), session.pngBytes...)
+	go s.runRedactionPrepare(key, entry, source, cropSelection, cropBounds, policy)
+	return CaptureResult{OK: true, Message: "正在准备打码"}
+}
+
+func CaptureOverlayAssetHandler(service *Service, next http.Handler) http.Handler {
+	if next == nil {
+		next = http.NotFoundHandler()
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if service != nil && strings.HasPrefix(r.URL.Path, captureOverlayImagePathPrefix) {
+			service.serveCaptureOverlayImage(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Service) CaptureSelection(request SelectionRequest) CaptureResult {
@@ -235,14 +324,25 @@ func (s *Service) CaptureSelection(request SelectionRequest) CaptureResult {
 		return CaptureResult{OK: false, Message: "截图区域太小"}
 	}
 
+	action := normalizeAction(request.Action)
+	policy := s.screenshotPolicy()
 	pngBytes, err := renderSelectionPNG(session.pngBytes, cropSelection, cropBounds, request.Operations, request.RenderedImage)
 	if err != nil {
 		return CaptureResult{OK: false, Message: err.Error()}
 	}
-	action := normalizeAction(request.Action)
-	policy := s.screenshotPolicy()
+	redactedCount := 0
+	if redactionPolicy, ok := redactionPolicyForAction(action, policy); ok {
+		var redactErr error
+		pngBytes, redactedCount, redactErr = s.redactSelectionPNGWithCache(pngBytes, request.SessionID, cropSelection, redactionPolicy)
+		if redactErr != nil {
+			return CaptureResult{OK: false, Message: "自动打码失败: " + redactErr.Error()}
+		}
+	}
 	savedPath := ""
 	sideEffects := []string{}
+	if redactedCount > 0 {
+		sideEffects = append(sideEffects, "redacted")
+	}
 	autoSaveError := ""
 	if action == "save_as" {
 		var err error
@@ -266,7 +366,7 @@ func (s *Service) CaptureSelection(request SelectionRequest) CaptureResult {
 			}
 		}
 	}
-	shouldCopy := action != "qr" && (action == "copy" || policy.AutoCopy)
+	shouldCopy := action != "qr" && (action == "copy" || action == "redact_copy" || policy.AutoCopy)
 	shouldPin := action != "qr" && (action == "pin" || policy.AutoPin)
 	if shouldCopy {
 		sideEffects = append(sideEffects, "copy")
@@ -281,6 +381,9 @@ func (s *Service) CaptureSelection(request SelectionRequest) CaptureResult {
 	}
 	entry := status.Entries[0]
 	message := selectionResultMessage(action, len(request.Operations), autoSaveError)
+	if redactedCount > 0 {
+		message = appendResultMessage(message, "已打码")
+	}
 	result := CaptureResult{
 		OK:        true,
 		Message:   message,
@@ -377,6 +480,462 @@ func (s *Service) screenshotPolicy() ScreenshotPolicy {
 	return normalizeScreenshotPolicy(s.policy)
 }
 
+func (s *Service) ocrProvider() OCRProvider {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ocr
+}
+
+func shouldRedactSelection(action string, policy ScreenshotPolicy) bool {
+	switch action {
+	case "qr", "copy":
+		return false
+	case "redact_copy":
+		return true
+	default:
+		return policy.AutoRedact
+	}
+}
+
+func redactionPolicyForAction(action string, policy ScreenshotPolicy) (ScreenshotPolicy, bool) {
+	policy = normalizeScreenshotPolicy(policy)
+	if action == "redact_copy" {
+		policy.AutoRedact = true
+	}
+	return policy, shouldRedactSelection(action, policy) && redactionPolicyEnabled(policy)
+}
+
+func redactionPolicyEnabled(policy ScreenshotPolicy) bool {
+	policy = normalizeScreenshotPolicy(policy)
+	return policy.AutoRedact && (policy.RedactPhones || len(policy.RedactKeywords) > 0)
+}
+
+func (s *Service) redactSelectionPNGWithCache(data []byte, sessionID string, selection image.Rectangle, policy ScreenshotPolicy) ([]byte, int, error) {
+	policy = normalizeScreenshotPolicy(policy)
+	if !redactionPolicyEnabled(policy) {
+		return data, 0, nil
+	}
+	key := redactionCacheKey(sessionID, selection, policy)
+	if rects, missingGeometry, err, ok := s.waitRedactionCache(key); ok {
+		if err != nil {
+			return nil, 0, err
+		}
+		if missingGeometry {
+			return nil, 0, errors.New("OCR 未返回可打码位置")
+		}
+		return applyRedactionRectsToPNG(data, rects)
+	}
+	return s.redactSelectionPNG(data, policy)
+}
+
+func (s *Service) redactSelectionPNG(data []byte, policy ScreenshotPolicy) ([]byte, int, error) {
+	policy = normalizeScreenshotPolicy(policy)
+	if !redactionPolicyEnabled(policy) {
+		return data, 0, nil
+	}
+	rects, missingGeometry, err := s.redactionRectsForPNG(data, policy)
+	if err != nil {
+		return nil, 0, err
+	}
+	if missingGeometry {
+		return nil, 0, errors.New("OCR 未返回可打码位置")
+	}
+	return applyRedactionRectsToPNG(data, rects)
+}
+
+func (s *Service) redactionRectsForPNG(data []byte, policy ScreenshotPolicy) ([]image.Rectangle, bool, error) {
+	provider := s.ocrProvider()
+	if provider == nil {
+		return nil, false, errors.New("OCR 服务不可用")
+	}
+	temp, err := os.CreateTemp("", "ariadne-capture-redact-*.png")
+	if err != nil {
+		return nil, false, err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if _, err := temp.Write(data); err != nil {
+		_ = temp.Close()
+		return nil, false, err
+	}
+	if err := temp.Close(); err != nil {
+		return nil, false, err
+	}
+
+	result := provider.RecognizeImagePath(tempPath)
+	if !result.OK {
+		return nil, false, errors.New(firstNonEmpty(result.Error, "OCR 识别失败"))
+	}
+	rects, missingGeometry := redactionRects(result, policy)
+	return rects, missingGeometry, nil
+}
+
+func applyRedactionRectsToPNG(data []byte, rects []image.Rectangle) ([]byte, int, error) {
+	if len(rects) == 0 {
+		return data, 0, nil
+	}
+	img, err := decodePNGToRGBA(data)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, rect := range rects {
+		redactTextRect(img, rect)
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		return nil, 0, err
+	}
+	return out.Bytes(), len(rects), nil
+}
+
+func (s *Service) beginRedactionPrepare(key string) (*redactionCacheEntry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.redact == nil {
+		s.redact = map[string]*redactionCacheEntry{}
+	}
+	if entry, ok := s.redact[key]; ok {
+		return entry, false
+	}
+	entry := &redactionCacheEntry{done: make(chan struct{}), createdAt: time.Now()}
+	s.redact[key] = entry
+	s.trimRedactionCacheLocked(32)
+	return entry, true
+}
+
+func (s *Service) runRedactionPrepare(key string, entry *redactionCacheEntry, source []byte, selection image.Rectangle, bounds capturehistory.ScreenBounds, policy ScreenshotPolicy) {
+	pngBytes, err := renderSelectionPNG(source, selection, bounds, nil, "")
+	var rects []image.Rectangle
+	missingGeometry := false
+	if err == nil {
+		rects, missingGeometry, err = s.redactionRectsForPNG(pngBytes, policy)
+	}
+	errText := ""
+	if err != nil {
+		errText = err.Error()
+	}
+	s.mu.Lock()
+	if current := s.redact[key]; current == entry {
+		entry.rects = append([]image.Rectangle(nil), rects...)
+		entry.missingGeometry = missingGeometry
+		entry.err = errText
+	}
+	s.mu.Unlock()
+	close(entry.done)
+}
+
+func (s *Service) waitRedactionCache(key string) ([]image.Rectangle, bool, error, bool) {
+	s.mu.RLock()
+	entry := s.redact[key]
+	s.mu.RUnlock()
+	if entry == nil {
+		return nil, false, nil, false
+	}
+	<-entry.done
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rects := append([]image.Rectangle(nil), entry.rects...)
+	missingGeometry := entry.missingGeometry
+	errText := entry.err
+	if errText != "" {
+		return nil, false, errors.New(errText), true
+	}
+	return rects, missingGeometry, nil, true
+}
+
+func redactionRects(result ocr.Result, policy ScreenshotPolicy) ([]image.Rectangle, bool) {
+	rects := []image.Rectangle{}
+	missingGeometry := false
+	lines := make([]redactionOCRLine, 0, len(result.Lines))
+	for _, line := range result.Lines {
+		matches := redactionMatches(line.Text, policy)
+		lineText := strings.TrimSpace(line.Text)
+		rect := ocrRectToImageRect(line.Rect)
+		if lineText != "" && !rect.Empty() {
+			lines = append(lines, redactionOCRLine{text: lineText, rect: rect})
+		}
+		if len(matches) == 0 {
+			continue
+		}
+		if rect.Empty() {
+			missingGeometry = true
+			continue
+		}
+		for _, match := range matches {
+			rects = appendUniqueRect(rects, textSegmentRect(rect, line.Text, match.start, match.end))
+		}
+	}
+	rects = appendCrossLineKeywordRects(rects, lines, policy.RedactKeywords)
+	if len(result.Lines) == 0 && lineNeedsRedaction(result.Text, policy) {
+		missingGeometry = true
+	}
+	return rects, missingGeometry
+}
+
+type redactionOCRLine struct {
+	text string
+	rect image.Rectangle
+}
+
+func lineNeedsRedaction(text string, policy ScreenshotPolicy) bool {
+	return len(redactionMatches(text, policy)) > 0
+}
+
+type textMatchRange struct {
+	start int
+	end   int
+}
+
+type mappedOCRRune struct {
+	line   int
+	offset int
+}
+
+type lineMatchRange struct {
+	line  int
+	start int
+	end   int
+}
+
+func redactionMatches(text string, policy ScreenshotPolicy) []textMatchRange {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	matches := []textMatchRange{}
+	if policy.RedactPhones {
+		matches = append(matches, phoneMatchRanges(text)...)
+	}
+	for _, keyword := range policy.RedactKeywords {
+		matches = append(matches, keywordMatchRanges(text, keyword)...)
+	}
+	return mergeTextMatchRanges(matches)
+}
+
+func keywordMatchRanges(text string, keyword string) []textMatchRange {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil
+	}
+	textRunes := []rune(strings.ToLower(text))
+	keywordRunes := []rune(strings.ToLower(keyword))
+	if len(keywordRunes) == 0 || len(keywordRunes) > len(textRunes) {
+		return nil
+	}
+	matches := []textMatchRange{}
+	for i := 0; i <= len(textRunes)-len(keywordRunes); i++ {
+		matched := true
+		for j := range keywordRunes {
+			if textRunes[i+j] != keywordRunes[j] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			matches = append(matches, textMatchRange{start: i, end: i + len(keywordRunes)})
+			i += len(keywordRunes) - 1
+		}
+	}
+	return matches
+}
+
+func appendCrossLineKeywordRects(rects []image.Rectangle, lines []redactionOCRLine, keywords []string) []image.Rectangle {
+	if len(lines) < 2 || len(keywords) == 0 {
+		return rects
+	}
+	for _, keyword := range keywords {
+		keyword = strings.TrimSpace(keyword)
+		if keyword == "" {
+			continue
+		}
+		for startLine := range lines {
+			combined := []rune{}
+			mapping := []mappedOCRRune{}
+			for lineIndex := startLine; lineIndex < len(lines) && lineIndex < startLine+4; lineIndex++ {
+				if lineIndex > startLine && !ocrLineRectsAdjacent(lines[lineIndex-1].rect, lines[lineIndex].rect) {
+					break
+				}
+				lineRunes := []rune(lines[lineIndex].text)
+				for offset, r := range lineRunes {
+					combined = append(combined, r)
+					mapping = append(mapping, mappedOCRRune{line: lineIndex, offset: offset})
+				}
+				if lineIndex == startLine {
+					continue
+				}
+				for _, match := range keywordMatchRanges(string(combined), keyword) {
+					rects = appendCrossLineMatchRects(rects, lines, mapping, match)
+				}
+			}
+		}
+	}
+	return rects
+}
+
+func appendCrossLineMatchRects(rects []image.Rectangle, lines []redactionOCRLine, mapping []mappedOCRRune, match textMatchRange) []image.Rectangle {
+	if match.start < 0 || match.start >= len(mapping) || match.end <= match.start {
+		return rects
+	}
+	if match.end > len(mapping) {
+		match.end = len(mapping)
+	}
+	ranges := []lineMatchRange{}
+	for index := match.start; index < match.end; index++ {
+		position := mapping[index]
+		if len(ranges) == 0 || ranges[len(ranges)-1].line != position.line {
+			ranges = append(ranges, lineMatchRange{line: position.line, start: position.offset, end: position.offset + 1})
+			continue
+		}
+		current := &ranges[len(ranges)-1]
+		if position.offset < current.start {
+			current.start = position.offset
+		}
+		if position.offset+1 > current.end {
+			current.end = position.offset + 1
+		}
+	}
+	if len(ranges) < 2 {
+		return rects
+	}
+	for _, item := range ranges {
+		if item.line < 0 || item.line >= len(lines) {
+			continue
+		}
+		line := lines[item.line]
+		rects = appendUniqueRect(rects, textSegmentRect(line.rect, line.text, item.start, item.end))
+	}
+	return rects
+}
+
+func ocrLineRectsAdjacent(a image.Rectangle, b image.Rectangle) bool {
+	if a.Empty() || b.Empty() {
+		return false
+	}
+	minHeight := max(1, min(a.Dy(), b.Dy()))
+	lineHeight := max(a.Dy(), b.Dy())
+	xOverlap := intervalOverlap(a.Min.X, a.Max.X, b.Min.X, b.Max.X)
+	yOverlap := intervalOverlap(a.Min.Y, a.Max.Y, b.Min.Y, b.Max.Y)
+	horizontalGap := b.Min.X - a.Max.X
+	verticalGap := b.Min.Y - a.Max.Y
+	sameTextRow := yOverlap*2 >= minHeight && b.Min.X >= a.Min.X-lineHeight && horizontalGap <= max(lineHeight*4, 24)
+	nextWrappedRow := b.Min.Y >= a.Min.Y-lineHeight && verticalGap <= max(lineHeight*3, 24) && xOverlap*3 >= min(a.Dx(), b.Dx())
+	return sameTextRow || nextWrappedRow
+}
+
+func intervalOverlap(aMin int, aMax int, bMin int, bMax int) int {
+	overlap := min(aMax, bMax) - max(aMin, bMin)
+	if overlap < 0 {
+		return 0
+	}
+	return overlap
+}
+
+func phoneMatchRanges(text string) []textMatchRange {
+	runes := []rune(text)
+	matches := []textMatchRange{}
+	for i := 0; i < len(runes); i++ {
+		if !isASCIIDigit(runes[i]) {
+			continue
+		}
+		var digits strings.Builder
+		end := i
+		for j := i; j < len(runes) && digits.Len() < 11; j++ {
+			r := runes[j]
+			if isASCIIDigit(r) {
+				digits.WriteRune(r)
+				end = j + 1
+				continue
+			}
+			if (r == ' ' || r == '-' || r == '\t') && digits.Len() > 0 {
+				end = j + 1
+				continue
+			}
+			break
+		}
+		if digits.Len() == 11 && mobilePhonePattern.MatchString(digits.String()) {
+			matches = append(matches, textMatchRange{start: i, end: end})
+			i = end - 1
+		}
+	}
+	return matches
+}
+
+func isASCIIDigit(r rune) bool {
+	return r >= '0' && r <= '9'
+}
+
+func mergeTextMatchRanges(matches []textMatchRange) []textMatchRange {
+	if len(matches) <= 1 {
+		return matches
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].start == matches[j].start {
+			return matches[i].end < matches[j].end
+		}
+		return matches[i].start < matches[j].start
+	})
+	merged := []textMatchRange{matches[0]}
+	for _, match := range matches[1:] {
+		last := &merged[len(merged)-1]
+		if match.start <= last.end {
+			if match.end > last.end {
+				last.end = match.end
+			}
+			continue
+		}
+		merged = append(merged, match)
+	}
+	return merged
+}
+
+func ocrRectToImageRect(rect ocr.Rect) image.Rectangle {
+	return image.Rect(rect.X, rect.Y, rect.X+rect.Width, rect.Y+rect.Height)
+}
+
+func textSegmentRect(lineRect image.Rectangle, text string, start int, end int) image.Rectangle {
+	runes := []rune(text)
+	total := len(runes)
+	if total == 0 {
+		return lineRect
+	}
+	start = clampInt(start, 0, total, 0)
+	end = clampInt(end, start+1, total, start+1)
+	width := float64(lineRect.Dx())
+	left := lineRect.Min.X + int(math.Floor(width*float64(start)/float64(total)))
+	right := lineRect.Min.X + int(math.Ceil(width*float64(end)/float64(total)))
+	if right <= left {
+		right = left + max(4, lineRect.Dx()/max(1, total))
+	}
+	return image.Rect(left, lineRect.Min.Y, min(right, lineRect.Max.X), lineRect.Max.Y)
+}
+
+func appendUniqueRect(rects []image.Rectangle, rect image.Rectangle) []image.Rectangle {
+	for _, item := range rects {
+		if item == rect {
+			return rects
+		}
+	}
+	return append(rects, rect)
+}
+
+func decodePNGToRGBA(data []byte) (*image.RGBA, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("截图打码解码失败: %w", err)
+	}
+	rgba := image.NewRGBA(img.Bounds())
+	draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
+	return rgba, nil
+}
+
+func redactTextRect(img *image.RGBA, rect image.Rectangle) {
+	rect = rect.Inset(-4).Intersect(img.Bounds())
+	if rect.Empty() {
+		return
+	}
+	draw.Draw(img, rect, &image.Uniform{C: color.RGBA{R: 24, G: 26, B: 30, A: 255}}, image.Point{}, draw.Src)
+}
+
 func (s *Service) finishSession(id string) {
 	id = strings.TrimSpace(id)
 	s.mu.Lock()
@@ -396,6 +955,7 @@ func (s *Service) finishSession(id string) {
 				continue
 			}
 			delete(s.sessions, candidateID)
+			s.deleteRedactionCacheForSessionLocked(candidateID)
 			if candidateID != id && candidate.windowName != "" {
 				toClose = append(toClose, candidate.windowName)
 			}
@@ -406,6 +966,7 @@ func (s *Service) finishSession(id string) {
 		}
 	} else {
 		delete(s.sessions, id)
+		s.deleteRedactionCacheForSessionLocked(id)
 	}
 	app := s.app
 	s.mu.Unlock()
@@ -459,12 +1020,43 @@ func (s *Service) overlaySessionsForDisplays(app *application.App, data []byte, 
 	return s.overlaySessionsForDisplayBounds(app, data, bounds, displayNativeBounds(bounds, capturehistory.MonitorBounds()), restoreMain)
 }
 
+func (s *Service) overlaySessionsForCapturedDisplays(app *application.App, displays []capturehistory.ScreenBounds, restoreMain bool) ([]overlaySession, error) {
+	groupID := newSessionID()
+	createdAt := time.Now().Unix()
+	sessions := make([]overlaySession, 0, len(displays))
+	for index, display := range displays {
+		captured, width, height, err := captureOverlayRegionPNG(display.X, display.Y, display.Width, display.Height)
+		if err != nil {
+			return nil, err
+		}
+		native := display
+		native.Width = width
+		native.Height = height
+		id := newSessionID()
+		session := overlaySession{
+			Session: Session{
+				ID:        id,
+				Bounds:    displayBoundsForNative(app, native),
+				Native:    native,
+				ImageURL:  captureOverlayImageURL(id),
+				CreatedAt: createdAt,
+			},
+			pngBytes:    captured,
+			groupID:     groupID,
+			windowName:  "capture-overlay-" + id,
+			restoreMain: restoreMain && index == 0,
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, nil
+}
+
 func (s *Service) overlaySessionsForDisplayBounds(app *application.App, data []byte, bounds capturehistory.ScreenBounds, displays []capturehistory.ScreenBounds, restoreMain bool) ([]overlaySession, error) {
 	groupID := newSessionID()
 	createdAt := time.Now().Unix()
 	sessions := make([]overlaySession, 0, len(displays))
 	for index, display := range displays {
-		cropped, err := cropPNG(data, image.Rect(display.X, display.Y, display.X+display.Width, display.Y+display.Height), bounds)
+		cropped, err := displayPNG(data, display, bounds)
 		if err != nil {
 			return nil, err
 		}
@@ -474,7 +1066,7 @@ func (s *Service) overlaySessionsForDisplayBounds(app *application.App, data []b
 				ID:        id,
 				Bounds:    displayBoundsForNative(app, display),
 				Native:    display,
-				ImageURL:  "data:image/png;base64," + base64.StdEncoding.EncodeToString(cropped),
+				ImageURL:  captureOverlayImageURL(id),
 				CreatedAt: createdAt,
 			},
 			pngBytes:    cropped,
@@ -485,6 +1077,55 @@ func (s *Service) overlaySessionsForDisplayBounds(app *application.App, data []b
 		sessions = append(sessions, session)
 	}
 	return sessions, nil
+}
+
+func captureOverlayImageURL(id string) string {
+	return captureOverlayImagePathPrefix + url.PathEscape(id) + ".png"
+}
+
+func captureOverlayImageID(path string) string {
+	value := strings.TrimPrefix(path, captureOverlayImagePathPrefix)
+	value = strings.TrimSuffix(value, ".png")
+	id, err := url.PathUnescape(value)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(id)
+}
+
+func (s *Service) serveCaptureOverlayImage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := captureOverlayImageID(r.URL.Path)
+	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	s.mu.RLock()
+	session, ok := s.sessions[id]
+	data := session.pngBytes
+	createdAt := session.CreatedAt
+	s.mu.RUnlock()
+	if !ok || len(data) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, id+".png", time.Unix(createdAt, 0), bytes.NewReader(data))
+}
+
+func displayPNG(source []byte, display capturehistory.ScreenBounds, bounds capturehistory.ScreenBounds) ([]byte, error) {
+	if sameScreenBounds(display, bounds) {
+		return source, nil
+	}
+	return cropPNG(source, image.Rect(display.X, display.Y, display.X+display.Width, display.Y+display.Height), bounds)
+}
+
+func sameScreenBounds(a capturehistory.ScreenBounds, b capturehistory.ScreenBounds) bool {
+	return a.X == b.X && a.Y == b.Y && a.Width == b.Width && a.Height == b.Height
 }
 
 func displayNativeBounds(bounds capturehistory.ScreenBounds, monitors []capturehistory.ScreenBounds) []capturehistory.ScreenBounds {
@@ -594,6 +1235,33 @@ func (s *Service) trimSessionsLocked(limit int) {
 	}
 	if oldestID != "" {
 		delete(s.sessions, oldestID)
+		s.deleteRedactionCacheForSessionLocked(oldestID)
+	}
+}
+
+func (s *Service) trimRedactionCacheLocked(limit int) {
+	if len(s.redact) <= limit {
+		return
+	}
+	oldestKey := ""
+	oldestAt := time.Now().Add(time.Second)
+	for key, entry := range s.redact {
+		if entry.createdAt.Before(oldestAt) {
+			oldestKey = key
+			oldestAt = entry.createdAt
+		}
+	}
+	if oldestKey != "" {
+		delete(s.redact, oldestKey)
+	}
+}
+
+func (s *Service) deleteRedactionCacheForSessionLocked(sessionID string) {
+	prefix := strings.TrimSpace(sessionID) + "\x1e"
+	for key := range s.redact {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.redact, key)
+		}
 	}
 }
 
@@ -733,6 +1401,8 @@ func normalizeAction(action string) string {
 	switch strings.ToLower(strings.TrimSpace(action)) {
 	case "copy", "clipboard":
 		return "copy"
+	case "redact_copy", "redacted_copy":
+		return "redact_copy"
 	case "pin":
 		return "pin"
 	case "qr":
@@ -780,7 +1450,39 @@ func normalizeScreenshotPolicy(policy ScreenshotPolicy) ScreenshotPolicy {
 	if policy.FilenameTemplate == "" {
 		policy.FilenameTemplate = "ariadne_{date}_{time}"
 	}
+	policy.RedactKeywords = cleanStringList(policy.RedactKeywords)
 	return policy
+}
+
+func cleanStringList(items []string) []string {
+	seen := map[string]bool{}
+	result := []string{}
+	for _, item := range items {
+		text := strings.TrimSpace(item)
+		if text == "" {
+			continue
+		}
+		key := strings.ToLower(text)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, text)
+	}
+	return result
+}
+
+func redactionCacheKey(sessionID string, selection image.Rectangle, policy ScreenshotPolicy) string {
+	policy = normalizeScreenshotPolicy(policy)
+	return strings.Join([]string{
+		strings.TrimSpace(sessionID),
+		strconv.Itoa(selection.Min.X),
+		strconv.Itoa(selection.Min.Y),
+		strconv.Itoa(selection.Dx()),
+		strconv.Itoa(selection.Dy()),
+		strconv.FormatBool(policy.RedactPhones),
+		strings.Join(policy.RedactKeywords, "\x1f"),
+	}, "\x1e")
 }
 
 func autoSavePath(policy ScreenshotPolicy, now time.Time) (string, error) {
@@ -825,6 +1527,8 @@ func selectionResultMessage(action string, operationCount int, autoSaveError str
 	switch action {
 	case "copy":
 		message = "已复制截图"
+	case "redact_copy":
+		message = "已打码复制"
 	case "pin":
 		message = "已保存选区截图"
 	case "save_as":

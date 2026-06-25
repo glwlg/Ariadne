@@ -179,6 +179,15 @@ func TestNetworkMiniTaskbarPlacementUsesWorkAreaRelativeCoordinates(t *testing.T
 			expected: networkMiniWindowFrame{X: -40, Y: networkMiniMargin, Width: networkMiniWidth, Height: 33},
 			absolute: [2]int{0, networkMiniMargin},
 		},
+		{
+			name: "secondary screen bottom taskbar",
+			screen: &application.Screen{
+				Bounds:   application.Rect{X: 1920, Y: 0, Width: 1280, Height: 720},
+				WorkArea: application.Rect{X: 1920, Y: 0, Width: 1280, Height: 680},
+			},
+			expected: networkMiniWindowFrame{X: networkMiniMargin, Y: 683, Width: networkMiniWidth, Height: 33},
+			absolute: [2]int{1926, 683},
+		},
 	}
 
 	for _, tt := range tests {
@@ -302,6 +311,101 @@ func TestNetworkMiniLayerRefreshIsThrottled(t *testing.T) {
 	service.mu.Unlock()
 	if !service.shouldRefreshNetworkMiniLayer() {
 		t.Fatal("stale layer refresh should be allowed")
+	}
+}
+
+func TestNetworkMiniTaskbarForegroundBypassesLayerRefreshThrottle(t *testing.T) {
+	service := NewServiceWithOptions(filepath.Join(t.TempDir(), "network-mini.json"), nil)
+
+	if !service.shouldRefreshNetworkMiniLayerNow(true) {
+		t.Fatal("taskbar foreground should refresh the network mini layer immediately")
+	}
+	if !service.shouldRefreshNetworkMiniLayerNow(true) {
+		t.Fatal("taskbar foreground should bypass normal layer refresh throttling")
+	}
+	if service.shouldRefreshNetworkMiniLayerNow(false) {
+		t.Fatal("non-taskbar refresh should still use normal throttling")
+	}
+}
+
+func TestNetworkMiniTaskbarClassNames(t *testing.T) {
+	for _, className := range []string{"Shell_TrayWnd", " Shell_SecondaryTrayWnd "} {
+		if !isNetworkMiniTaskbarClassName(className) {
+			t.Fatalf("expected %q to be treated as a taskbar window class", className)
+		}
+	}
+	for _, className := range []string{"", "WorkerW", "Progman", "Chrome_WidgetWin_1"} {
+		if isNetworkMiniTaskbarClassName(className) {
+			t.Fatalf("expected %q to be ignored", className)
+		}
+	}
+}
+
+func TestNetworkMiniLayoutSignatureTracksResolutionAndWorkAreaChanges(t *testing.T) {
+	original := &application.Screen{
+		ID:               "primary",
+		IsPrimary:        true,
+		Bounds:           application.Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
+		WorkArea:         application.Rect{X: 0, Y: 0, Width: 1920, Height: 1040},
+		PhysicalBounds:   application.Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
+		PhysicalWorkArea: application.Rect{X: 0, Y: 0, Width: 1920, Height: 1040},
+	}
+	same := &application.Screen{
+		ID:               "primary",
+		IsPrimary:        true,
+		Bounds:           application.Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
+		WorkArea:         application.Rect{X: 0, Y: 0, Width: 1920, Height: 1040},
+		PhysicalBounds:   application.Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
+		PhysicalWorkArea: application.Rect{X: 0, Y: 0, Width: 1920, Height: 1040},
+	}
+	resized := &application.Screen{
+		ID:               "primary",
+		IsPrimary:        true,
+		Bounds:           application.Rect{X: 0, Y: 0, Width: 1536, Height: 864},
+		WorkArea:         application.Rect{X: 0, Y: 0, Width: 1536, Height: 824},
+		PhysicalBounds:   application.Rect{X: 0, Y: 0, Width: 1536, Height: 864},
+		PhysicalWorkArea: application.Rect{X: 0, Y: 0, Width: 1536, Height: 824},
+	}
+	workAreaMoved := &application.Screen{
+		ID:               "primary",
+		IsPrimary:        true,
+		Bounds:           application.Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
+		WorkArea:         application.Rect{X: 0, Y: 40, Width: 1920, Height: 1040},
+		PhysicalBounds:   application.Rect{X: 0, Y: 0, Width: 1920, Height: 1080},
+		PhysicalWorkArea: application.Rect{X: 0, Y: 40, Width: 1920, Height: 1040},
+	}
+
+	layout := networkMiniScreenLayoutSignature([]*application.Screen{original}, original)
+	if layout == "" {
+		t.Fatal("expected populated screen layout signature")
+	}
+	if layout != networkMiniScreenLayoutSignature([]*application.Screen{same}, same) {
+		t.Fatal("same screen geometry should keep the same layout signature")
+	}
+	if layout == networkMiniScreenLayoutSignature([]*application.Screen{resized}, resized) {
+		t.Fatal("resolution changes should change the layout signature")
+	}
+	if layout == networkMiniScreenLayoutSignature([]*application.Screen{workAreaMoved}, workAreaMoved) {
+		t.Fatal("taskbar/work-area changes should change the layout signature")
+	}
+}
+
+func TestNetworkMiniPlacementRefreshDetectsKnownLayoutChanges(t *testing.T) {
+	service := NewServiceWithOptions(filepath.Join(t.TempDir(), "network-mini.json"), nil)
+	original := "primary=primary|screen=primary:true:0,0,1920,1080:0,0,1920,1040:0,0,1920,1080:0,0,1920,1040"
+	resized := "primary=primary|screen=primary:true:0,0,1536,864:0,0,1536,824:0,0,1536,864:0,0,1536,824"
+
+	if service.shouldReapplyNetworkMiniPlacementForLayout(original) {
+		t.Fatal("unknown previous layout should not force an immediate reapply")
+	}
+	service.mu.Lock()
+	service.networkMiniLayout = original
+	service.mu.Unlock()
+	if service.shouldReapplyNetworkMiniPlacementForLayout(original) {
+		t.Fatal("same layout should not reapply placement")
+	}
+	if !service.shouldReapplyNetworkMiniPlacementForLayout(resized) {
+		t.Fatal("changed layout should reapply placement")
 	}
 }
 

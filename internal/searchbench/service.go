@@ -130,7 +130,6 @@ func NewDefaultStack() *DefaultStack {
 		imageIndexService,
 		workflowService,
 		pluginService,
-		workMemoryService,
 	)
 	return &DefaultStack{
 		SearchService:      searchService,

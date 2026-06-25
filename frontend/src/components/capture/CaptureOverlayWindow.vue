@@ -16,6 +16,7 @@ import {
   Redo2,
   RotateCcw,
   Save,
+  ShieldCheck,
   Square,
   Trash2,
   Type,
@@ -27,6 +28,7 @@ import {
   cancelCaptureOverlay,
   captureOverlaySelection,
   getCaptureOverlaySession,
+  prepareCaptureOverlaySelectionRedaction,
 } from '../../services/captureOverlayApi'
 import {
   mapVisualSelectionToSourcePixels,
@@ -92,6 +94,9 @@ const colorFormat = ref<'rgb' | 'hex'>('rgb')
 let sampleCanvas: HTMLCanvasElement | null = null
 let sampleContext: CanvasRenderingContext2D | null = null
 let sampleImageSrc = ''
+let overlayUnmounted = false
+let redactionPrepareTimer = 0
+let redactionPrepareToken = 0
 
 const selection = computed(() => {
   if (!dragStart.value || !dragEnd.value) return null
@@ -110,14 +115,14 @@ const hasSelection = computed(() => {
 const isSelecting = computed(() => selectionPointerId.value !== null)
 const isResizingSelection = computed(() => resizePointerId.value !== null)
 const canShowToolbar = computed(() => hasSelection.value && !isSelecting.value && !isResizingSelection.value)
-const canMoveAnnotations = computed(() => (
+const canHitAnnotations = computed(() => (
   hasSelection.value
   && annotationOperations.value.length > 0
-  && !editMode.value
   && !textEditor.value
   && !isSelecting.value
   && !isResizingSelection.value
 ))
+const canMoveAnnotations = computed(() => canHitAnnotations.value && !editMode.value)
 
 const selectionStyle = computed(() => {
   const rect = selection.value
@@ -204,16 +209,29 @@ const magnifierImageStyle = computed(() => {
 })
 
 onMounted(async () => {
+  overlayUnmounted = false
   document.documentElement.classList.add('capture-overlay-document')
-  await prepareWindow()
-  session.value = await getCaptureOverlaySession(props.sessionId)
-  isLoading.value = false
+  void prepareWindow()
   window.addEventListener('keydown', handleKeyDown)
+  const nextSession = await getCaptureOverlaySession(props.sessionId)
+  if (overlayUnmounted) return
+  if (nextSession) {
+    await preloadOverlayImage(nextSession.imageUrl)
+    if (overlayUnmounted) return
+    session.value = nextSession
+    await nextTick()
+    await forceOverlayRepaint()
+  } else {
+    session.value = null
+  }
+  isLoading.value = false
 })
 
 onBeforeUnmount(() => {
+  overlayUnmounted = true
   document.documentElement.classList.remove('capture-overlay-document')
   window.removeEventListener('keydown', handleKeyDown)
+  clearRedactionPrepareTimer()
   sampleCanvas = null
   sampleContext = null
   sampleImageSrc = ''
@@ -229,10 +247,59 @@ async function prepareWindow() {
   }
 }
 
+async function preloadOverlayImage(src: string) {
+  if (!src) return
+  const image = new Image()
+  image.decoding = 'sync'
+  image.loading = 'eager'
+  image.setAttribute('fetchpriority', 'high')
+  const loaded = await Promise.race([
+    new Promise<boolean>((resolve) => {
+      image.onload = () => resolve(true)
+      image.onerror = () => resolve(false)
+      image.src = src
+      if (image.complete && image.naturalWidth > 0) resolve(true)
+    }),
+    delay(5000).then(() => false),
+  ])
+  if (!loaded) return
+  try {
+    await Promise.race([image.decode(), delay(1000)])
+  } catch {
+    // Some WebView2 builds reject decode() after the image has already loaded.
+  }
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+}
+
+function handleOverlayImageLoad() {
+  sampleCanvas = null
+  sampleContext = null
+  sampleImageSrc = ''
+  void forceOverlayRepaint()
+}
+
+function forceOverlayRepaint() {
+  return new Promise<void>((resolve) => window.requestAnimationFrame(() => {
+    const image = document.querySelector<HTMLImageElement>('.capture-overlay-image')
+    if (!image) {
+      resolve()
+      return
+    }
+    image.style.transform = 'translateZ(0)'
+    void image.offsetHeight
+    resolve()
+  }))
+}
+
 function beginSelection(event: PointerEvent) {
   if (event.button !== 0) return
+  if (isLoading.value || !session.value) return
   if ((event.target as HTMLElement | null)?.closest('button')) return
   if (editMode.value || textEditor.value) return
+  clearRedactionPrepareTimer()
   const point = boundedPoint(event)
   dragStart.value = point
   dragEnd.value = point
@@ -260,6 +327,8 @@ function endSelection(event: PointerEvent) {
   selectionPointerId.value = null
   if (!hasSelection.value) {
     showFeedback('拖拽选择一个区域')
+  } else {
+    scheduleSelectionRedactionPrepare()
   }
 }
 
@@ -317,6 +386,9 @@ function endResizeSelection(event: PointerEvent) {
   resizePointerId.value = null
   resizeAnchor.value = null
   resizeOrigin.value = null
+  if (hasSelection.value) {
+    scheduleSelectionRedactionPrepare()
+  }
 }
 
 function cancelResizeSelection(event: PointerEvent) {
@@ -400,6 +472,44 @@ async function runSaveAsAction() {
   await runSelectionAction('save_as', savedPath)
 }
 
+function scheduleSelectionRedactionPrepare() {
+  clearRedactionPrepareTimer()
+  const token = ++redactionPrepareToken
+  redactionPrepareTimer = window.setTimeout(() => {
+    void prepareSelectionRedaction(token)
+  }, 80)
+}
+
+function clearRedactionPrepareTimer() {
+  if (redactionPrepareTimer) {
+    window.clearTimeout(redactionPrepareTimer)
+    redactionPrepareTimer = 0
+  }
+  redactionPrepareToken++
+}
+
+async function prepareSelectionRedaction(token: number) {
+  const current = session.value
+  const rect = selection.value
+  if (!current || !rect || rect.width < 2 || rect.height < 2 || token !== redactionPrepareToken) return
+  const visualRect = mapSelectionToVisualRect(rect)
+  try {
+    await prepareCaptureOverlaySelectionRedaction({
+      sessionId: current.id,
+      x: visualRect.left,
+      y: visualRect.top,
+      width: visualRect.width,
+      height: visualRect.height,
+      coordinateSpace: 'visual',
+      displayWidth: visualRect.displayWidth,
+      displayHeight: visualRect.displayHeight,
+      action: 'redact_copy',
+    })
+  } catch {
+    // Redaction prepare is speculative; the explicit action reports any real failure.
+  }
+}
+
 async function handleResult(result: CaptureOverlayResult, action: CaptureOverlaySelectionRequest['action']) {
   if (action === 'qr' && result.qr?.ok && result.qr.text) {
     try {
@@ -429,6 +539,7 @@ async function closeWindow(cancel = true) {
 }
 
 function resetSelection() {
+  clearRedactionPrepareTimer()
   dragStart.value = null
   dragEnd.value = null
   selectionPointerId.value = null
@@ -474,7 +585,11 @@ function handleKeyDown(event: KeyboardEvent) {
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
     event.preventDefault()
     void runSaveAsAction()
+  } else if (event.shiftKey && event.key === 'Enter') {
+    event.preventDefault()
+    void runSelectionAction('redact_copy')
   } else if (event.key === 'Enter') {
+    event.preventDefault()
     void runSelectionAction('copy')
   } else if (event.key.toLowerCase() === 'p') {
     void runSelectionAction('pin')
@@ -542,6 +657,7 @@ function activateAnnotationSelect() {
 function beginAnnotation(event: PointerEvent) {
   if (event.button !== 0) return
   if (!editMode.value || !selection.value) return
+  if (beginMoveAnnotation(event)) return
   const point = boundedAnnotationPoint(event)
   if (editTool.value === 'text') {
     startTextEditor(point)
@@ -587,7 +703,6 @@ function endAnnotation(event: PointerEvent) {
   annotationOperations.value = [...annotationOperations.value, operation]
   redoAnnotationOperations.value = []
   selectedAnnotationIndex.value = annotationOperations.value.length - 1
-  editMode.value = false
 }
 
 function cancelAnnotationPointer(event: PointerEvent) {
@@ -595,6 +710,35 @@ function cancelAnnotationPointer(event: PointerEvent) {
   annotationPointerId.value = null
   annotationStart.value = null
   draftAnnotation.value = null
+}
+
+function moveAnnotationCanvas(event: PointerEvent) {
+  if (movingAnnotationPointerId.value !== null) {
+    moveSelectedAnnotation(event)
+    return
+  }
+  if (annotationPointerId.value !== null) {
+    moveAnnotation(event)
+    return
+  }
+  currentMousePoint.value = boundedPoint(event)
+  updateAnnotationHover(event)
+}
+
+function endAnnotationCanvas(event: PointerEvent) {
+  if (movingAnnotationPointerId.value === event.pointerId) {
+    endMoveAnnotation(event)
+    return
+  }
+  endAnnotation(event)
+}
+
+function cancelAnnotationCanvas(event: PointerEvent) {
+  if (movingAnnotationPointerId.value === event.pointerId) {
+    cancelMoveAnnotation(event)
+    return
+  }
+  cancelAnnotationPointer(event)
 }
 
 function createAnnotation(start: { x: number; y: number }, end: { x: number; y: number }): CaptureOverlayAnnotationOperation {
@@ -715,7 +859,6 @@ function addNumberAnnotation(point: Point) {
   annotationOperations.value = [...annotationOperations.value, operation]
   redoAnnotationOperations.value = []
   selectedAnnotationIndex.value = annotationOperations.value.length - 1
-  editMode.value = false
   showFeedback(`序号 ${operation.number}`)
 }
 
@@ -787,24 +930,23 @@ function commitTextAnnotation() {
   annotationOperations.value = [...annotationOperations.value, operation]
   redoAnnotationOperations.value = []
   selectedAnnotationIndex.value = annotationOperations.value.length - 1
-  editMode.value = false
 }
 
 function beginMoveAnnotation(event: PointerEvent) {
-  if (!canMoveAnnotations.value) return
-  if (event.button !== 0) return
+  if (!canHitAnnotations.value) return false
+  if (event.button !== 0) return false
   currentMousePoint.value = boundedPoint(event)
   const point = boundedAnnotationPoint(event)
   const index = findAnnotationAtPoint(point)
   if (index === null) {
     selectedAnnotationIndex.value = null
     hoveredAnnotationIndex.value = null
-    return
+    return false
   }
   if (event.detail >= 2 && annotationOperations.value[index]?.kind === 'text') {
     event.preventDefault()
     startExistingTextEditor(index)
-    return
+    return true
   }
   event.preventDefault()
   selectedAnnotationIndex.value = index
@@ -816,10 +958,11 @@ function beginMoveAnnotation(event: PointerEvent) {
     moved: false,
   }
   ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  return true
 }
 
 function editTextAnnotationAtPoint(event: MouseEvent) {
-  if (!canMoveAnnotations.value) return
+  if (!canHitAnnotations.value) return
   const point = boundedAnnotationPoint(event)
   const index = findAnnotationAtPoint(point)
   if (index === null || annotationOperations.value[index]?.kind !== 'text') return
@@ -873,7 +1016,7 @@ function cancelMoveAnnotation(event: PointerEvent) {
 }
 
 function updateAnnotationHover(event: MouseEvent | PointerEvent) {
-  if (!canMoveAnnotations.value || movingAnnotationPointerId.value !== null) {
+  if (!canHitAnnotations.value || movingAnnotationPointerId.value !== null) {
     hoveredAnnotationIndex.value = null
     return
   }
@@ -1584,7 +1727,17 @@ function clampNumber(value: number, min: number, max: number) {
     @contextmenu="handleContextMenu"
     @wheel="handleWheel"
   >
-    <img v-if="session?.imageUrl" class="capture-overlay-image" :src="session.imageUrl" alt="" draggable="false" />
+    <img
+      v-if="session?.imageUrl"
+      class="capture-overlay-image"
+      :src="session.imageUrl"
+      alt=""
+      draggable="false"
+      loading="eager"
+      decoding="sync"
+      fetchpriority="high"
+      @load="handleOverlayImageLoad"
+    />
     <div class="capture-overlay-dim" />
     <div v-if="session?.imageUrl" class="capture-magnifier" :style="magnifierStyle" aria-hidden="true">
       <div class="capture-magnifier-lens">
@@ -1773,14 +1926,16 @@ function clampNumber(value: number, min: number, max: number) {
       <button
         v-if="editMode"
         class="capture-annotation-canvas"
+        :class="{ 'is-hovering-annotation': hoveredAnnotationIndex !== null, 'is-moving-annotation': movingAnnotationPointerId !== null }"
         type="button"
         :title="annotationToolLabel(editTool)"
         :aria-label="annotationToolLabel(editTool)"
         @pointerdown.stop.prevent="beginAnnotation"
-        @pointermove.stop="moveAnnotation"
-        @pointerup.stop="endAnnotation"
-        @pointercancel.stop="endAnnotation"
-        @lostpointercapture.stop="cancelAnnotationPointer"
+        @pointermove.stop="moveAnnotationCanvas"
+        @pointerup.stop="endAnnotationCanvas"
+        @pointercancel.stop="endAnnotationCanvas"
+        @lostpointercapture.stop="cancelAnnotationCanvas"
+        @pointerleave.stop="clearAnnotationHover"
       />
       <textarea
         v-if="textEditor"
@@ -1927,6 +2082,9 @@ function clampNumber(value: number, min: number, max: number) {
         <div class="capture-overlay-action-group">
           <button type="button" :disabled="isBusy" title="复制到剪贴板 (Enter)" aria-label="复制到剪贴板" @click="runSelectionAction('copy')">
             <Copy :size="14" />
+          </button>
+          <button type="button" :disabled="isBusy" title="打码并复制 (Shift+Enter)" aria-label="打码并复制" @click="runSelectionAction('redact_copy')">
+            <ShieldCheck :size="14" />
           </button>
           <button type="button" :disabled="isBusy" title="贴图 (P)" aria-label="贴图" @click="runSelectionAction('pin')">
             <Pin :size="14" />
