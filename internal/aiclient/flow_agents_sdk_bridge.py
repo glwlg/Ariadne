@@ -282,12 +282,25 @@ async def _run_with_compatible_chat_tools(
     used_tools = False
     used_tool_names: list[str] = []
     todo_mutation_succeeded = False
+    preloaded_todo = _preload_readonly_todo_tool(cli_command, user_prompt, todo_requirement)
+    if preloaded_todo:
+        used_tools = True
+        used_tool_names.append("list_flow_todos")
+        messages.append(
+            {
+                "role": "user",
+                "content": "Ariadne Todo 工具已查询结果：\n"
+                + preloaded_todo[:18000]
+                + "\n\n请基于这个待办结果回答；如需补充上下文，可继续自动调用其他 Ariadne memory 工具。",
+            }
+        )
     for _ in range(6):
         tool_choice: Any = "auto"
         if not used_tools and todo_requirement.get("required_tool"):
             tool_choice = _chat_tool_choice(str(todo_requirement["required_tool"]))
         try:
-            response = await client.chat.completions.create(
+            response = await _create_chat_completion_with_retries(
+                client,
                 model=model_name,
                 messages=messages,
                 tools=tools,
@@ -296,6 +309,16 @@ async def _run_with_compatible_chat_tools(
                 max_tokens=1800,
             )
         except Exception as exc:
+            if _should_retry_chat_completion_error(exc):
+                fallback = await _answer_from_cli_retrieval_fallback(
+                    client=client,
+                    model_name=model_name,
+                    user_prompt=user_prompt,
+                    cli_command=cli_command,
+                    reason=f"{type(exc).__name__}: {exc}",
+                )
+                if fallback.get("ok"):
+                    return fallback
             return {"ok": False, "error": f"OpenAI-compatible Chat Tools 调用失败: {type(exc).__name__}: {exc}"}
         choices = getattr(response, "choices", None) or []
         if not choices:
@@ -325,6 +348,32 @@ async def _run_with_compatible_chat_tools(
             continue
         answer = str(getattr(message, "content", "") or "").strip()
         if not answer:
+            if used_tools:
+                answer, retry_detail = await _retry_compatible_chat_final_answer(
+                    client=client,
+                    model_name=model_name,
+                    messages=messages,
+                )
+                if answer:
+                    missing_required_tool = _missing_required_todo_tool(
+                        todo_requirement, used_tool_names, todo_mutation_succeeded
+                    )
+                    if missing_required_tool:
+                        return {"ok": False, "error": missing_required_tool}
+                    if _looks_like_unexecuted_tool_call(answer):
+                        return {"ok": False, "error": "OpenAI-compatible Chat Tools 返回了未执行的 tool_call 文本"}
+                    message_text = "OpenAI-compatible Chat Completions 已通过 Ariadne 兼容工具调用本地 workmemory CLI。"
+                    if native_error:
+                        message_text += " 原生 Responses Skill 不可用: " + native_error[:220]
+                    message_text += " 已基于工具结果生成最终回答。"
+                    return {
+                        "ok": True,
+                        "answer": answer,
+                        "mode": "agent:openai-compatible-chat-tools",
+                        "message": message_text,
+                    }
+                detail = f"；{retry_detail}" if retry_detail else ""
+                return {"ok": False, "error": "OpenAI-compatible Chat Tools 返回空内容" + detail}
             return {"ok": False, "error": "OpenAI-compatible Chat Tools 返回空内容"}
         missing_required_tool = _missing_required_todo_tool(todo_requirement, used_tool_names, todo_mutation_succeeded)
         if missing_required_tool:
@@ -343,6 +392,351 @@ async def _run_with_compatible_chat_tools(
             "message": message_text,
         }
     return {"ok": False, "error": "OpenAI-compatible Chat Tools 超过最大工具调用轮次"}
+
+
+async def _retry_compatible_chat_final_answer(
+    *,
+    client: Any,
+    model_name: str,
+    messages: list[dict[str, Any]],
+) -> tuple[str, str]:
+    details: list[str] = []
+    try:
+        response = await _create_chat_completion_with_retries(
+            client,
+            model=model_name,
+            messages=messages
+            + [
+                {
+                    "role": "user",
+                    "content": "请只根据上面的工具结果给出最终中文回答。不要再调用工具，不要输出工具调用文本。",
+                }
+            ],
+            temperature=0.2,
+            max_tokens=1800,
+        )
+        answer = _chat_completion_answer(response)
+        if answer:
+            return answer, ""
+        details.append("原消息链最终回答仍为空")
+    except Exception as exc:
+        details.append(f"原消息链最终回答失败: {type(exc).__name__}: {exc}")
+
+    try:
+        response = await _create_chat_completion_with_retries(
+            client,
+            model=model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是 Ariadne 心流 Agent。只根据用户问题和工具结果生成中文最终回答；不要输出工具调用文本。",
+                },
+                {
+                    "role": "user",
+                    "content": _plain_final_answer_prompt(messages),
+                },
+            ],
+            temperature=0.2,
+            max_tokens=1800,
+        )
+        answer = _chat_completion_answer(response)
+        if answer:
+            return answer, ""
+        details.append("纯文本工具结果最终回答仍为空")
+    except Exception as exc:
+        details.append(f"纯文本工具结果最终回答失败: {type(exc).__name__}: {exc}")
+    return "", "；".join(details)
+
+
+async def _create_chat_completion_with_retries(client: Any, attempts: int = 3, **kwargs: Any) -> Any:
+    last_exc: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            return await client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= attempts - 1 or not _should_retry_chat_completion_error(exc):
+                raise
+            await asyncio.sleep(min(2.5, 0.8 * (attempt + 1)))
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("chat completion retry exhausted")
+
+
+def _should_retry_chat_completion_error(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        if status in {408, 409, 425, 429} or status >= 500:
+            return True
+        if status == 400 and "upstream error" in str(exc).lower():
+            return True
+        return False
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "upstream error",
+            "timeout",
+            "timed out",
+            "temporarily",
+            "connection reset",
+            "connection aborted",
+            "bad gateway",
+            "service unavailable",
+        )
+    )
+
+
+def _chat_completion_answer(response: Any) -> str:
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return ""
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return ""
+    return str(getattr(message, "content", "") or "").strip()
+
+
+def _plain_final_answer_prompt(messages: list[dict[str, Any]]) -> str:
+    user_messages = [str(message.get("content") or "").strip() for message in messages if message.get("role") == "user"]
+    original_user = user_messages[0] if user_messages else ""
+    additional_user_context = "\n\n".join(message for message in user_messages[1:] if message)
+    tool_blocks = []
+    for message in messages:
+        if message.get("role") != "tool":
+            continue
+        name = str(message.get("name") or "tool").strip()
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        if len(content) > 12000:
+            content = content[:12000] + "\n... truncated ..."
+        tool_blocks.append(f"### {name}\n{content}")
+    tool_text = "\n\n".join(tool_blocks)
+    if not tool_text:
+        tool_text = "无工具结果。"
+    return (
+        "用户问题和回答要求：\n"
+        + original_user[:12000]
+        + ("\n\n附加上下文：\n" + additional_user_context[:12000] if additional_user_context else "")
+        + "\n\n已执行的 Ariadne 工具结果：\n"
+        + tool_text[:24000]
+        + "\n\n请直接给出最终中文回答。不要再调用工具；不要输出 JSON、XML 或 tool_call。"
+    )
+
+
+def _preload_readonly_todo_tool(cli_command: str, user_prompt: str, requirement: dict[str, Any]) -> str:
+    if str(requirement.get("required_tool") or "").strip() != "list_flow_todos":
+        return ""
+    if bool(requirement.get("mutating")):
+        return ""
+    return _run_compatible_tool(
+        cli_command,
+        user_prompt,
+        "list_flow_todos",
+        {
+            "status": "open",
+            "limit": 20,
+        },
+    )
+
+
+async def _answer_from_cli_retrieval_fallback(
+    *,
+    client: Any,
+    model_name: str,
+    user_prompt: str,
+    cli_command: str,
+    reason: str,
+) -> dict:
+    question = _extract_flow_user_question(user_prompt)
+    if not question:
+        question = "用户的问题"
+    outputs: list[tuple[str, str]] = []
+    queries = [question]
+    compact = re.sub(r"\s+", "", question)
+    if _todo_tool_requirement(user_prompt).get("required_tool") == "list_flow_todos":
+        outputs.append(("todos", _run_workmemory_cli(cli_command, "todos", ["--status", "open", "--limit", "20"])))
+    if any(term in compact for term in ("谁找", "找过我", "跟谁聊", "联系人", "消息")):
+        queries.append("微信 钉钉 找我 联系人 消息")
+    seen_queries = set()
+    for query in queries:
+        query = query.strip()
+        if not query or query in seen_queries:
+            continue
+        seen_queries.add(query)
+        outputs.append(
+            (
+                "search",
+                _run_workmemory_cli(cli_command, "search", ["--query", query, "--limit", "8", "--since-hours", "24"]),
+            )
+        )
+    outputs.append(("recent", _run_workmemory_cli(cli_command, "recent", ["--limit", "8", "--since-hours", "24"])))
+    memory_ids = _memory_ids_from_tool_outputs([content for _, content in outputs])[:5]
+    for memory_id in memory_ids:
+        outputs.append(("get", _run_workmemory_cli(cli_command, "get", ["--id", memory_id])))
+
+    try:
+        response = await _create_chat_completion_with_retries(
+            client,
+            model=model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是 Ariadne 心流 Agent。只根据 Ariadne 本地检索结果回答用户问题；不要编造证据。",
+                },
+                {
+                    "role": "user",
+                    "content": _retrieval_fallback_prompt(question, outputs, reason),
+                },
+            ],
+            temperature=0.2,
+            max_tokens=1800,
+        )
+        answer = _chat_completion_answer(response)
+        if answer and not _looks_like_unexecuted_tool_call(answer):
+            return {
+                "ok": True,
+                "answer": answer,
+                "mode": "agent:openai-compatible-chat-tools",
+                "message": "OpenAI-compatible Chat Completions 已基于 Ariadne 本地检索结果生成回答。",
+            }
+    except Exception:
+        pass
+
+    answer = _local_retrieval_fallback_answer(question, outputs)
+    if answer:
+        return {
+            "ok": True,
+            "answer": answer,
+            "mode": "agent:openai-compatible-chat-tools",
+            "message": "Ariadne 已基于本地检索结果生成回答。",
+        }
+    return {"ok": False, "error": "本地检索兜底未获得可用结果"}
+
+
+def _retrieval_fallback_prompt(question: str, outputs: list[tuple[str, str]], reason: str) -> str:
+    blocks = []
+    for label, content in outputs:
+        content = str(content or "").strip()
+        if not content:
+            continue
+        if len(content) > 10000:
+            content = content[:10000] + "\n... truncated ..."
+        blocks.append(f"### {label}\n{content}")
+    return (
+        "用户问题：\n"
+        + question
+        + "\n\nAriadne 工具调用模式暂时不可用：\n"
+        + reason[:500]
+        + "\n\n本地检索结果：\n"
+        + ("\n\n".join(blocks) or "无本地检索结果。")
+        + "\n\n请根据本地检索结果直接回答。联系人/聊天问题要区分聊天正文、左侧列表和背景窗口；结尾列出最多 6 个 memory id。"
+    )
+
+
+def _memory_ids_from_tool_outputs(outputs: list[str]) -> list[str]:
+    ids: list[str] = []
+    seen = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            item_id = str(value.get("id") or "").strip()
+            if item_id.startswith("memory-") and item_id not in seen:
+                seen.add(item_id)
+                ids.append(item_id)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    for output in outputs:
+        try:
+            parsed = json.loads(str(output or "{}"))
+        except Exception:
+            continue
+        visit(parsed)
+    return ids
+
+
+def _local_retrieval_fallback_answer(question: str, outputs: list[tuple[str, str]]) -> str:
+    todo_answer = _local_todo_fallback_answer(question, outputs)
+    if todo_answer:
+        return todo_answer
+    rows = []
+    seen = set()
+    for _, content in outputs:
+        try:
+            parsed = json.loads(str(content or "{}"))
+        except Exception:
+            continue
+        candidates = []
+        if isinstance(parsed, dict):
+            for key in ("results", "entries", "memories"):
+                value = parsed.get(key)
+                if isinstance(value, list):
+                    candidates.extend(value)
+            if parsed.get("id"):
+                candidates.append(parsed)
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            memory_id = str(item.get("id") or "").strip()
+            if not memory_id or memory_id in seen:
+                continue
+            seen.add(memory_id)
+            title = str(item.get("title") or item.get("windowTitle") or "本地记录").strip()
+            summary = str(item.get("summary") or item.get("preview") or item.get("text") or "").strip()
+            app_name = str(item.get("appName") or "").strip()
+            if len(summary) > 180:
+                summary = summary[:180] + "..."
+            rows.append((memory_id, title, app_name, summary))
+    if not rows:
+        return ""
+    lines = [
+        f"我查到了和“{question}”相关的本地记录，但模型工具调用暂时不稳定。先给你列出可核对的证据摘要：",
+        "",
+    ]
+    for memory_id, title, app_name, summary in rows[:8]:
+        app_part = f"（{app_name}）" if app_name else ""
+        lines.append(f"- **{title}**{app_part}：{summary}  \n  依据：{memory_id}")
+    lines.append("")
+    lines.append("依据：" + ", ".join(memory_id for memory_id, _, _, _ in rows[:6]))
+    return "\n".join(lines)
+
+
+def _local_todo_fallback_answer(question: str, outputs: list[tuple[str, str]]) -> str:
+    for label, content in outputs:
+        if label != "todos":
+            continue
+        try:
+            parsed = json.loads(str(content or "{}"))
+        except Exception:
+            continue
+        if not isinstance(parsed, dict) or not parsed.get("ok"):
+            continue
+        items = parsed.get("items") or parsed.get("todos") or parsed.get("results") or []
+        message = str(parsed.get("message") or "").strip()
+        if isinstance(items, list) and not items:
+            return "当前没有未完成的 Ariadne 待办。\n\n依据：本地待办列表"
+        if not isinstance(items, list):
+            items = []
+        lines = [f"我查了本地待办，和“{question}”相关的未完成事项如下：", ""]
+        for item in items[:10]:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or item.get("text") or item.get("id") or "未命名待办").strip()
+            status = str(item.get("status") or "").strip()
+            priority = str(item.get("priority") or "").strip()
+            meta = " · ".join(part for part in (status, priority) if part)
+            lines.append(f"- **{title}**" + (f"（{meta}）" if meta else ""))
+        if len(lines) == 2 and message:
+            lines.append(message)
+        lines.append("")
+        lines.append("依据：本地待办列表")
+        return "\n".join(lines)
+    return ""
 
 
 def _chat_tool_choice(name: str) -> dict[str, Any]:

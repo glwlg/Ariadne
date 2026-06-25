@@ -1535,7 +1535,7 @@ export function useWorkMemoryFlow() {
   
   function secretSourceLabel(source: string) {
     const labels: Record<string, string> = {
-      environment: '环境变量优先',
+      environment: '环境变量',
       credential_manager: '安全存储',
       missing: '未配置',
     }

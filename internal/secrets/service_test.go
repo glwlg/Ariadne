@@ -28,7 +28,10 @@ func (f *fakeStore) Delete(target string) error {
 
 func TestStatusReportsEnvironmentAndStoredSecrets(t *testing.T) {
 	t.Setenv("OPENAI__API_KEY", "env-key")
-	store := &fakeStore{available: true, backend: "test", values: map[string]string{"Ariadne/Embedding/APIKey": "stored"}}
+	store := &fakeStore{available: true, backend: "test", values: map[string]string{
+		"Ariadne/OpenAI/APIKey":    "stored-ai",
+		"Ariadne/Embedding/APIKey": "stored-embedding",
+	}}
 	service := NewServiceWithStore(store)
 
 	status := service.Status()
@@ -36,12 +39,24 @@ func TestStatusReportsEnvironmentAndStoredSecrets(t *testing.T) {
 		t.Fatalf("unexpected status backend: %#v", status)
 	}
 	ai := record(status, "ai_api_key")
-	if !ai.EnvPresent || ai.Stored || ai.ActiveSource != "environment" {
-		t.Fatalf("AI record should prefer env and report no stored fallback: %#v", ai)
+	if !ai.EnvPresent || !ai.Stored || ai.ActiveSource != "credential_manager" {
+		t.Fatalf("AI record should prefer stored Ariadne credential over generic env: %#v", ai)
 	}
 	embedding := record(status, "embedding_api_key")
-	if !embedding.Stored || embedding.ActiveSource != "environment" {
-		t.Fatalf("embedding record should see shared OPENAI env and stored credential: %#v", embedding)
+	if !embedding.EnvPresent || !embedding.Stored || embedding.ActiveSource != "credential_manager" {
+		t.Fatalf("embedding record should prefer stored Ariadne credential over generic env: %#v", embedding)
+	}
+}
+
+func TestStatusReportsAriadneEnvironmentAsActive(t *testing.T) {
+	t.Setenv("ARIADNE_AI_API_KEY", "env-key")
+	store := &fakeStore{available: true, backend: "test", values: map[string]string{"Ariadne/OpenAI/APIKey": "stored-ai"}}
+	service := NewServiceWithStore(store)
+
+	status := service.Status()
+	ai := record(status, "ai_api_key")
+	if !ai.EnvPresent || !ai.Stored || ai.ActiveSource != "environment" {
+		t.Fatalf("app-specific env should override stored Ariadne credential: %#v", ai)
 	}
 }
 

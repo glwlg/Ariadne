@@ -177,12 +177,7 @@ func (e *OpenAICompatibleEmbedder) apiKey() string {
 	if len(envs) == 0 {
 		envs = []string{"ARIADNE_EMBED_API_KEY", "EMBED__API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
 	}
-	for _, name := range envs {
-		if value := cleanAPIKey(os.Getenv(name)); value != "" {
-			return value
-		}
-	}
-	return apiKeyFromCredentialManager(e.SecretTargets)
+	return apiKeyFromSources(envs, e.SecretTargets)
 }
 
 func (p *OpenAICompatiblePolisher) PolishDraft(ctx context.Context, job workmemory.DraftPolishJob) (workmemory.Draft, error) {
@@ -263,12 +258,7 @@ func (p *OpenAICompatiblePolisher) apiKey() string {
 	if len(envs) == 0 {
 		envs = []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
 	}
-	for _, name := range envs {
-		if value := cleanAPIKey(os.Getenv(name)); value != "" {
-			return value
-		}
-	}
-	return apiKeyFromCredentialManager(p.SecretTargets)
+	return apiKeyFromSources(envs, p.SecretTargets)
 }
 
 func (o *OpenAICompatibleImageOCR) RecognizeImageOCR(ctx context.Context, job ocr.AIOCRJob) (ocr.AIResult, error) {
@@ -445,12 +435,7 @@ func (o *OpenAICompatibleImageOCR) apiKey() string {
 	if len(envs) == 0 {
 		envs = []string{"ARIADNE_OCR_API_KEY", "ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
 	}
-	for _, name := range envs {
-		if value := cleanAPIKey(os.Getenv(name)); value != "" {
-			return value
-		}
-	}
-	return apiKeyFromCredentialManager(o.SecretTargets)
+	return apiKeyFromSources(envs, o.SecretTargets)
 }
 
 func (s *OpenAICompatibleOCRSummarizer) SummarizeOCR(ctx context.Context, job workmemory.OCRSummaryJob) (workmemory.OCRSummaryResult, error) {
@@ -530,12 +515,7 @@ func (s *OpenAICompatibleOCRSummarizer) apiKey() string {
 	if len(envs) == 0 {
 		envs = []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
 	}
-	for _, name := range envs {
-		if value := cleanAPIKey(os.Getenv(name)); value != "" {
-			return value
-		}
-	}
-	return apiKeyFromCredentialManager(s.SecretTargets)
+	return apiKeyFromSources(envs, s.SecretTargets)
 }
 
 func (d *OpenAICompatibleExperienceDiscoverer) DiscoverExperiences(ctx context.Context, job workmemory.ExperienceDiscoveryJob) (workmemory.ExperienceReport, error) {
@@ -615,17 +595,47 @@ func (d *OpenAICompatibleExperienceDiscoverer) apiKey() string {
 	if len(envs) == 0 {
 		envs = []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
 	}
+	return apiKeyFromSources(envs, d.SecretTargets)
+}
+
+type credentialReadFunc func(target string) (string, bool, error)
+
+func apiKeyFromSources(envs []string, targets []string) string {
+	return apiKeyFromSourcesWithReader(envs, targets, securestore.Read)
+}
+
+func apiKeyFromSourcesWithReader(envs []string, targets []string, read credentialReadFunc) string {
+	if token := apiKeyFromEnv(envs, true); token != "" {
+		return token
+	}
+	if token := apiKeyFromCredentialManagerWithReader(targets, read); token != "" {
+		return token
+	}
+	return apiKeyFromEnv(envs, false)
+}
+
+func apiKeyFromEnv(envs []string, ariadneOnly bool) string {
 	for _, name := range envs {
+		if isAriadneAPIKeyEnv(name) != ariadneOnly {
+			continue
+		}
 		if value := cleanAPIKey(os.Getenv(name)); value != "" {
 			return value
 		}
 	}
-	return apiKeyFromCredentialManager(d.SecretTargets)
+	return ""
 }
 
 func apiKeyFromCredentialManager(targets []string) string {
+	return apiKeyFromCredentialManagerWithReader(targets, securestore.Read)
+}
+
+func apiKeyFromCredentialManagerWithReader(targets []string, read credentialReadFunc) string {
+	if read == nil {
+		return ""
+	}
 	for _, target := range targets {
-		value, ok, err := securestore.Read(target)
+		value, ok, err := read(target)
 		if err == nil && ok {
 			if token := cleanAPIKey(value); token != "" {
 				return token
@@ -633,6 +643,10 @@ func apiKeyFromCredentialManager(targets []string) string {
 		}
 	}
 	return ""
+}
+
+func isAriadneAPIKeyEnv(name string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(name)), "ARIADNE_")
 }
 
 func cleanAPIKey(value string) string {

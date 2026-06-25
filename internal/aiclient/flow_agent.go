@@ -277,12 +277,7 @@ func (a *OpenAICompatibleFlowAgent) apiKey() string {
 	if len(envs) == 0 {
 		envs = []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
 	}
-	for _, name := range envs {
-		if value := cleanAPIKey(os.Getenv(name)); value != "" {
-			return value
-		}
-	}
-	return apiKeyFromCredentialManager(a.SecretTargets)
+	return apiKeyFromSources(envs, a.SecretTargets)
 }
 
 func flowAgentSystemPrompt() string {
@@ -432,12 +427,7 @@ func (a *OpenAIAgentsSDKFlowAgent) apiKey() string {
 	if len(envs) == 0 {
 		envs = []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
 	}
-	for _, name := range envs {
-		if value := cleanAPIKey(os.Getenv(name)); value != "" {
-			return value
-		}
-	}
-	return apiKeyFromCredentialManager(a.SecretTargets)
+	return apiKeyFromSources(envs, a.SecretTargets)
 }
 
 func writeFlowAgentsSDKBridgeFile() (string, error) {

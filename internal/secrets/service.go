@@ -147,6 +147,13 @@ func (s *Service) status() SecretStatus {
 				break
 			}
 		}
+		appEnvPresent := false
+		for _, env := range spec.Envs {
+			if isAriadneEnv(env) && strings.TrimSpace(os.Getenv(env)) != "" {
+				appEnvPresent = true
+				break
+			}
+		}
 		if s.store != nil && s.store.Available() {
 			_, stored, err := s.store.Read(spec.Target)
 			if err != nil {
@@ -158,16 +165,22 @@ func (s *Service) status() SecretStatus {
 			record.Stored = stored
 		}
 		switch {
-		case record.EnvPresent:
+		case appEnvPresent:
 			record.ActiveSource = "environment"
 		case record.Stored:
 			record.ActiveSource = "credential_manager"
+		case record.EnvPresent:
+			record.ActiveSource = "environment"
 		default:
 			record.ActiveSource = "missing"
 		}
 		status.Records = append(status.Records, record)
 	}
 	return status
+}
+
+func isAriadneEnv(name string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(name)), "ARIADNE_")
 }
 
 func specs() []credentialSpec {

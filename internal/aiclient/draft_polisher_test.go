@@ -655,6 +655,470 @@ if not seen_tool_choices or seen_tool_choices[0] != {"type": "function", "functi
 	}
 }
 
+func TestFlowAgentsSDKBridgeRetriesFinalAnswerAfterEmptyToolTurn(t *testing.T) {
+	pythonPath, err := exec.LookPath("python")
+	pythonArgs := []string{}
+	if err != nil && runtime.GOOS == "windows" {
+		pythonPath, err = exec.LookPath("py")
+		pythonArgs = []string{"-3"}
+	}
+	if err != nil {
+		t.Skipf("python executable not found: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	bridgePath := filepath.Join(tempDir, "flow_agents_sdk_bridge.py")
+	if err := os.WriteFile(bridgePath, flowAgentsSDKBridge, 0o600); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	script := `
+import asyncio
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+
+class FakeFunction:
+    def __init__(self):
+        self.name = "unexpected_probe_tool"
+        self.arguments = "{}"
+
+class FakeToolCall:
+    id = "call_probe"
+    function = FakeFunction()
+
+class FakeMessage:
+    def __init__(self, content="", tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls or []
+
+class FakeChoice:
+    def __init__(self, message):
+        self.message = message
+
+class FakeResponse:
+    def __init__(self, message):
+        self.choices = [FakeChoice(message)]
+
+calls = []
+
+class FakeCompletions:
+    async def create(self, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return FakeResponse(FakeMessage("", [FakeToolCall()]))
+        if len(calls) == 2:
+            return FakeResponse(FakeMessage(""))
+        return FakeResponse(FakeMessage("最终回答：今天杨阳找过你。"))
+
+class FakeChat:
+    completions = FakeCompletions()
+
+class FakeClient:
+    chat = FakeChat()
+
+result = asyncio.run(bridge._run_with_compatible_chat_tools(
+    client=FakeClient(),
+    model_name="glm-5.1",
+    system_prompt="",
+    user_prompt="用户问题：今天有哪些人找过我？\n回答要求：必须先查工具。",
+    skill="",
+    cli_command="ariadne",
+))
+if not result.get("ok"):
+    raise AssertionError(f"empty post-tool turn should retry final answer, got {result}")
+if "杨阳" not in result.get("answer", ""):
+    raise AssertionError(f"unexpected answer: {result}")
+if len(calls) != 3:
+    raise AssertionError(f"expected two tool-loop calls plus one final retry, got {len(calls)}")
+if "tools" in calls[2]:
+    raise AssertionError(f"final retry should omit tools, got {calls[2]}")
+if "不要再调用工具" not in calls[2]["messages"][-1]["content"]:
+    raise AssertionError(f"final retry instruction missing: {calls[2]['messages'][-1]}")
+`
+	scriptPath := filepath.Join(tempDir, "bridge_empty_final_retry.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("write bridge script: %v", err)
+	}
+	args := append(pythonArgs, scriptPath, bridgePath)
+	cmd := exec.Command(pythonPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bridge empty final retry failed: %v\n%s", err, output)
+	}
+}
+
+func TestFlowAgentsSDKBridgeRetriesFinalAnswerWithPlainToolResults(t *testing.T) {
+	pythonPath, err := exec.LookPath("python")
+	pythonArgs := []string{}
+	if err != nil && runtime.GOOS == "windows" {
+		pythonPath, err = exec.LookPath("py")
+		pythonArgs = []string{"-3"}
+	}
+	if err != nil {
+		t.Skipf("python executable not found: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	bridgePath := filepath.Join(tempDir, "flow_agents_sdk_bridge.py")
+	if err := os.WriteFile(bridgePath, flowAgentsSDKBridge, 0o600); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	script := `
+import asyncio
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+
+class FakeFunction:
+    def __init__(self):
+        self.name = "get_flow_memory_entry"
+        self.arguments = '{"entry_id":"memory-a"}'
+
+class FakeToolCall:
+    id = "call_get"
+    function = FakeFunction()
+
+class FakeMessage:
+    def __init__(self, content="", tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls or []
+
+class FakeChoice:
+    def __init__(self, message):
+        self.message = message
+
+class FakeResponse:
+    def __init__(self, message):
+        self.choices = [FakeChoice(message)]
+
+calls = []
+
+class FakeCompletions:
+    async def create(self, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return FakeResponse(FakeMessage("", [FakeToolCall()]))
+        if len(calls) in (2, 3):
+            return FakeResponse(FakeMessage(""))
+        return FakeResponse(FakeMessage("最终回答：杨阳找过你，依据 memory-a。"))
+
+class FakeChat:
+    completions = FakeCompletions()
+
+class FakeClient:
+    chat = FakeChat()
+
+result = asyncio.run(bridge._run_with_compatible_chat_tools(
+    client=FakeClient(),
+    model_name="glm-5.1",
+    system_prompt="",
+    user_prompt="用户问题：今天有哪些人找过我？\n回答要求：必须先查工具。",
+    skill="",
+    cli_command="ariadne",
+))
+if not result.get("ok"):
+    raise AssertionError(f"plain tool-result retry should recover, got {result}")
+if "memory-a" not in result.get("answer", ""):
+    raise AssertionError(f"unexpected answer: {result}")
+if len(calls) != 4:
+    raise AssertionError(f"expected tool loop, original retry, and plain retry, got {len(calls)}")
+if "tools" in calls[3]:
+    raise AssertionError(f"plain retry should omit tools, got {calls[3]}")
+plain_messages = calls[3]["messages"]
+if len(plain_messages) != 2 or plain_messages[0]["role"] != "system" or plain_messages[1]["role"] != "user":
+    raise AssertionError(f"plain retry should use simple system/user messages, got {plain_messages}")
+if "已执行的 Ariadne 工具结果" not in plain_messages[1]["content"]:
+    raise AssertionError(f"plain retry prompt missing tool results: {plain_messages[1]}")
+`
+	scriptPath := filepath.Join(tempDir, "bridge_plain_retry.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("write bridge script: %v", err)
+	}
+	args := append(pythonArgs, scriptPath, bridgePath)
+	cmd := exec.Command(pythonPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bridge plain final retry failed: %v\n%s", err, output)
+	}
+}
+
+func TestFlowAgentsSDKBridgeRetriesTransientChatCompletionError(t *testing.T) {
+	pythonPath, err := exec.LookPath("python")
+	pythonArgs := []string{}
+	if err != nil && runtime.GOOS == "windows" {
+		pythonPath, err = exec.LookPath("py")
+		pythonArgs = []string{"-3"}
+	}
+	if err != nil {
+		t.Skipf("python executable not found: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	bridgePath := filepath.Join(tempDir, "flow_agents_sdk_bridge.py")
+	if err := os.WriteFile(bridgePath, flowAgentsSDKBridge, 0o600); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	script := `
+import asyncio
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+
+class FakeMessage:
+    content = "最终回答：请求已恢复。"
+    tool_calls = []
+
+class FakeChoice:
+    message = FakeMessage()
+
+class FakeResponse:
+    choices = [FakeChoice()]
+
+calls = 0
+
+class FakeCompletions:
+    async def create(self, **kwargs):
+        global calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("Upstream error: 400")
+        return FakeResponse()
+
+class FakeChat:
+    completions = FakeCompletions()
+
+class FakeClient:
+    chat = FakeChat()
+
+result = asyncio.run(bridge._run_with_compatible_chat_tools(
+    client=FakeClient(),
+    model_name="glm-5.1",
+    system_prompt="",
+    user_prompt="用户问题：你好",
+    skill="",
+    cli_command="ariadne",
+))
+if not result.get("ok"):
+    raise AssertionError(f"transient upstream error should retry, got {result}")
+if calls != 2:
+    raise AssertionError(f"expected exactly one retry, got {calls}")
+
+class NonRetryCompletions:
+    async def create(self, **kwargs):
+        raise RuntimeError("Invalid API key")
+
+class NonRetryChat:
+    completions = NonRetryCompletions()
+
+class NonRetryClient:
+    chat = NonRetryChat()
+
+result = asyncio.run(bridge._run_with_compatible_chat_tools(
+    client=NonRetryClient(),
+    model_name="glm-5.1",
+    system_prompt="",
+    user_prompt="用户问题：你好",
+    skill="",
+    cli_command="ariadne",
+))
+if result.get("ok"):
+    raise AssertionError(f"non-retryable errors should still fail, got {result}")
+if "Invalid API key" not in result.get("error", ""):
+    raise AssertionError(f"unexpected non-retry error: {result}")
+`
+	scriptPath := filepath.Join(tempDir, "bridge_transient_retry.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("write bridge script: %v", err)
+	}
+	args := append(pythonArgs, scriptPath, bridgePath)
+	cmd := exec.Command(pythonPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bridge transient retry failed: %v\n%s", err, output)
+	}
+}
+
+func TestFlowAgentsSDKBridgeFallsBackToLocalRetrievalWhenChatToolsFail(t *testing.T) {
+	pythonPath, err := exec.LookPath("python")
+	pythonArgs := []string{}
+	if err != nil && runtime.GOOS == "windows" {
+		pythonPath, err = exec.LookPath("py")
+		pythonArgs = []string{"-3"}
+	}
+	if err != nil {
+		t.Skipf("python executable not found: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	bridgePath := filepath.Join(tempDir, "flow_agents_sdk_bridge.py")
+	if err := os.WriteFile(bridgePath, flowAgentsSDKBridge, 0o600); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	script := `
+import asyncio
+import importlib.util
+import json
+import sys
+
+spec = importlib.util.spec_from_file_location("bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+
+async def always_upstream_error(*args, **kwargs):
+    raise RuntimeError("Upstream error: 400")
+
+def fake_cli(command, action, args, timeout_ms=None):
+    if action == "search":
+        return json.dumps({
+            "ok": True,
+            "results": [
+                {
+                    "id": "memory-a",
+                    "title": "微信：杨阳找你",
+                    "summary": "杨阳让你匹配好了发给他。",
+                    "appName": "Weixin.exe",
+                    "preview": "杨阳：匹配好了发我。"
+                }
+            ]
+        }, ensure_ascii=False)
+    if action == "recent":
+        return json.dumps({"ok": True, "results": []}, ensure_ascii=False)
+    if action == "get":
+        return json.dumps({
+            "ok": True,
+            "id": "memory-a",
+            "title": "微信：杨阳找你",
+            "text": "杨阳：匹配好了发我。"
+        }, ensure_ascii=False)
+    return json.dumps({"ok": False}, ensure_ascii=False)
+
+class FakeClient:
+    pass
+
+bridge._create_chat_completion_with_retries = always_upstream_error
+bridge._run_workmemory_cli = fake_cli
+
+result = asyncio.run(bridge._run_with_compatible_chat_tools(
+    client=FakeClient(),
+    model_name="glm-5.1",
+    system_prompt="",
+    user_prompt="用户问题：今天有哪些人找过我？",
+    skill="",
+    cli_command="ariadne",
+))
+if not result.get("ok"):
+    raise AssertionError(f"local retrieval fallback should return an answer, got {result}")
+if "memory-a" not in result.get("answer", ""):
+    raise AssertionError(f"fallback answer should cite local evidence, got {result}")
+if result.get("mode") != "agent:openai-compatible-chat-tools":
+    raise AssertionError(f"unexpected mode: {result}")
+`
+	scriptPath := filepath.Join(tempDir, "bridge_local_retrieval_fallback.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("write bridge script: %v", err)
+	}
+	args := append(pythonArgs, scriptPath, bridgePath)
+	cmd := exec.Command(pythonPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bridge local retrieval fallback failed: %v\n%s", err, output)
+	}
+}
+
+func TestFlowAgentsSDKBridgePreloadsReadonlyTodoInsteadOfForcingToolChoice(t *testing.T) {
+	pythonPath, err := exec.LookPath("python")
+	pythonArgs := []string{}
+	if err != nil && runtime.GOOS == "windows" {
+		pythonPath, err = exec.LookPath("py")
+		pythonArgs = []string{"-3"}
+	}
+	if err != nil {
+		t.Skipf("python executable not found: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	bridgePath := filepath.Join(tempDir, "flow_agents_sdk_bridge.py")
+	if err := os.WriteFile(bridgePath, flowAgentsSDKBridge, 0o600); err != nil {
+		t.Fatalf("write bridge: %v", err)
+	}
+	script := `
+import asyncio
+import importlib.util
+import json
+import sys
+
+spec = importlib.util.spec_from_file_location("bridge", sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+
+class FakeMessage:
+    content = "当前没有未完成的 Ariadne 待办。"
+    tool_calls = []
+
+class FakeChoice:
+    message = FakeMessage()
+
+class FakeResponse:
+    choices = [FakeChoice()]
+
+calls = []
+
+class FakeCompletions:
+    async def create(self, **kwargs):
+        calls.append(kwargs)
+        return FakeResponse()
+
+class FakeChat:
+    completions = FakeCompletions()
+
+class FakeClient:
+    chat = FakeChat()
+
+def fake_tool(cli_command, user_prompt, tool_name, args):
+    if tool_name != "list_flow_todos":
+        raise AssertionError(f"unexpected preload tool: {tool_name}")
+    return json.dumps({"ok": True, "action": "todos", "message": "returned 0 todos", "items": []}, ensure_ascii=False)
+
+bridge._run_compatible_tool = fake_tool
+
+result = asyncio.run(bridge._run_with_compatible_chat_tools(
+    client=FakeClient(),
+    model_name="glm-5.1",
+    system_prompt="",
+    user_prompt="用户问题：今天有什么待办吗",
+    skill="",
+    cli_command="ariadne",
+))
+if not result.get("ok"):
+    raise AssertionError(f"readonly todo preload should answer, got {result}")
+if calls[0].get("tool_choice") != "auto":
+    raise AssertionError(f"readonly todo query must not force tool_choice, got {calls[0].get('tool_choice')}")
+if "Ariadne Todo 工具已查询结果" not in calls[0]["messages"][2]["content"]:
+    raise AssertionError(f"preloaded todo result missing from prompt: {calls[0]['messages']}")
+if "未调用待办工具" in result.get("error", ""):
+    raise AssertionError(f"preloaded list_flow_todos should satisfy required todo guard: {result}")
+`
+	scriptPath := filepath.Join(tempDir, "bridge_readonly_todo_preload.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		t.Fatalf("write bridge script: %v", err)
+	}
+	args := append(pythonArgs, scriptPath, bridgePath)
+	cmd := exec.Command(pythonPath, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bridge readonly todo preload failed: %v\n%s", err, output)
+	}
+}
+
 func TestFlowAgentsSDKBridgePayloadEnablesNativeSkills(t *testing.T) {
 	payload := flowAgentsSDKBridgePayload(workmemory.FlowAgentJob{
 		Question:     "今天干了什么",
@@ -781,5 +1245,63 @@ func TestCleanAPIKeyAcceptsEnvAssignmentBlocks(t *testing.T) {
 		if got := cleanAPIKey(input); got != expected {
 			t.Fatalf("cleanAPIKey(%q)=%q want %q", input, got, expected)
 		}
+	}
+}
+
+func TestAPIKeySourcePrefersAriadneCredentialOverGenericEnv(t *testing.T) {
+	t.Setenv("ARIADNE_AI_API_KEY", "")
+	t.Setenv("OPENAI__API_KEY", "generic-env-key")
+	t.Setenv("OPENAI_API_KEY", "")
+	read := func(target string) (string, bool, error) {
+		if target == "Ariadne/OpenAI/APIKey" {
+			return "stored-ai-key", true, nil
+		}
+		return "", false, nil
+	}
+
+	got := apiKeyFromSourcesWithReader(
+		[]string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+		[]string{"Ariadne/OpenAI/APIKey"},
+		read,
+	)
+	if got != "stored-ai-key" {
+		t.Fatalf("generic OpenAI env should not override stored Ariadne credential, got %q", got)
+	}
+}
+
+func TestAPIKeySourcePrefersAriadneEnvOverCredential(t *testing.T) {
+	t.Setenv("ARIADNE_AI_API_KEY", "ariadne-env-key")
+	t.Setenv("OPENAI__API_KEY", "generic-env-key")
+	read := func(target string) (string, bool, error) {
+		if target == "Ariadne/OpenAI/APIKey" {
+			return "stored-ai-key", true, nil
+		}
+		return "", false, nil
+	}
+
+	got := apiKeyFromSourcesWithReader(
+		[]string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+		[]string{"Ariadne/OpenAI/APIKey"},
+		read,
+	)
+	if got != "ariadne-env-key" {
+		t.Fatalf("app-specific Ariadne env should override stored credential, got %q", got)
+	}
+}
+
+func TestAPIKeySourceFallsBackToGenericEnv(t *testing.T) {
+	t.Setenv("ARIADNE_AI_API_KEY", "")
+	t.Setenv("OPENAI__API_KEY", "generic-env-key")
+	read := func(target string) (string, bool, error) {
+		return "", false, nil
+	}
+
+	got := apiKeyFromSourcesWithReader(
+		[]string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+		[]string{"Ariadne/OpenAI/APIKey"},
+		read,
+	)
+	if got != "generic-env-key" {
+		t.Fatalf("generic env should be used when no Ariadne env or credential exists, got %q", got)
 	}
 }
