@@ -1,6 +1,7 @@
 package workmemory
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -143,15 +144,50 @@ type FlowAutonomyRunResult struct {
 	CreatedAt int64                 `json:"createdAt"`
 }
 
+type FlowAutonomyAnalysisJob struct {
+	ExtensionID  string              `json:"extensionId"`
+	Evidence     []FlowAgentEvidence `json:"evidence"`
+	Runner       string              `json:"runner"`
+	Provider     string              `json:"provider,omitempty"`
+	BaseURL      string              `json:"baseUrl,omitempty"`
+	Model        string              `json:"model,omitempty"`
+	NativeSkills bool                `json:"nativeSkills,omitempty"`
+	Now          time.Time           `json:"now"`
+}
+
+type FlowAutonomySuggestion struct {
+	EntryID     string            `json:"entryId"`
+	ActionType  string            `json:"actionType"`
+	Title       string            `json:"title"`
+	Summary     string            `json:"summary"`
+	Body        string            `json:"body"`
+	Target      string            `json:"target,omitempty"`
+	Priority    string            `json:"priority,omitempty"`
+	Confidence  float64           `json:"confidence,omitempty"`
+	Payload     map[string]string `json:"payload,omitempty"`
+	EvidenceIDs []string          `json:"evidenceIds,omitempty"`
+}
+
+type FlowAutonomyAnalysisResult struct {
+	Suggestions []FlowAutonomySuggestion `json:"suggestions"`
+	Message     string                   `json:"message,omitempty"`
+}
+
+type FlowAutonomyAnalyzer interface {
+	AnalyzeFlowAutonomy(context.Context, FlowAutonomyAnalysisJob) (FlowAutonomyAnalysisResult, error)
+}
+
 type flowAutonomyExtension interface {
 	Manifest(FlowAutonomyPolicy) FlowAutonomyExtensionManifest
 	BuildCandidates(flowAutonomyExtensionContext) []FlowCandidateAction
 }
 
 type flowAutonomyExtensionContext struct {
-	Entries []Entry
-	Policy  FlowAutonomyPolicy
-	Now     time.Time
+	Entries     []Entry
+	Policy      FlowAutonomyPolicy
+	AgentPolicy FlowAgentPolicy
+	Analyzer    FlowAutonomyAnalyzer
+	Now         time.Time
 }
 
 func defaultFlowAutonomyPolicy() FlowAutonomyPolicy {
@@ -363,12 +399,20 @@ func (s *Service) runFlowAutonomyLocked(force bool) FlowAutonomyRunResult {
 		s.flowCandidateActions = append([]FlowCandidateAction{action}, s.flowCandidateActions...)
 		result.Actions = append(result.Actions, action)
 	}
+	agentPolicy := normalizeFlowAgentPolicy(s.flowAgentPolicy)
+	analyzer := s.flowAutonomyAnalyzer
 	for _, extension := range flowAutonomyExtensions() {
 		manifest := extension.Manifest(policy)
 		if !manifest.Enabled {
 			continue
 		}
-		for _, action := range extension.BuildCandidates(flowAutonomyExtensionContext{Entries: usable, Policy: policy, Now: now}) {
+		for _, action := range extension.BuildCandidates(flowAutonomyExtensionContext{
+			Entries:     usable,
+			Policy:      policy,
+			AgentPolicy: agentPolicy,
+			Analyzer:    analyzer,
+			Now:         now,
+		}) {
 			add(action)
 		}
 	}

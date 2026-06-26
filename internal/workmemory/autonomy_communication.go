@@ -1,6 +1,7 @@
 package workmemory
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -37,17 +38,22 @@ func (communicationAssistFlowExtension) Manifest(policy FlowAutonomyPolicy) Flow
 	}
 }
 
-func (communicationAssistFlowExtension) BuildCandidates(context flowAutonomyExtensionContext) []FlowCandidateAction {
-	policy := normalizeFlowAutonomyPolicy(context.Policy)
-	now := context.Now
-	recent := cloneEntries(context.Entries)
+func (communicationAssistFlowExtension) BuildCandidates(extensionContext flowAutonomyExtensionContext) []FlowCandidateAction {
+	policy := normalizeFlowAutonomyPolicy(extensionContext.Policy)
+	agentPolicy := normalizeFlowAgentPolicy(extensionContext.AgentPolicy)
+	now := extensionContext.Now
+	recent := cloneEntries(extensionContext.Entries)
 	sort.SliceStable(recent, func(i, j int) bool {
 		return recent[i].CreatedAt > recent[j].CreatedAt
 	})
 	if len(recent) > 40 {
 		recent = recent[:40]
 	}
-	result := []FlowCandidateAction{}
+	if extensionContext.Analyzer == nil || !agentPolicy.Enabled {
+		return nil
+	}
+	entriesByID := map[string]Entry{}
+	evidenceEntries := []Entry{}
 	for _, entry := range recent {
 		if entry.CreatedAt > 0 && now.Sub(time.Unix(entry.CreatedAt, 0)) > 48*time.Hour {
 			continue
@@ -59,12 +65,47 @@ func (communicationAssistFlowExtension) BuildCandidates(context flowAutonomyExte
 		if len([]rune(text)) < 6 {
 			continue
 		}
-		if isLikelyFollowUpCommitment(text) {
-			result = append(result, communicationFollowUpCandidate(entry, text, policy, now))
+		entriesByID[entry.ID] = entry
+		evidenceEntries = append(evidenceEntries, entry)
+		if len(evidenceEntries) >= 16 {
+			break
 		}
-		if isLikelyReplyRequest(text) {
-			result = append(result, communicationPrepareReplyCandidate(entry, text, policy, now))
+	}
+	if len(evidenceEntries) == 0 {
+		return nil
+	}
+	agentCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	analysis, err := extensionContext.Analyzer.AnalyzeFlowAutonomy(agentCtx, FlowAutonomyAnalysisJob{
+		ExtensionID:  flowAutonomyExtensionCommunicationAssist,
+		Evidence:     flowAgentEvidenceFromEntries(evidenceEntries, 16),
+		Runner:       agentPolicy.Runner,
+		Provider:     agentPolicy.Provider,
+		BaseURL:      agentPolicy.BaseURL,
+		Model:        agentPolicy.Model,
+		NativeSkills: agentPolicy.NativeSkills,
+		Now:          now,
+	})
+	if err != nil {
+		return nil
+	}
+	return communicationCandidatesFromSuggestions(analysis.Suggestions, entriesByID, policy, now)
+}
+
+func communicationCandidatesFromSuggestions(suggestions []FlowAutonomySuggestion, entriesByID map[string]Entry, policy FlowAutonomyPolicy, now time.Time) []FlowCandidateAction {
+	result := []FlowCandidateAction{}
+	for _, suggestion := range suggestions {
+		actionType := normalizeFlowCandidateActionType(suggestion.ActionType)
+		switch actionType {
+		case flowCandidateActionFollowUp:
+		default:
+			continue
 		}
+		entry, ok := entriesByID[strings.TrimSpace(suggestion.EntryID)]
+		if !ok {
+			continue
+		}
+		result = append(result, communicationFollowUpCandidateFromSuggestion(entry, suggestion, policy, now))
 		if len(result) >= 6 {
 			break
 		}
@@ -72,36 +113,47 @@ func (communicationAssistFlowExtension) BuildCandidates(context flowAutonomyExte
 	return result
 }
 
-func communicationFollowUpCandidate(entry Entry, text string, policy FlowAutonomyPolicy, now time.Time) FlowCandidateAction {
-	summary := trimTextRunes(strings.Join(strings.Fields(text), " "), 96)
-	title := "跟进沟通承诺"
-	if summary != "" {
-		title = "跟进：" + trimTextRunes(summary, 26)
+func communicationFollowUpCandidateFromSuggestion(entry Entry, suggestion FlowAutonomySuggestion, policy FlowAutonomyPolicy, now time.Time) FlowCandidateAction {
+	summary := trimTextRunes(strings.Join(strings.Fields(firstNonEmpty(suggestion.Summary, suggestion.Body, suggestion.Title)), " "), 96)
+	title := trimTextRunes(strings.Join(strings.Fields(suggestion.Title), " "), 80)
+	if title == "" {
+		title = "跟进沟通承诺"
+		if summary != "" {
+			title = "跟进：" + trimTextRunes(summary, 26)
+		}
 	}
-	key := strings.Join([]string{flowAutonomyExtensionCommunicationAssist, flowCandidateActionFollowUp, entry.ID, summary}, ":")
+	body := strings.TrimSpace(firstNonEmpty(suggestion.Body, summary))
+	payload := map[string]string{
+		"entryId":   entry.ID,
+		"todoTitle": title,
+	}
+	for key, value := range suggestion.Payload {
+		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+			payload[key] = value
+		}
+	}
+	evidenceIDs := cleanStrings(append([]string{entry.ID}, suggestion.EvidenceIDs...))
+	key := strings.Join([]string{flowAutonomyExtensionCommunicationAssist, flowCandidateActionFollowUp, entry.ID, summary, title}, ":")
 	return FlowCandidateAction{
 		ID:                  "flow-action-" + shortHash(key),
 		ExtensionID:         flowAutonomyExtensionCommunicationAssist,
 		ActionType:          flowCandidateActionFollowUp,
 		Title:               title,
 		Summary:             firstNonEmpty(summary, "发现一条可能需要跟进的沟通承诺。"),
-		Body:                firstNonEmpty(summary, text),
-		Target:              communicationTarget(entry),
+		Body:                firstNonEmpty(body, summary),
+		Target:              firstNonEmpty(suggestion.Target, communicationTarget(entry)),
 		Status:              flowCandidateStatusPending,
-		Priority:            "normal",
+		Priority:            firstNonEmpty(suggestion.Priority, "normal"),
 		ConfirmationPolicy:  "confirm",
 		NotificationActions: notificationActionsForType(flowCandidateActionFollowUp),
-		Payload: map[string]string{
-			"entryId":   entry.ID,
-			"todoTitle": title,
-		},
-		Evidence:   []string{entry.ID},
-		DedupKey:   strings.ToLower(flowAutonomyExtensionCommunicationAssist + ":follow_up:" + shortHash(key)),
-		Source:     firstNonEmpty(entry.Source, "work_memory"),
-		Confidence: 0.62,
-		CreatedAt:  now.Unix(),
-		UpdatedAt:  now.Unix(),
-		ExpiresAt:  now.Add(time.Duration(policy.CandidateTTLHours) * time.Hour).Unix(),
+		Payload:             payload,
+		Evidence:            evidenceIDs,
+		DedupKey:            strings.ToLower(flowAutonomyExtensionCommunicationAssist + ":follow_up:" + shortHash(key)),
+		Source:              firstNonEmpty(entry.Source, "work_memory"),
+		Confidence:          suggestion.Confidence,
+		CreatedAt:           now.Unix(),
+		UpdatedAt:           now.Unix(),
+		ExpiresAt:           now.Add(time.Duration(policy.CandidateTTLHours) * time.Hour).Unix(),
 	}
 }
 
@@ -188,39 +240,4 @@ func communicationTarget(entry Entry) string {
 	value = strings.TrimSpace(strings.Join(strings.Fields(value), " "))
 	value = strings.Trim(value, "-—| ")
 	return trimTextRunes(value, 32)
-}
-
-func isLikelyFollowUpCommitment(text string) bool {
-	compact := strings.ToLower(strings.Join(strings.Fields(text), ""))
-	if compact == "" {
-		return false
-	}
-	commitmentHints := []string{
-		"我一会", "我待会", "我等下", "我稍后", "我晚点", "我回头", "我明天",
-		"我来处理", "我处理", "我确认", "我看看", "我查一下", "我发你", "我给你",
-		"等我", "稍后给", "晚点给", "一会给", "回头给",
-	}
-	for _, hint := range commitmentHints {
-		if strings.Contains(compact, hint) {
-			return true
-		}
-	}
-	return false
-}
-
-func isLikelyReplyRequest(text string) bool {
-	compact := strings.ToLower(strings.Join(strings.Fields(text), ""))
-	if strings.ContainsAny(text, "?？") {
-		return true
-	}
-	requestHints := []string{
-		"请问", "麻烦", "帮忙", "能否", "可以帮", "看一下", "确认一下", "同步一下", "回复一下",
-		"please", "couldyou", "canyou", "wouldyou",
-	}
-	for _, hint := range requestHints {
-		if strings.Contains(compact, hint) {
-			return true
-		}
-	}
-	return false
 }

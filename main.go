@@ -139,6 +139,7 @@ func main() {
 	workmemory.RegisterOCRSummarizer(workMemoryService, aiclient.NewOpenAICompatibleOCRSummarizer())
 	workmemory.RegisterDraftPolisher(workMemoryService, aiclient.NewOpenAICompatiblePolisher())
 	workmemory.RegisterFlowAgentRunner(workMemoryService, aiclient.NewFlowAgentRouter())
+	workmemory.RegisterFlowAutonomyAnalyzer(workMemoryService, aiclient.NewOpenAICompatibleFlowAutonomyAnalyzer())
 	workmemory.RegisterExperienceDiscoverer(workMemoryService, aiclient.NewOpenAICompatibleExperienceDiscoverer())
 	workmemory.RegisterEmbeddingClient(workMemoryService, aiclient.NewOpenAICompatibleEmbedder())
 	imageIndexService := imageindex.NewService(captureService, clipboardService, ocrService)

@@ -870,6 +870,7 @@ type Service struct {
 	draftPolishPolicy             DraftPolishPolicy
 	flowAgentRunner               FlowAgentRunner
 	flowAgentPolicy               FlowAgentPolicy
+	flowAutonomyAnalyzer          FlowAutonomyAnalyzer
 	experienceDiscoverer          ExperienceDiscoverer
 	experiencePolicy              ExperienceDiscoveryPolicy
 	embedder                      EmbeddingClient
@@ -1083,6 +1084,15 @@ func RegisterFlowAgentRunner(service *Service, runner FlowAgentRunner) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	service.flowAgentRunner = runner
+}
+
+func RegisterFlowAutonomyAnalyzer(service *Service, analyzer FlowAutonomyAnalyzer) {
+	if service == nil {
+		return
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.flowAutonomyAnalyzer = analyzer
 }
 
 func RegisterExperienceDiscoverer(service *Service, discoverer ExperienceDiscoverer) {
@@ -6383,7 +6393,7 @@ func experienceDiscoveryEvidence(entries []Entry) []ExperienceDiscoveryEvidence 
 		if !entryUsableForExtraction(entry) {
 			continue
 		}
-		rawText := strings.Join([]string{entry.Title, entry.Summary, entry.Text, entry.OCRText, strings.Join(entry.Tags, " ")}, "\n")
+		rawText := strings.Join([]string{entry.Title, entry.Summary, entry.Text, entry.OCRText, entry.QualityOCRText, strings.Join(entry.Tags, " ")}, "\n")
 		if looksSensitive(rawText) {
 			continue
 		}
@@ -7374,7 +7384,7 @@ func flowAgentEvidenceFromEntries(entries []Entry, limit int) []FlowAgentEvidenc
 			Title:       truncateExperienceText(firstNonEmpty(entry.Title, entry.Summary, entry.ID), 120),
 			Summary:     truncateExperienceText(firstNonEmpty(entry.Summary, summaryText(entry.Text), summaryText(entry.OCRText), entry.Title), 260),
 			Text:        truncateExperienceText(entry.Text, 900),
-			OCRText:     truncateExperienceText(entry.OCRText, 900),
+			OCRText:     truncateExperienceText(firstNonEmpty(entry.OCRText, entry.QualityOCRText), 900),
 			Source:      strings.TrimSpace(entry.Source),
 			AppName:     truncateExperienceText(entry.AppName, 80),
 			WindowTitle: truncateExperienceText(entry.WindowTitle, 120),

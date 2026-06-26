@@ -1,6 +1,7 @@
 package flownotify
 
 import (
+	"context"
 	"testing"
 
 	"ariadne/internal/workmemory"
@@ -114,6 +115,12 @@ func flowCandidateForTest(t *testing.T) (*workmemory.Service, workmemory.FlowCan
 	t.Helper()
 	service := workmemory.NewServiceWithPath("", nil)
 	t.Cleanup(service.Stop)
+	service.ApplyFlowAgentPolicy(workmemory.FlowAgentPolicy{
+		Enabled:  true,
+		Runner:   "openai-agent",
+		Provider: "openai-compatible",
+		Model:    "test-model",
+	})
 	service.ApplyFlowAutonomyPolicy(workmemory.FlowAutonomyPolicy{
 		Enabled:                    true,
 		CommunicationAssistEnabled: true,
@@ -121,17 +128,36 @@ func flowCandidateForTest(t *testing.T) (*workmemory.Service, workmemory.FlowCan
 		CandidateCooldownMinutes:   1,
 		DefaultSnoozeMinutes:       30,
 	})
-	service.AddNote(workmemory.NoteRequest{
+	entry := service.AddNote(workmemory.NoteRequest{
 		Text:      "我稍后把接口文档发你",
 		Title:     "企业微信消息",
 		Sensitive: false,
 	})
+	workmemory.RegisterFlowAutonomyAnalyzer(service, &fakeAutonomyAnalyzer{result: workmemory.FlowAutonomyAnalysisResult{Suggestions: []workmemory.FlowAutonomySuggestion{
+		{
+			EntryID:    entry.ID,
+			ActionType: "follow_up_candidate",
+			Title:      "跟进：接口文档",
+			Summary:    "我稍后把接口文档发你",
+			Body:       "我稍后把接口文档发你",
+			Confidence: 0.82,
+		},
+	}}})
+	service.RunFlowAutonomyNow()
 	candidates := service.FlowCandidateActions(workmemory.FlowCandidateActionListRequest{})
 	if len(candidates.Items) != 1 {
 		t.Fatalf("expected one candidate, got %#v", candidates)
 	}
 	candidate := candidates.Items[0]
 	return service, candidate
+}
+
+type fakeAutonomyAnalyzer struct {
+	result workmemory.FlowAutonomyAnalysisResult
+}
+
+func (f *fakeAutonomyAnalyzer) AnalyzeFlowAutonomy(context.Context, workmemory.FlowAutonomyAnalysisJob) (workmemory.FlowAutonomyAnalysisResult, error) {
+	return f.result, nil
 }
 
 func actionIDs(actions []notifications.NotificationAction) []string {

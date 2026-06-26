@@ -2728,6 +2728,17 @@ func TestFlowAutonomyGeneratesCommunicationCandidateBeforeTodo(t *testing.T) {
 		events <- event
 	})
 	service.now = func() time.Time { return now }
+	RegisterFlowAutonomyAnalyzer(service, &fakeFlowAutonomyAnalyzer{result: FlowAutonomyAnalysisResult{Suggestions: []FlowAutonomySuggestion{
+		{
+			EntryID:    "memory-chat-follow-up",
+			ActionType: flowCandidateActionFollowUp,
+			Title:      "跟进：接口文档",
+			Summary:    "我稍后把接口文档发你",
+			Body:       "我稍后把接口文档发你",
+			Confidence: 0.82,
+		},
+	}}})
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "openai-agent", Provider: "openai-compatible", Model: "test-model"})
 	service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
 		Enabled:                    true,
 		CommunicationAssistEnabled: true,
@@ -2788,12 +2799,113 @@ func TestFlowAutonomyGeneratesCommunicationCandidateBeforeTodo(t *testing.T) {
 	}
 }
 
+func TestFlowAutonomyGeneratesFollowUpFromScreenshotOCRCommitment(t *testing.T) {
+	now := time.Date(2026, 6, 26, 15, 6, 0, 0, time.Local)
+	service := NewServiceWithPath("", nil)
+	defer service.Stop()
+	service.now = func() time.Time { return now }
+	RegisterFlowAutonomyAnalyzer(service, &fakeFlowAutonomyAnalyzer{result: FlowAutonomyAnalysisResult{Suggestions: []FlowAutonomySuggestion{
+		{
+			EntryID:    "memory-wechat-screenshot-commitment",
+			ActionType: flowCandidateActionFollowUp,
+			Title:      "跟进：补上周报数据",
+			Summary:    "我还有个数据要晚点加上",
+			Body:       "我还有个数据要晚点加上",
+			Confidence: 0.86,
+		},
+	}}, onCall: func(job FlowAutonomyAnalysisJob) {
+		if len(job.Evidence) != 1 {
+			t.Fatalf("expected one evidence item for autonomy analyzer, got %#v", job.Evidence)
+		}
+		if !strings.Contains(job.Evidence[0].OCRText, "我还有个数据要晚点加上") {
+			t.Fatalf("expected analyzer to receive screenshot OCR commitment, got %#v", job.Evidence[0])
+		}
+	}})
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "openai-agent", Provider: "openai-compatible", Model: "test-model"})
+	service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
+		Enabled:                    true,
+		CommunicationAssistEnabled: true,
+		TextQualityAssistEnabled:   false,
+		CandidateTTLHours:          8,
+		CandidateCooldownMinutes:   1,
+		DefaultSnoozeMinutes:       30,
+	})
+
+	service.addEntry(Entry{
+		ID:             "memory-wechat-screenshot-commitment",
+		Source:         "time_machine",
+		ContentType:    "image",
+		Title:          "微信 - 杨阳",
+		Summary:        "我还有个数据要晚点加上",
+		QualityOCRText: "周报弄了吗\n我还有个数据要晚点加上",
+		QualityStatus:  qualityStatusChecked,
+		WindowTitle:    "微信 - 杨阳",
+		AppName:        "Weixin.exe",
+		CreatedAt:      now.Unix(),
+	})
+
+	candidates := service.FlowCandidateActions(FlowCandidateActionListRequest{})
+	if candidates.Pending != 1 || len(candidates.Items) != 1 {
+		t.Fatalf("expected one pending follow-up candidate from OCR commitment, got %#v", candidates)
+	}
+	if candidates.Items[0].ActionType != flowCandidateActionFollowUp {
+		t.Fatalf("expected follow-up candidate, got %#v", candidates.Items[0])
+	}
+	if !strings.Contains(candidates.Items[0].Body, "晚点加上") {
+		t.Fatalf("candidate should keep the commitment text, got %#v", candidates.Items[0])
+	}
+}
+
+func TestFlowAutonomyCommunicationAssistDoesNotInferCommitmentWithoutAnalyzer(t *testing.T) {
+	now := time.Date(2026, 6, 26, 15, 6, 0, 0, time.Local)
+	service := NewServiceWithPath("", nil)
+	defer service.Stop()
+	service.now = func() time.Time { return now }
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "openai-agent", Provider: "openai-compatible", Model: "test-model"})
+	service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
+		Enabled:                    true,
+		CommunicationAssistEnabled: true,
+		TextQualityAssistEnabled:   false,
+		CandidateTTLHours:          8,
+		CandidateCooldownMinutes:   1,
+		DefaultSnoozeMinutes:       30,
+	})
+
+	service.addEntry(Entry{
+		ID:             "memory-wechat-no-analyzer",
+		Source:         "time_machine",
+		ContentType:    "image",
+		Title:          "微信 - 杨阳",
+		Summary:        "我还有个数据要晚点加上",
+		QualityOCRText: "周报弄了吗\n我还有个数据要晚点加上",
+		QualityStatus:  qualityStatusChecked,
+		WindowTitle:    "微信 - 杨阳",
+		AppName:        "Weixin.exe",
+		CreatedAt:      now.Unix(),
+	})
+
+	if list := service.FlowCandidateActions(FlowCandidateActionListRequest{}); list.Pending != 0 || len(list.Items) != 0 {
+		t.Fatalf("communication assist should not use hard-coded text matching without analyzer, got %#v", list)
+	}
+}
+
 func TestFlowAutonomyCandidateExpiresWithoutTodoClutter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "work_memory.json")
 	now := time.Date(2026, 6, 21, 10, 0, 0, 0, time.Local)
 	service := NewServiceWithPath(path, nil)
 	defer service.Stop()
 	service.now = func() time.Time { return now }
+	RegisterFlowAutonomyAnalyzer(service, &fakeFlowAutonomyAnalyzer{result: FlowAutonomyAnalysisResult{Suggestions: []FlowAutonomySuggestion{
+		{
+			EntryID:    "memory-chat-expiring-follow-up",
+			ActionType: flowCandidateActionFollowUp,
+			Title:      "跟进：部署窗口",
+			Summary:    "我一会确认这个部署窗口",
+			Body:       "我一会确认这个部署窗口",
+			Confidence: 0.81,
+		},
+	}}})
+	service.ApplyFlowAgentPolicy(FlowAgentPolicy{Enabled: true, Runner: "openai-agent", Provider: "openai-compatible", Model: "test-model"})
 	service.ApplyFlowAutonomyPolicy(FlowAutonomyPolicy{
 		Enabled:                    true,
 		CommunicationAssistEnabled: true,
@@ -4095,6 +4207,26 @@ func (f *fakeFlowAgentRunner) AnswerFlow(_ context.Context, job FlowAgentJob) (F
 	}
 	if f.err != nil {
 		return FlowAgentResult{}, f.err
+	}
+	return f.result, nil
+}
+
+type fakeFlowAutonomyAnalyzer struct {
+	calls   int
+	lastJob FlowAutonomyAnalysisJob
+	result  FlowAutonomyAnalysisResult
+	err     error
+	onCall  func(FlowAutonomyAnalysisJob)
+}
+
+func (f *fakeFlowAutonomyAnalyzer) AnalyzeFlowAutonomy(_ context.Context, job FlowAutonomyAnalysisJob) (FlowAutonomyAnalysisResult, error) {
+	f.calls++
+	f.lastJob = job
+	if f.onCall != nil {
+		f.onCall(job)
+	}
+	if f.err != nil {
+		return FlowAutonomyAnalysisResult{}, f.err
 	}
 	return f.result, nil
 }
