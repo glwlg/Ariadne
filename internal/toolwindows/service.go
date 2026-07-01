@@ -407,12 +407,10 @@ func (s *Service) open(view string) error {
 
 	if view == networkMiniView {
 		s.applyNetworkMiniPlacement(window, app)
-	} else {
-		s.applyOrdinaryWindowPolicy(window)
-	}
-
-	if view == networkMiniView {
 		s.markNetworkMiniVisible()
+	} else {
+		window.Show().Focus()
+		s.applyOrdinaryWindowPolicy(window)
 	}
 	return nil
 }
@@ -465,13 +463,13 @@ func focusLauncher(window application.Window) {
 	if window == nil {
 		return
 	}
-	window.EmitEvent("ariadne:focus-launcher", map[string]any{"reset": true})
-	window.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:focus-launcher", { detail: { reset: true } }));`)
+	window.EmitEvent("ariadne:focus-launcher", map[string]any{"selectAll": true})
+	window.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:focus-launcher", { detail: { selectAll: true } }));`)
 }
 
 func normalizeView(view string) string {
 	switch strings.ToLower(strings.TrimSpace(view)) {
-	case "work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "network-monitor", "network-mini", "settings":
+	case "work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "network-monitor", "network-mini", "settings":
 		return strings.ToLower(strings.TrimSpace(view))
 	default:
 		return ""
@@ -492,6 +490,8 @@ func toolTitle(view string) string {
 		return "Ariadne - 工作流"
 	case "json-compare":
 		return "Ariadne - JSON 对比"
+	case "api-testing":
+		return "Ariadne - API 测试"
 	case "network-monitor":
 		return "Ariadne - 网络监控"
 	case networkMiniView:
@@ -507,6 +507,8 @@ func toolSize(view string) (int, int) {
 	switch view {
 	case "json-compare":
 		return 1180, 760
+	case "api-testing":
+		return 1240, 780
 	case "network-monitor":
 		return 980, 640
 	case networkMiniView:
@@ -576,10 +578,14 @@ func ordinaryTaskbarToggleAllowed(view string) bool {
 }
 
 func (s *Service) applyOrdinaryWindowPolicy(window application.Window) {
-	enableOrdinaryWindowTaskbarToggle(window)
 	icon := s.windowIconSnapshot()
+	applyOrdinaryWindowPolicyNow(window, icon)
+	refreshOrdinaryWindowPolicy(window, icon)
+}
+
+func applyOrdinaryWindowPolicyNow(window application.Window, icon []byte) {
+	enableOrdinaryWindowTaskbarToggle(window)
 	setOrdinaryWindowIcon(window, icon)
-	refreshOrdinaryWindowIcon(window, icon)
 }
 
 func (s *Service) windowIconSnapshot() []byte {
@@ -591,17 +597,21 @@ func (s *Service) windowIconSnapshot() []byte {
 	return append([]byte(nil), s.windowIcon...)
 }
 
-func refreshOrdinaryWindowIcon(window application.Window, icon []byte) {
-	if window == nil || len(icon) == 0 {
+func refreshOrdinaryWindowPolicy(window application.Window, icon []byte) {
+	if window == nil {
 		return
 	}
 	icon = append([]byte(nil), icon...)
 	go func() {
-		for _, delay := range []time.Duration{80 * time.Millisecond, 300 * time.Millisecond, 900 * time.Millisecond} {
+		for _, delay := range ordinaryWindowPolicyRetryDelays() {
 			time.Sleep(delay)
-			setOrdinaryWindowIcon(window, icon)
+			applyOrdinaryWindowPolicyNow(window, icon)
 		}
 	}()
+}
+
+func ordinaryWindowPolicyRetryDelays() []time.Duration {
+	return []time.Duration{80 * time.Millisecond, 300 * time.Millisecond, 900 * time.Millisecond}
 }
 
 func toolPlacement(view string, width int, height int, screen *application.Screen, anchor string) (application.WindowStartPosition, int, int, *application.Screen) {

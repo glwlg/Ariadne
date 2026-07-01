@@ -15,6 +15,7 @@ export {
     LegacyConfigStatus,
     PluginSettings,
     ScreenshotSettings,
+    SearchSettings,
     StorageStatus,
     WorkMemoryAppCaptureProfile,
     WorkMemorySettings

@@ -128,7 +128,16 @@ func readLauncherState(conn *sqlite.Conn) (launcherState, bool, error) {
 			count = stmt.ColumnInt(0)
 			return nil
 		},
-	}); err != nil || count == 0 {
+	}); err != nil {
+		return launcherState{}, false, err
+	}
+	removedCount := 0
+	if err := sqlitex.Execute(conn, `SELECT count(*) FROM launcher_removed`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			removedCount = stmt.ColumnInt(0)
+			return nil
+		},
+	}); err != nil || count+removedCount == 0 {
 		return launcherState{}, false, err
 	}
 	state := launcherState{Launchers: make([]Launcher, 0, count), Removed: map[string]bool{}}

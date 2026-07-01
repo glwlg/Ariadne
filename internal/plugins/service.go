@@ -88,6 +88,10 @@ func NewService() *Service {
 			Usage:    "jsondiff",
 			Examples: []string{"jsondiff", "jd", "json对比"},
 		}, executeJSONCompare),
+		manifest("api_testing", "API 测试", "管理接口请求、环境变量和响应断言", []string{"api", "http", "接口", "接口测试", "apitest"}, []string{"network"}, CommandSchema{
+			Usage:    "api",
+			Examples: []string{"api", "http", "接口测试"},
+		}, executeAPITesting),
 		manifest("url", "URL 编码/解码", "对 URL 进行编码或解码", []string{"u", "url"}, nil, CommandSchema{
 			Usage:    "url <text-or-url>",
 			Examples: []string{"url https://a.com?q=中文", "u hello world"},
@@ -413,6 +417,10 @@ func marshalJSON(value interface{}, indent string) ([]byte, error) {
 
 func executeJSONCompare(query string) []contracts.SearchResult {
 	return []contracts.SearchResult{toolWindowResult("json-compare", "打开 JSON 对比工具", "JSON 对比", "对比两个 JSON 的语义差异和规范化行差异。", "open_json_compare")}
+}
+
+func executeAPITesting(query string) []contracts.SearchResult {
+	return []contracts.SearchResult{toolWindowResult("api-testing", "打开 API 测试", "API 测试", "编辑请求、切换环境变量并查看响应断言结果。", "open_api_testing")}
 }
 
 func executeURL(query string) []contracts.SearchResult {

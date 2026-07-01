@@ -32,8 +32,8 @@ func TestIndexRecentIndexesCaptureAndClipboardImages(t *testing.T) {
 	if len(service.Search("gateway")) != 1 {
 		t.Fatal("capture OCR text should be searchable")
 	}
-	if len(service.Search("ocr invoice")) != 1 {
-		t.Fatal("clipboard OCR text should be searchable through ocr prefix")
+	if len(service.Search("ocr invoice")) != 0 {
+		t.Fatal("clipboard OCR text should not appear in launcher search")
 	}
 
 	second := service.IndexRecent(IndexRequest{Limit: 10})
@@ -80,15 +80,8 @@ func TestSearchResultUsesExplicitActionsBySource(t *testing.T) {
 		t.Fatalf("capture OCR result missing expected actions: %#v", captureResults[0].Actions)
 	}
 
-	clipboardResults := service.Search("clipboard deployment")
-	if len(clipboardResults) != 1 || clipboardResults[0].Type != contracts.ResultClipboard {
-		t.Fatalf("expected one clipboard result, got %#v", clipboardResults)
-	}
-	if err := contracts.ValidateActionSurface(clipboardResults[0]); err != nil {
-		t.Fatalf("clipboard actions should be explicit and valid: %v", err)
-	}
-	if hasAction(clipboardResults[0], "open_capture_ocr_parent") {
-		t.Fatalf("clipboard OCR result must not expose file-only open-parent action: %#v", clipboardResults[0].Actions)
+	if clipboardResults := service.Search("clipboard deployment"); len(clipboardResults) != 0 {
+		t.Fatalf("clipboard OCR entries should not appear in launcher search, got %#v", clipboardResults)
 	}
 }
 

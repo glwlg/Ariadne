@@ -261,7 +261,6 @@ export interface RuntimeDiagnostics {
   executableBytes: number
   appDataEnv: string
   localAppDataEnv: string
-  everythingDllPath?: string
   goToolPath?: string
   wailsToolPath?: string
 }
@@ -323,12 +322,26 @@ export interface FileSearchStatus {
   dllPath?: string
   dllFound: boolean
   ready: boolean
+  provider?: string
+  serviceName?: string
+  serviceInstalled: boolean
+  serviceRunning: boolean
+  serviceState?: string
+  serviceError?: string
+  indexing: boolean
+  indexedCount: number
+  volumeCount: number
+  requiresAdmin: boolean
+  elevated: boolean
+  indexStartedAt?: number
+  indexFinishedAt?: number
   lastError?: string
   lastQuery?: string
   lastElapsedMs: number
   lastResultCount: number
   lastUpdatedAt?: number
   coverageHint?: string
+  policyErrors?: string[]
 }
 
 export interface LogStatus {
@@ -724,6 +737,164 @@ export interface JsonFormatResult {
   ok: boolean
   text: string
   error?: string
+}
+
+export type APIMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | string
+
+export interface APIHeader {
+  id: string
+  name: string
+  value: string
+  enabled: boolean
+}
+
+export interface APIParam {
+  id: string
+  name: string
+  value: string
+  type: 'query' | 'path' | string
+  enabled: boolean
+}
+
+export interface APIVariable {
+  id: string
+  name: string
+  value: string
+  enabled: boolean
+  secret?: boolean
+}
+
+export interface APIAssertion {
+  id: string
+  kind: 'status' | 'header' | 'body' | 'json' | 'response_time' | string
+  target: string
+  operator: 'equals' | 'not_equals' | 'contains' | 'exists' | 'less_than' | 'greater_than' | string
+  expected: string
+  enabled: boolean
+}
+
+export interface APIRequest {
+  id: string
+  name: string
+  folder?: string
+  method: APIMethod
+  url: string
+  bodyType: 'none' | 'json' | 'text' | 'form' | string
+  body: string
+  params: APIParam[]
+  headers: APIHeader[]
+  assertions: APIAssertion[]
+  updatedAt?: number
+}
+
+export interface APIEnvironment {
+  id: string
+  name: string
+  variables: APIVariable[]
+  updatedAt?: number
+}
+
+export interface APIGitConfig {
+  path?: string
+  remote?: string
+  branch?: string
+}
+
+export interface APICollection {
+  id: string
+  name: string
+  variables: APIVariable[]
+  environments: APIEnvironment[]
+  requests: APIRequest[]
+  git?: APIGitConfig
+  activeEnvironmentId: string
+  activeRequestId: string
+  updatedAt?: number
+}
+
+export interface APITestingStatus {
+  path: string
+  databasePath: string
+  collections: APICollection[]
+  activeCollectionId: string
+  collectionCount: number
+  requestCount: number
+  lastSaveError?: string
+  lastLoadError?: string
+}
+
+export interface APIImportResult {
+  ok: boolean
+  message: string
+  importedCount: number
+  error?: string
+  status: APITestingStatus
+}
+
+export interface APIGitStatus {
+  ok: boolean
+  message: string
+  collectionId?: string
+  path?: string
+  remote?: string
+  branch?: string
+  dirty: boolean
+  files?: string[]
+  error?: string
+}
+
+export interface APIRunRequest {
+  collectionId: string
+  environmentId: string
+  request: APIRequest
+  timeoutSeconds?: number
+  runId?: string
+  stream?: boolean
+}
+
+export interface APIRunStopResult {
+  ok: boolean
+  message: string
+}
+
+export interface APIRunSnapshot {
+  ok: boolean
+  running: boolean
+  message: string
+  updatedAt?: number
+  result: APIRunResult
+}
+
+export interface APIAssertionResult {
+  id: string
+  kind: string
+  target: string
+  operator: string
+  expected: string
+  actual: string
+  passed: boolean
+  message: string
+}
+
+export interface APIRunResult {
+  ok: boolean
+  message: string
+  method: string
+  requestUrl: string
+  statusCode: number
+  statusText: string
+  durationMs: number
+  headers: APIHeader[]
+  body: string
+  bodySize: number
+  bodyTruncated: boolean
+  contentType: string
+  streaming?: boolean
+  assertionResults: APIAssertionResult[]
+  passed: number
+  failed: number
+  error?: string
+  missingVariables?: string[]
 }
 
 export interface NetworkAdapterTraffic {
@@ -1747,6 +1918,11 @@ export interface PluginSettings {
   enabled: Record<string, boolean>
 }
 
+export interface SearchSettings {
+  fileExcludeFolders: string[]
+  fileExcludePatterns: string[]
+}
+
 export interface PluginManifest {
   id: string
   name: string
@@ -1765,6 +1941,7 @@ export interface AppSettings {
   workMemory: WorkMemorySettings
   ai: AISettings
   plugins: PluginSettings
+  search: SearchSettings
 }
 
 export interface SecretRecordStatus {

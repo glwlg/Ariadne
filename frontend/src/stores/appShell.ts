@@ -11,6 +11,7 @@ export type AppToolView =
   | 'hosts'
   | 'workflow'
   | 'json-compare'
+  | 'api-testing'
   | 'network-monitor'
   | 'network-mini'
   | 'settings'
@@ -24,6 +25,7 @@ const viewSizes: Record<AppView, { width: number; height: number }> = {
   hosts: { width: 1120, height: 720 },
   workflow: { width: 1120, height: 720 },
   'json-compare': { width: 1180, height: 760 },
+  'api-testing': { width: 1240, height: 780 },
   'network-monitor': { width: 980, height: 640 },
   'network-mini': { width: 318, height: 168 },
   settings: { width: 1120, height: 720 },
@@ -37,6 +39,7 @@ const viewTitles: Record<AppView, string> = {
   hosts: 'Ariadne - Hosts',
   workflow: 'Ariadne - 工作流',
   'json-compare': 'Ariadne - JSON 对比',
+  'api-testing': 'Ariadne - API 测试',
   'network-monitor': 'Ariadne - 网络监控',
   'network-mini': 'Ariadne - 网速小窗',
   settings: 'Ariadne - 设置',
@@ -64,7 +67,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
     if (isLauncherWindow()) {
       activeView.value = 'launcher'
       document.title = viewTitles.launcher
-      window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { reset: true } })), 0)
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { selectAll: true } })), 0)
       return
     }
     void showLauncherWindow()
@@ -97,6 +100,10 @@ export const useAppShellStore = defineStore('app-shell', () => {
 
   function openJsonCompare() {
     return openView('json-compare')
+  }
+
+  function openAPITesting() {
+    return openView('api-testing')
   }
 
   function openNetworkMonitor() {
@@ -215,6 +222,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
     openHosts,
     openWorkflow,
     openJsonCompare,
+    openAPITesting,
     openNetworkMonitor,
     openNetworkMini,
     openSettings,

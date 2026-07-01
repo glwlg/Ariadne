@@ -126,7 +126,12 @@ type PluginSettings struct {
 	Enabled map[string]bool `json:"enabled"`
 }
 
-const currentSettingsVersion = 16
+type SearchSettings struct {
+	FileExcludeFolders  []string `json:"fileExcludeFolders"`
+	FileExcludePatterns []string `json:"fileExcludePatterns"`
+}
+
+const currentSettingsVersion = 17
 
 type AppSettings struct {
 	Version    int                `json:"version"`
@@ -136,6 +141,7 @@ type AppSettings struct {
 	WorkMemory WorkMemorySettings `json:"workMemory"`
 	AI         AISettings         `json:"ai"`
 	Plugins    PluginSettings     `json:"plugins"`
+	Search     SearchSettings     `json:"search"`
 }
 
 type LegacyConfigStatus struct {
@@ -714,11 +720,30 @@ func defaultSettings() AppSettings {
 			ExternalAgentTaskDirectory: filepath.Join(home, "Documents", "Ariadne", "agent_tasks"),
 		},
 		Plugins: PluginSettings{Enabled: map[string]bool{}},
+		Search: SearchSettings{
+			FileExcludeFolders:  []string{defaultRecentFolder()},
+			FileExcludePatterns: []string{},
+		},
 	}
+}
+
+func defaultRecentFolder() string {
+	base := strings.TrimSpace(os.Getenv("APPDATA"))
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			base = filepath.Join(home, "AppData", "Roaming")
+		}
+	}
+	if base == "" {
+		return filepath.Join("Microsoft", "Windows", "Recent")
+	}
+	return filepath.Join(base, "Microsoft", "Windows", "Recent")
 }
 
 func normalizeSettings(value AppSettings) AppSettings {
 	defaults := defaultSettings()
+	previousVersion := value.Version
 	if value.Version < defaults.Version {
 		value.Version = defaults.Version
 	}
@@ -766,6 +791,11 @@ func normalizeSettings(value AppSettings) AppSettings {
 		value.Plugins.Enabled = map[string]bool{}
 	}
 	value.Plugins.Enabled = normalizePluginEnabled(value.Plugins.Enabled)
+	if previousVersion < 17 && len(value.Search.FileExcludeFolders) == 0 {
+		value.Search.FileExcludeFolders = defaults.Search.FileExcludeFolders
+	}
+	value.Search.FileExcludeFolders = cleanList(value.Search.FileExcludeFolders, nil)
+	value.Search.FileExcludePatterns = cleanList(value.Search.FileExcludePatterns, nil)
 	return value
 }
 

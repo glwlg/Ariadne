@@ -1,4 +1,4 @@
-import type { DiagnosticsExportResult, LegacyHandoffRequest, LegacyHandoffResult, PlatformStatus } from '../types/ariadne'
+import type { ActionResult, DiagnosticsExportResult, LegacyHandoffRequest, LegacyHandoffResult, PlatformStatus } from '../types/ariadne'
 
 export async function getPlatformStatus(): Promise<PlatformStatus> {
   try {
@@ -20,6 +20,19 @@ export async function exportDiagnosticsBundle(): Promise<DiagnosticsExportResult
       ok: false,
       message: '开发态 fallback 未接入诊断包导出',
       logIncluded: false,
+    }
+  }
+}
+
+export async function installFileSearchService(): Promise<ActionResult> {
+  try {
+    // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
+    const binding = await import('../../bindings/ariadne/internal/platform/service.js')
+    return await binding.InstallFileSearchService()
+  } catch {
+    return {
+      ok: false,
+      message: '开发态 fallback 未接入搜索服务安装',
     }
   }
 }
@@ -84,8 +97,8 @@ function fallbackPlatformStatus(): PlatformStatus {
       {
         id: 'file_search',
         enabled: false,
-        provider: 'Everything SDK',
-        note: '开发态 fallback 未接入 Everything。',
+        provider: 'Ariadne USN/MFT',
+        note: '开发态 fallback 未接入文件索引。',
       },
       {
         id: 'json_compare',
@@ -110,7 +123,6 @@ function fallbackPlatformStatus(): PlatformStatus {
       executableBytes: 0,
       appDataEnv: '',
       localAppDataEnv: '',
-      everythingDllPath: '',
       goToolPath: '',
       wailsToolPath: '',
     },
@@ -155,10 +167,21 @@ function fallbackPlatformStatus(): PlatformStatus {
       dllPath: '',
       dllFound: false,
       ready: false,
+      provider: 'Ariadne USN/MFT',
+      serviceName: 'AriadneFileSearch',
+      serviceInstalled: false,
+      serviceRunning: false,
+      serviceState: '',
+      indexing: false,
+      indexedCount: 0,
+      volumeCount: 0,
+      requiresAdmin: false,
+      elevated: false,
       lastElapsedMs: 0,
       lastResultCount: 0,
-      lastError: '开发态 fallback 未接入 Everything。',
-      coverageHint: '开发态 fallback 不执行 Everything 查询；桌面构建会显示索引覆盖提示。',
+      lastError: '开发态 fallback 未接入文件索引。',
+      coverageHint: '开发态 fallback 不执行文件索引查询；桌面构建会显示索引覆盖提示。',
+      policyErrors: [],
     },
     logs: {
       path: '',

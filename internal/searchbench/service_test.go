@@ -8,7 +8,7 @@ import (
 	"ariadne/internal/search"
 )
 
-func TestRunWithRunnerSummarizesSearchP95AndEverythingHits(t *testing.T) {
+func TestRunWithRunnerSummarizesSearchP95AndFileIndexHits(t *testing.T) {
 	runner := &fakeRunner{responses: map[string]contracts.SearchResponse{
 		"alpha": response("alpha", 12, validResult("alpha-result", contracts.ResultPluginResult, nil)),
 		"beta":  response("beta", 120, everythingFileResult()),
@@ -30,14 +30,14 @@ func TestRunWithRunnerSummarizesSearchP95AndEverythingHits(t *testing.T) {
 	if !report.ActionValidation.OK {
 		t.Fatalf("expected valid actions: %#v", report.ActionValidation)
 	}
-	if report.ProviderStatus.EverythingFileHits != 2 {
-		t.Fatalf("EverythingFileHits = %d, want 2", report.ProviderStatus.EverythingFileHits)
+	if report.ProviderStatus.FileIndexFileHits != 2 {
+		t.Fatalf("file index hits = %d, want 2", report.ProviderStatus.FileIndexFileHits)
 	}
 	if len(report.SlowestSamples) != 1 || report.SlowestSamples[0].Query != "beta" {
 		t.Fatalf("slowest samples = %#v, want beta", report.SlowestSamples)
 	}
-	if len(report.QuerySummaries) != 2 || report.QuerySummaries[1].EverythingFileSamples != 2 {
-		t.Fatalf("query summaries = %#v, want beta Everything samples", report.QuerySummaries)
+	if len(report.QuerySummaries) != 2 || report.QuerySummaries[1].FileIndexFileSamples != 2 {
+		t.Fatalf("query summaries = %#v, want beta file index samples", report.QuerySummaries)
 	}
 }
 
@@ -119,9 +119,9 @@ func validResult(id string, resultType contracts.SearchResultType, tags []string
 }
 
 func everythingFileResult() contracts.SearchResult {
-	result := validResult("file-everything-readme", contracts.ResultFile, []string{"文件", "Everything"})
+	result := validResult("file-ariadne-readme", contracts.ResultFile, []string{"文件", "Ariadne 索引"})
 	result.Icon = "file"
-	result.Payload = map[string]interface{}{"source": "Everything SDK", "path": `P:\workspace\README.md`}
+	result.Payload = map[string]interface{}{"source": "Ariadne USN/MFT", "path": `P:\workspace\README.md`}
 	result.Actions = append(result.Actions, contracts.PreviewAction{
 		ID:      "open_parent",
 		Label:   "打开所在文件夹",

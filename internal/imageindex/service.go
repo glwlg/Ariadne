@@ -282,6 +282,9 @@ func (s *Service) Search(query string) []contracts.SearchResult {
 	results := make([]contracts.SearchResult, 0, len(entries))
 	normalized := strings.ToLower(query)
 	for _, entry := range entries {
+		if normalizeSource(entry.Source) == SourceClipboardHistory {
+			continue
+		}
 		if entry.Sensitive || entry.Redacted || strings.TrimSpace(entry.Text) == "" {
 			continue
 		}

@@ -1,3 +1,7 @@
+# AGENTS.md
+
+DO NOT send optional commentary
+
 ## Agent skills
 
 ### Issue tracker

@@ -1,6 +1,6 @@
 import { computed, ref, toRaw } from 'vue'
 import { defineStore } from 'pinia'
-import { exportDiagnosticsBundle, getPlatformStatus, resolveLegacyConflict } from '../services/platformApi'
+import { exportDiagnosticsBundle, getPlatformStatus, installFileSearchService, resolveLegacyConflict } from '../services/platformApi'
 import { createLauncherDraft, getLauncherStatus, removeLauncher, upsertLauncher } from '../services/launchersApi'
 import { getLegacyDataStatus, importLegacyData } from '../services/migrationApi'
 import { applyTheme, publishTheme } from '../lib/theme'
@@ -18,6 +18,7 @@ import {
 } from '../services/settingsApi'
 import type {
   AppSettings,
+  ActionResult,
   DiagnosticsExportResult,
   HotkeySettings,
   Launcher,
@@ -52,6 +53,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const legacyHandoffResult = ref<LegacyHandoffResult | null>(null)
   const storageStatus = ref<SettingsStorageStatus | null>(null)
   const platformStatus = ref<PlatformStatus | null>(null)
+  const fileSearchServiceActionResult = ref<ActionResult | null>(null)
   const searchUsageStatus = ref<SearchUsageStatus | null>(null)
   const searchUsageClearResult = ref<SearchUsageClearResult | null>(null)
   const secretStatus = ref<SecretStatus | null>(null)
@@ -74,6 +76,8 @@ export const useSettingsStore = defineStore('settings', () => {
     excludeUrls: '',
     excludeContentPatterns: '',
   })
+  const searchExcludeFoldersDraft = ref('')
+  const searchExcludePatternsDraft = ref('')
   const screenshotRedactKeywordsDraft = ref('')
   const feedback = ref('')
   const isLoading = ref(false)
@@ -83,6 +87,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const isRestoringRollbackCheckpoint = ref(false)
   const isExportingDiagnostics = ref(false)
   const isResolvingLegacyConflict = ref(false)
+  const isInstallingSearchService = ref(false)
   const legacyHandoffMode = ref<'graceful' | 'force' | ''>('')
   const rollbackRestoreArmed = ref(false)
 
@@ -146,6 +151,7 @@ export const useSettingsStore = defineStore('settings', () => {
       showFeedback(hotkeyValidation)
       return
     }
+    syncSearchDraftsToSettings()
     isSaving.value = true
     try {
       settings.value = await updateSettings(settings.value)
@@ -156,6 +162,23 @@ export const useSettingsStore = defineStore('settings', () => {
       showFeedback(isStorageHealthy(storageStatus.value) ? '设置已保存' : '设置保存失败')
     } catch {
       showFeedback('设置保存失败')
+    } finally {
+      isSaving.value = false
+    }
+  }
+
+  async function saveSearchSettings() {
+    if (!settings.value) return
+    syncSearchDraftsToSettings()
+    isSaving.value = true
+    try {
+      settings.value = await updateSettings(settings.value)
+      syncTextDraftsFromSettings()
+      storageStatus.value = await getSettingsStorageStatus()
+      await refreshPlatformStatus()
+      showFeedback(isStorageHealthy(storageStatus.value) ? '搜索排除规则已保存' : '搜索排除规则保存失败')
+    } catch {
+      showFeedback('搜索排除规则保存失败')
     } finally {
       isSaving.value = false
     }
@@ -356,6 +379,28 @@ export const useSettingsStore = defineStore('settings', () => {
     return screenshotRedactKeywordsDraft.value
   }
 
+  function setSearchExcludeFolders(value: string) {
+    if (!settings.value) return
+    searchExcludeFoldersDraft.value = value
+    ensureSearchSettings()
+    settings.value.search.fileExcludeFolders = multilineToList(value)
+  }
+
+  function searchExcludeFoldersText() {
+    return searchExcludeFoldersDraft.value
+  }
+
+  function setSearchExcludePatterns(value: string) {
+    if (!settings.value) return
+    searchExcludePatternsDraft.value = value
+    ensureSearchSettings()
+    settings.value.search.fileExcludePatterns = multilineToList(value)
+  }
+
+  function searchExcludePatternsText() {
+    return searchExcludePatternsDraft.value
+  }
+
   function syncTextDraftsFromSettings() {
     const memory = settings.value?.workMemory
     workMemoryListDrafts.value = {
@@ -366,6 +411,28 @@ export const useSettingsStore = defineStore('settings', () => {
       excludeContentPatterns: memory?.excludeContentPatterns.join('\n') ?? '',
     }
     screenshotRedactKeywordsDraft.value = settings.value?.screenshot.redactKeywords.join('\n') ?? ''
+    ensureSearchSettings()
+    searchExcludeFoldersDraft.value = settings.value?.search.fileExcludeFolders.join('\n') ?? ''
+    searchExcludePatternsDraft.value = settings.value?.search.fileExcludePatterns.join('\n') ?? ''
+  }
+
+  function syncSearchDraftsToSettings() {
+    if (!settings.value) return
+    ensureSearchSettings()
+    settings.value.search.fileExcludeFolders = multilineToList(searchExcludeFoldersDraft.value)
+    settings.value.search.fileExcludePatterns = multilineToList(searchExcludePatternsDraft.value)
+  }
+
+  function ensureSearchSettings() {
+    if (!settings.value) return
+    if (!settings.value.search) {
+      settings.value.search = {
+        fileExcludeFolders: [],
+        fileExcludePatterns: [],
+      }
+    }
+    settings.value.search.fileExcludeFolders ??= []
+    settings.value.search.fileExcludePatterns ??= []
   }
 
   function setMemorySource(key: string, enabled: boolean) {
@@ -490,6 +557,23 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  async function installSearchService() {
+    isInstallingSearchService.value = true
+    try {
+      fileSearchServiceActionResult.value = await installFileSearchService()
+      await refreshPlatformStatus()
+      showFeedback(fileSearchServiceActionResult.value.message)
+    } catch {
+      fileSearchServiceActionResult.value = {
+        ok: false,
+        message: '搜索服务安装失败',
+      }
+      showFeedback(fileSearchServiceActionResult.value.message)
+    } finally {
+      isInstallingSearchService.value = false
+    }
+  }
+
   async function saveSecret(kind: string) {
     const value = secretInputs.value[kind]?.trim() ?? ''
     if (!value) {
@@ -568,12 +652,15 @@ export const useSettingsStore = defineStore('settings', () => {
     legacyHandoffResult,
     storageStatus,
     platformStatus,
+    fileSearchServiceActionResult,
     searchUsageStatus,
     searchUsageClearResult,
     secretStatus,
     secretActionResult,
     pluginManifests,
     secretInputs,
+    searchExcludeFoldersDraft,
+    searchExcludePatternsDraft,
     launcherStatus,
     launcherDraft,
     launcherDeleteArmedId,
@@ -587,6 +674,7 @@ export const useSettingsStore = defineStore('settings', () => {
     isRestoringRollbackCheckpoint,
     isExportingDiagnostics,
     isResolvingLegacyConflict,
+    isInstallingSearchService,
     legacyHandoffMode,
     rollbackRestoreArmed,
     hasSettings,
@@ -595,11 +683,13 @@ export const useSettingsStore = defineStore('settings', () => {
     enabledPluginCount,
     load,
     save,
+    saveSearchSettings,
     reset,
     applyHotkeys,
     importLegacy,
     refreshLegacyDataStatus,
     importLegacyHistoryData,
+    refreshPlatformStatus,
     createRollbackCheckpoint,
     restoreLatestRollbackCheckpoint,
     exportDiagnostics,
@@ -609,6 +699,10 @@ export const useSettingsStore = defineStore('settings', () => {
     listText,
     setScreenshotRedactKeywords,
     screenshotRedactKeywordsText,
+    setSearchExcludeFolders,
+    searchExcludeFoldersText,
+    setSearchExcludePatterns,
+    searchExcludePatternsText,
     setMemorySource,
     pluginEnabled,
     setPluginEnabled,
@@ -620,6 +714,7 @@ export const useSettingsStore = defineStore('settings', () => {
     saveLauncher,
     deleteLauncher,
     clearSearchUsageState,
+    installSearchService,
     saveSecret,
     clearSecret,
     launcherListText,
@@ -742,6 +837,20 @@ function linesToList(value: string) {
   const seen = new Set<string>()
   return value
     .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item) return false
+      const key = item.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+function multilineToList(value: string) {
+  const seen = new Set<string>()
+  return value
+    .split(/\r?\n/)
     .map((item) => item.trim())
     .filter((item) => {
       if (!item) return false

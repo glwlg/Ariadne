@@ -368,20 +368,6 @@ func defaultLaunchers() []Launcher {
 			Enabled:  true,
 		})
 	}
-	if everything := findExisting(
-		`C:\Program Files\Everything\Everything.exe`,
-		`P:\Program Files\Everything\Everything.exe`,
-	); everything != "" {
-		launchers = append(launchers, Launcher{
-			ID:       "everything",
-			Name:     "Everything",
-			Kind:     LauncherApp,
-			Target:   everything,
-			Keywords: []string{"everything", "file search", "文件搜索"},
-			Tags:     []string{"搜索"},
-			Enabled:  true,
-		})
-	}
 	sortLaunchers(launchers)
 	return launchers
 }

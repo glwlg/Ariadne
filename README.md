@@ -18,9 +18,7 @@
 
 ## 简介
 
-Ariadne 是一个轻量的 Windows 桌面效率工具。它把常用启动、截图历史、剪贴板历史、Hosts 管理、JSON 对比、网络监控、工作记忆和 API 调试等能力放到统一入口里，用快捷键快速呼出，并尽量把数据保留在本机。
-
-这个仓库已经从早期的 Python/PyQt `x-tools` 迁移到 Wails 3 + Vue 3 + Go。旧实现保留在 `legacy/x-tools-python`，用于迁移核对和行为参考。
+Ariadne 是一个轻量的 Windows 桌面效率工具。它把常用启动、文件搜索、截图历史、剪贴板历史、Hosts 管理、JSON 对比、网络监控、工作记忆和 API 调试等能力放到统一入口里，用快捷键快速呼出，并尽量把数据保留在本机。
 
 ## 功能亮点
 
@@ -32,18 +30,15 @@ Ariadne 是一个轻量的 Windows 桌面效率工具。它把常用启动、截
 | 剪贴板历史 | 文本和图片剪贴板监听、搜索、复制回写、OCR、二维码识别和截图归档。 |
 | 工具中心 | Hosts 管理、JSON 对比、网络监控、工作流宏、设置中心和 API 调试窗口。 |
 | 本地数据 | 运行数据写入 `%APPDATA%\Ariadne\ariadne.sqlite`，安装目录和用户数据目录分离。 |
-| 发布包 | 用户级安装包，支持安装、卸载、回滚提示和与旧 `x-tools` 并存。 |
+| 发布包 | 用户级安装器，支持安装界面、安装位置、快捷方式、自启动、卸载和内置文件索引。 |
 
 ## 快速安装
 
 1. 打开 [Releases](https://github.com/glwlg/Ariadne/releases)。
-2. 下载最新的 `ariadne-dev-windows-x64.zip`。
-3. 解压后在 PowerShell 中运行：
+2. 下载最新的 `AriadneSetup-dev-windows-x64.exe`。
+3. 双击安装器，阅读用户协议，按需选择安装位置、开始菜单入口、桌面快捷方式和随 Windows 启动。
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\install.ps1 -CreateDesktopShortcut
-```
+`ariadne-dev-windows-x64.zip` 是排查用 payload，正常安装优先使用 setup exe。
 
 默认安装到：
 
@@ -57,11 +52,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 %APPDATA%\Ariadne
 ```
 
-卸载时运行安装目录或解压包中的脚本：
-
-```powershell
-.\scripts\uninstall.ps1
-```
+卸载时从开始菜单运行 `Uninstall Ariadne`。
 
 ## 从源码运行
 
@@ -106,6 +97,7 @@ wails3 task windows:package
 发布包会生成到：
 
 ```text
+dist\release\AriadneSetup-dev-windows-x64.exe
 dist\release\ariadne-dev-windows-x64.zip
 ```
 
@@ -114,7 +106,7 @@ dist\release\ariadne-dev-windows-x64.zip
 | 命令 | 用途 |
 | --- | --- |
 | `wails3 task windows:build` | 构建 Windows 可执行文件。 |
-| `wails3 task windows:package` | 构建用户级 Windows 发布包。 |
+| `wails3 task windows:package` | 构建用户级 Windows 安装器和 zip 发布包。 |
 | `wails3 task windows:msix` | 生成未签名 MSIX 布局。 |
 | `wails3 task windows:search-perf` | 运行搜索性能基准。 |
 | `wails3 task windows:perf` | 运行桌面性能探针。 |
@@ -129,7 +121,6 @@ dist\release\ariadne-dev-windows-x64.zip
 ├── docs/                    # 设计、计划、ADR 和代理协作文档
 ├── frontend/                # Vue 3 前端
 ├── internal/                # Go 服务、存储、平台集成和工具中心
-├── legacy/x-tools-python/   # 旧版 Python/PyQt 实现
 ├── winres/                  # Windows 图标、manifest 和版本资源
 └── Taskfile.yml             # Wails/Windows 任务入口
 ```
@@ -139,7 +130,7 @@ dist\release\ariadne-dev-windows-x64.zip
 - 快捷入口保持轻量，复杂工具在独立窗口中打开。
 - 前端不从文件路径推断动作，搜索结果必须显式携带 `actions`。
 - 本地优先，涉及外部 AI 或敏感数据的能力必须有清晰确认。
-- Ariadne 与旧 `x-tools` 并存，迁移和卸载都不直接删除旧数据。
+- 安装目录和用户数据目录分离，卸载默认保留用户数据。
 - 工具中心保持独立边界，避免把所有功能堆回启动器主窗口。
 
 ## 路线图

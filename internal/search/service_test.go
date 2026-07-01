@@ -8,7 +8,6 @@ import (
 
 	"ariadne/internal/apps"
 	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
 	"ariadne/internal/contracts"
 	"ariadne/internal/plugins"
 	"ariadne/internal/workflows"
@@ -85,9 +84,9 @@ func TestSearchCancellationStopsRemainingProviders(t *testing.T) {
 	}
 }
 
-func TestSearchAggregatesEverythingFiles(t *testing.T) {
+func TestSearchAggregatesIndexedFiles(t *testing.T) {
 	service := NewService(fakeProvider{results: []contracts.SearchResult{{
-		ID:       "file-everything-readme",
+		ID:       "file-ariadne-readme",
 		Type:     contracts.ResultFile,
 		Title:    "README.md",
 		Subtitle: `P:\workspace\glwlg\app\x-tools`,
@@ -170,21 +169,15 @@ func TestSearchAggregatesCustomLaunchers(t *testing.T) {
 	}
 }
 
-func TestSearchAggregatesClipboardHistory(t *testing.T) {
-	clipboardService := clipboardhistory.NewServiceWithPath(filepath.Join(t.TempDir(), "clipboard_history.json"))
-	clipboardService.AddText("gateway degraded clipboard payload", "test")
-	service := NewServiceWithState(NewStateStore(""), clipboardService)
+func TestSearchSeedResultsExcludeClipboardHistoryContent(t *testing.T) {
+	service := NewServiceWithState(NewStateStore(""))
 
-	response := service.Search(context.Background(), "clipboard")
+	response := service.Search(context.Background(), "gateway degraded")
 
-	if len(response.Results) == 0 || response.Results[0].Type != contracts.ResultClipboard {
-		t.Fatalf("expected clipboard history result, got %#v", response.Results)
-	}
-	if hasActionKind(response.Results[0], contracts.ActionOpenParent) {
-		t.Fatal("clipboard history result must not expose open_parent")
-	}
-	if err := contracts.ValidateActionSurfaces(response.Results); err != nil {
-		t.Fatalf("invalid action surface: %v", err)
+	for _, result := range response.Results {
+		if result.Type == contracts.ResultClipboard || result.ID == "clipboard-json" {
+			t.Fatalf("launcher seed search should not expose clipboard history content: %#v", result)
+		}
 	}
 }
 
@@ -225,17 +218,17 @@ func TestSearchAggregatesWorkflowMacros(t *testing.T) {
 	}
 }
 
-func TestExactPluginCommandBeatsEverythingFileResults(t *testing.T) {
+func TestExactPluginCommandBeatsFileIndexResults(t *testing.T) {
 	pluginService := plugins.NewService()
 	fileProvider := fakeProvider{results: []contracts.SearchResult{{
-		ID:       "file-everything-net",
+		ID:       "file-ariadne-net",
 		Type:     contracts.ResultFile,
 		Title:    "net",
 		Subtitle: `C:\docs`,
 		Detail:   `C:\docs\net`,
 		Icon:     "file",
 		Score:    95,
-		Tags:     []string{"文件", "Everything"},
+		Tags:     []string{"文件", "Ariadne 索引"},
 		Preview:  contracts.PreviewDescriptor{Kind: contracts.PreviewText, Title: "net", Text: `C:\docs\net`},
 		Actions:  []contracts.PreviewAction{{ID: "open", Label: "打开", Kind: contracts.ActionOpen, Payload: map[string]interface{}{"path": `C:\docs\net`}}},
 	}}}
@@ -455,7 +448,7 @@ func TestSearchPerformanceCalculatesP95(t *testing.T) {
 	}
 }
 
-func TestFileResultKeepsFileActionsButClipboardDoesNot(t *testing.T) {
+func TestFileSeedResultKeepsFileActions(t *testing.T) {
 	results := seedResults()
 	if err := contracts.ValidateActionSurfaces(results); err != nil {
 		t.Fatalf("invalid action surface: %v", err)
@@ -464,9 +457,6 @@ func TestFileResultKeepsFileActionsButClipboardDoesNot(t *testing.T) {
 	for _, result := range results {
 		if result.ID == "file-readme" && !hasActionKind(result, contracts.ActionOpenParent) {
 			t.Fatal("file result should expose open_parent")
-		}
-		if result.ID == "clipboard-json" && hasActionKind(result, contracts.ActionOpenParent) {
-			t.Fatal("clipboard result must not expose open_parent")
 		}
 	}
 }

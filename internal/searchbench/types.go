@@ -50,8 +50,8 @@ type QuerySummary struct {
 	AverageResultCount     float64 `json:"averageResultCount"`
 	MaxResultCount         int     `json:"maxResultCount"`
 	ZeroResultCount        int     `json:"zeroResultCount"`
-	EverythingFileSamples  int     `json:"everythingFileSamples"`
-	EverythingFileResults  int     `json:"everythingFileResults"`
+	FileIndexFileSamples   int     `json:"fileIndexFileSamples"`
+	FileIndexFileResults   int     `json:"fileIndexFileResults"`
 	ActionValidationErrors int     `json:"actionValidationErrors"`
 }
 
@@ -65,7 +65,7 @@ type Sample struct {
 	TopResultTitle        string `json:"topResultTitle,omitempty"`
 	TopResultType         string `json:"topResultType,omitempty"`
 	FileResultCount       int    `json:"fileResultCount"`
-	EverythingFileResults int    `json:"everythingFileResults"`
+	FileIndexFileResults  int    `json:"fileIndexFileResults"`
 	ActionValidationError string `json:"actionValidationError,omitempty"`
 }
 
@@ -78,10 +78,10 @@ type ActionValidationSummary struct {
 }
 
 type ProviderStatus struct {
-	EverythingStatusAvailable bool                        `json:"everythingStatusAvailable"`
-	Everything                filesearch.EverythingStatus `json:"everything"`
-	EverythingFileHits        int                         `json:"everythingFileHits"`
-	EverythingHitQueries      []string                    `json:"everythingHitQueries,omitempty"`
+	FileIndexStatusAvailable bool                       `json:"fileIndexStatusAvailable"`
+	FileIndex                filesearch.FileIndexStatus `json:"fileIndex"`
+	FileIndexFileHits        int                        `json:"fileIndexFileHits"`
+	FileIndexHitQueries      []string                   `json:"fileIndexHitQueries,omitempty"`
 }
 
 type Verdict struct {

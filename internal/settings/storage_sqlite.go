@@ -158,6 +158,8 @@ func writeSettingsStringLists(conn *sqlite.Conn, scope string, value AppSettings
 		"workMemory.excludePaths":           value.WorkMemory.ExcludePaths,
 		"workMemory.excludeUrls":            value.WorkMemory.ExcludeURLs,
 		"workMemory.excludeContentPatterns": value.WorkMemory.ExcludeContentPatterns,
+		"search.fileExcludeFolders":         value.Search.FileExcludeFolders,
+		"search.fileExcludePatterns":        value.Search.FileExcludePatterns,
 	}
 	paths := make([]string, 0, len(lists))
 	for path := range lists {
@@ -241,6 +243,8 @@ func readSettingsRows(conn *sqlite.Conn, scope string, target *AppSettings) erro
 	target.WorkMemory.ExcludePaths = lists["workMemory.excludePaths"]
 	target.WorkMemory.ExcludeURLs = lists["workMemory.excludeUrls"]
 	target.WorkMemory.ExcludeContentPatterns = lists["workMemory.excludeContentPatterns"]
+	target.Search.FileExcludeFolders = lists["search.fileExcludeFolders"]
+	target.Search.FileExcludePatterns = lists["search.fileExcludePatterns"]
 	target.WorkMemory.AppCaptureProfiles = nil
 	if err := sqlitex.Execute(conn, `SELECT id, display_name, process_name, icon, enabled, window_switch_delay_seconds, active_interval_seconds FROM settings2_app_capture_profiles WHERE scope = ?1 ORDER BY id`, &sqlitex.ExecOptions{
 		Args: []any{scope},

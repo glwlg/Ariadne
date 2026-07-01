@@ -1,7 +1,7 @@
 import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/ariadne'
 
 const fallbackSettings: AppSettings = {
-  version: 16,
+  version: 17,
   general: {
     theme: 'light',
     runOnStartup: false,
@@ -107,6 +107,10 @@ const fallbackSettings: AppSettings = {
   },
   plugins: {
     enabled: {},
+  },
+  search: {
+    fileExcludeFolders: ['%APPDATA%\\Microsoft\\Windows\\Recent'],
+    fileExcludePatterns: [],
   },
 }
 
@@ -239,6 +243,11 @@ function normalizeFallback(settings: AppSettings): AppSettings {
   next.workMemory.excludePaths = cleanList(next.workMemory.excludePaths)
   next.workMemory.excludeUrls = cleanList(next.workMemory.excludeUrls)
   next.workMemory.excludeContentPatterns = cleanList(next.workMemory.excludeContentPatterns)
+  if (!next.search) {
+    next.search = structuredClone(fallbackSettings.search)
+  }
+  next.search.fileExcludeFolders = cleanList(next.search.fileExcludeFolders)
+  next.search.fileExcludePatterns = cleanList(next.search.fileExcludePatterns)
   next.ai.traceMode = ['off', 'local', 'internal'].includes(next.ai.traceMode) ? next.ai.traceMode : 'off'
   return next
 }

@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStatusReportsHonestDesktopShellCapabilities(t *testing.T) {
@@ -56,8 +58,8 @@ func TestStatusReportsHonestDesktopShellCapabilities(t *testing.T) {
 		t.Fatalf("network monitor capability should follow Windows runtime support: %#v", networkMonitor)
 	}
 	fileSearch := capability(status.Capabilities, "file_search")
-	if fileSearch.Enabled != (status.Diagnostics.EverythingDLLPath != "") {
-		t.Fatalf("file search capability should follow Everything DLL availability: %#v", fileSearch)
+	if fileSearch.Provider != "Ariadne USN/MFT" || !strings.Contains(fileSearch.Note, "文件索引") {
+		t.Fatalf("file search capability should report Ariadne file index status: %#v", fileSearch)
 	}
 	if capability(status.Capabilities, "global_hotkey").Enabled {
 		t.Fatal("global hotkey should not be marked complete before Alt+Q integration")
@@ -224,7 +226,7 @@ func TestResolveLegacyConflictClosesLegacyAndRetriesHotkey(t *testing.T) {
 	}
 }
 
-func TestStatusIncludesSearchAndEverythingDiagnostics(t *testing.T) {
+func TestStatusIncludesSearchAndFileIndexDiagnostics(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "logs", "ariadne.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -237,7 +239,7 @@ func TestStatusIncludesSearchAndEverythingDiagnostics(t *testing.T) {
 			return SearchPerformanceStatus{
 				SampleCount:     12,
 				TargetP95Ms:     100,
-				LastQuery:       "Everything64.dll",
+				LastQuery:       "README.md",
 				LastElapsedMs:   24,
 				LastResultCount: 2,
 				AverageMs:       18,
@@ -249,15 +251,19 @@ func TestStatusIncludesSearchAndEverythingDiagnostics(t *testing.T) {
 		}),
 		WithFileSearchStatus(func() FileSearchStatus {
 			return FileSearchStatus{
-				DLLPath:         `P:\workspace\glwlg\app\x-tools\Everything64.dll`,
-				DLLFound:        true,
 				Ready:           true,
-				LastQuery:       "Everything64.dll",
+				Provider:        "Ariadne USN/MFT",
+				IndexedCount:    1200,
+				VolumeCount:     2,
+				LastQuery:       "README.md",
 				LastElapsedMs:   7,
 				LastResultCount: 1,
 				LastUpdatedAt:   1770000000,
-				CoverageHint:    "Everything 可用但该文件/路径查询没有命中；请确认目标盘或目录已加入索引。",
+				CoverageHint:    "Ariadne 文件索引已完成，但该文件或路径没有命中。",
 			}
+		}),
+		WithFileSearchServiceStatus(func(status FileSearchStatus) FileSearchStatus {
+			return status
 		}),
 		WithLogStatus(func() LogStatus {
 			return logStatusForTest(logPath)
@@ -270,7 +276,7 @@ func TestStatusIncludesSearchAndEverythingDiagnostics(t *testing.T) {
 		t.Fatalf("search performance should be surfaced: %#v", status.SearchPerformance)
 	}
 	if !status.FileSearch.Ready || status.FileSearch.LastResultCount != 1 || status.FileSearch.CoverageHint == "" {
-		t.Fatalf("Everything status should be surfaced: %#v", status.FileSearch)
+		t.Fatalf("file index status should be surfaced: %#v", status.FileSearch)
 	}
 	if !capability(status.Capabilities, "search_performance").Enabled {
 		t.Fatalf("search performance capability should be implemented: %#v", status.Capabilities)
@@ -278,7 +284,7 @@ func TestStatusIncludesSearchAndEverythingDiagnostics(t *testing.T) {
 	if !capability(status.Capabilities, "file_search").Enabled {
 		t.Fatalf("file search should follow ready status: %#v", status.Capabilities)
 	}
-	if !strings.Contains(capability(status.Capabilities, "file_search").Note, "加入索引") {
+	if !strings.Contains(capability(status.Capabilities, "file_search").Note, "文件索引") {
 		t.Fatalf("file search note should expose coverage hint: %#v", capability(status.Capabilities, "file_search"))
 	}
 	if !status.Logs.Exists || status.Logs.Bytes == 0 {
@@ -287,8 +293,8 @@ func TestStatusIncludesSearchAndEverythingDiagnostics(t *testing.T) {
 	if !capability(status.Capabilities, "diagnostic_logs").Enabled {
 		t.Fatalf("diagnostic logs capability should be implemented: %#v", status.Capabilities)
 	}
-	if !metricValue(status.Metrics, "search_p95", 42) || !metricValue(status.Metrics, "everything_last", 7) || !metricValue(status.Metrics, "log_file_size", status.Logs.Bytes) {
-		t.Fatalf("metrics should include search and Everything timings: %#v", status.Metrics)
+	if !metricValue(status.Metrics, "search_p95", 42) || !metricValue(status.Metrics, "file_index_last", 7) || !metricValue(status.Metrics, "log_file_size", status.Logs.Bytes) {
+		t.Fatalf("metrics should include search and file index timings: %#v", status.Metrics)
 	}
 }
 
@@ -331,23 +337,66 @@ func TestExportDiagnosticsIncludesPlatformStatusAndLog(t *testing.T) {
 	}
 }
 
-func TestStatusDegradesFileSearchOnEverythingError(t *testing.T) {
-	service := NewService(WithFileSearchStatus(func() FileSearchStatus {
-		return FileSearchStatus{
-			DLLPath:   `P:\workspace\glwlg\app\x-tools\Everything64.dll`,
-			DLLFound:  true,
-			Ready:     false,
-			LastError: "Everything query returned false",
-		}
-	}))
+func TestStatusDegradesFileSearchOnIndexError(t *testing.T) {
+	service := NewService(
+		WithFileSearchStatus(func() FileSearchStatus {
+			return FileSearchStatus{
+				Ready:     false,
+				Provider:  "Ariadne USN/MFT",
+				LastError: "line index parse failed",
+			}
+		}),
+		WithFileSearchServiceStatus(func(status FileSearchStatus) FileSearchStatus {
+			return status
+		}),
+	)
 
 	status := service.Status()
 	fileSearch := capability(status.Capabilities, "file_search")
 	if fileSearch.Enabled {
-		t.Fatalf("file search should be degraded when recent Everything status is not ready: %#v", fileSearch)
+		t.Fatalf("file search should be degraded when recent file index status is not ready: %#v", fileSearch)
 	}
 	if !strings.Contains(fileSearch.Note, "最近查询失败") {
 		t.Fatalf("file search note should expose the recent error: %#v", fileSearch)
+	}
+}
+
+func TestStatusExplainsMissingSearchService(t *testing.T) {
+	service := NewService(
+		WithFileSearchStatus(func() FileSearchStatus {
+			return FileSearchStatus{
+				Ready:         false,
+				Provider:      "Ariadne USN/MFT",
+				RequiresAdmin: true,
+				Elevated:      false,
+				LastError:     "搜索服务未安装",
+				CoverageHint:  "搜索服务未安装。安装后会自动维护本机文件索引。",
+			}
+		}),
+		WithFileSearchServiceStatus(func(status FileSearchStatus) FileSearchStatus {
+			return status
+		}),
+	)
+
+	status := service.Status()
+	fileSearch := capability(status.Capabilities, "file_search")
+	if fileSearch.Enabled {
+		t.Fatalf("file search should be degraded until Ariadne is elevated: %#v", fileSearch)
+	}
+	if !strings.Contains(fileSearch.Note, "搜索服务未安装") {
+		t.Fatalf("file search note should make the missing search service visible: %#v", fileSearch)
+	}
+}
+
+func TestNormalizeFileSearchStatusClearsStaleServiceNotice(t *testing.T) {
+	status := normalizeFileSearchStatus(FileSearchStatus{
+		Ready:          true,
+		ServiceRunning: true,
+		CoverageHint:   "搜索服务未运行；当前索引可搜索，后台刷新需安装搜索服务。",
+	})
+
+	if status.CoverageHint != "" {
+		t.Fatalf("running service should clear stale service notice: %#v", status)
 	}
 }
 
@@ -360,25 +409,6 @@ func TestLegacyHotkeyConflictHeuristics(t *testing.T) {
 	}
 	if legacyHotkeyConflictLikely(ShellStatus{GlobalHotkeyRegistered: true, LastError: "old error"}, true) {
 		t.Fatal("registered Ariadne hotkey should override stale errors")
-	}
-}
-
-func TestFindUpLocatesEverythingDLLInAncestor(t *testing.T) {
-	dir := t.TempDir()
-	root := filepath.Join(dir, "workspace")
-	nested := filepath.Join(root, "experiments", "ariadne", "bin")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	expected := filepath.Join(root, "Everything64.dll")
-	if err := os.WriteFile(expected, []byte("dll"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	found := findUp("Everything64.dll", nested)
-
-	if found != expected {
-		t.Fatalf("expected %q, got %q", expected, found)
 	}
 }
 
@@ -428,6 +458,35 @@ func TestRememberActionUsesConfiguredHandler(t *testing.T) {
 	}
 }
 
+func TestInstallFileSearchServiceUsesElevatedRunner(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only service install action")
+	}
+	commandRunnerCalled := false
+	var elevatedFile string
+	var elevatedArgs []string
+	service := NewService(
+		WithCommandRunner(func(request commandRunRequest) error {
+			commandRunnerCalled = true
+			return nil
+		}),
+		WithElevatedRunner(func(file string, args []string) error {
+			elevatedFile = file
+			elevatedArgs = append([]string(nil), args...)
+			return nil
+		}),
+	)
+
+	result := service.InstallFileSearchService()
+
+	if !result.OK || commandRunnerCalled {
+		t.Fatalf("search service install should use native elevated runner only: result=%#v commandRunnerCalled=%v", result, commandRunnerCalled)
+	}
+	if !strings.HasSuffix(strings.ToLower(elevatedFile), ".exe") || !reflect.DeepEqual(elevatedArgs, []string{"filesearch-service-install"}) {
+		t.Fatalf("unexpected elevated request: file=%q args=%#v", elevatedFile, elevatedArgs)
+	}
+}
+
 func TestDangerActionRequiresConfirmation(t *testing.T) {
 	called := false
 	result := NewService(WithCommandRunner(func(request commandRunRequest) error {
@@ -443,8 +502,33 @@ func TestDangerActionRequiresConfirmation(t *testing.T) {
 		},
 	})
 
-	if result.OK || !result.RequiresConfirmation || called || !strings.Contains(result.Message, "再次点击确认运行") {
+	if result.OK || !result.RequiresConfirmation || called || !strings.Contains(result.Message, "再次点击确认") {
 		t.Fatalf("danger action should not silently execute: %#v", result)
+	}
+}
+
+func TestDangerActionConfirmationUsesProductLabel(t *testing.T) {
+	called := false
+	result := NewService(WithCommandRunner(func(request commandRunRequest) error {
+		called = true
+		return nil
+	})).ExecuteAction(contracts.PreviewAction{
+		ID:    "restart_elevated",
+		Label: "以管理员身份启动",
+		Kind:  contracts.ActionDanger,
+		Payload: map[string]interface{}{
+			"command":              "powershell.exe",
+			"arguments":            []string{"-NoProfile", "-Command", "Start-Process -Verb RunAs"},
+			"requiresConfirmation": true,
+			"confirmationLabel":    "以管理员身份启动 Ariadne",
+		},
+	})
+
+	if result.OK || !result.RequiresConfirmation || called {
+		t.Fatalf("danger action should require confirmation: %#v", result)
+	}
+	if !strings.Contains(result.Message, "以管理员身份启动 Ariadne") || strings.Contains(result.Message, "powershell.exe") || strings.Contains(result.Message, "Start-Process") {
+		t.Fatalf("confirmation should hide implementation command: %#v", result)
 	}
 }
 
@@ -475,6 +559,44 @@ func TestConfirmedDangerActionRunsConfiguredCommand(t *testing.T) {
 	}
 	if captured.Command != "cmd.exe" || captured.WorkingDir != dir || !reflect.DeepEqual(captured.Arguments, []string{"/c", "echo hello"}) {
 		t.Fatalf("unexpected command request: %#v", captured)
+	}
+}
+
+func TestConfirmedDangerActionCanWaitAndQuitAfterStart(t *testing.T) {
+	var captured commandRunRequest
+	quit := make(chan struct{}, 1)
+	service := NewService(
+		WithCommandRunner(func(request commandRunRequest) error {
+			captured = request
+			return nil
+		}),
+		WithApplicationQuit(func() {
+			quit <- struct{}{}
+		}),
+	)
+
+	result := service.ExecuteAction(contracts.PreviewAction{
+		ID:    "restart_elevated",
+		Label: "以管理员身份启动",
+		Kind:  contracts.ActionDanger,
+		Payload: map[string]interface{}{
+			"command":              "powershell.exe",
+			"arguments":            []string{"-NoProfile", "-Command", "Start-Process -Verb RunAs"},
+			"requiresConfirmation": true,
+			"confirmed":            true,
+			"waitForExit":          true,
+			"quitAfterStart":       true,
+		},
+		Feedback: &contracts.ActionFeedback{SuccessLabel: "正在切换到管理员实例"},
+	})
+
+	if !result.OK || captured.Command != "powershell.exe" || !captured.Wait {
+		t.Fatalf("confirmed elevated restart should wait for command success: result=%#v request=%#v", result, captured)
+	}
+	select {
+	case <-quit:
+	case <-time.After(time.Second):
+		t.Fatal("confirmed elevated restart should request old instance quit")
 	}
 }
 

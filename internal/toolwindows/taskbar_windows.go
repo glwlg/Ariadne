@@ -125,24 +125,24 @@ func enableOrdinaryWindowTaskbarToggle(window application.Window) {
 		return
 	}
 	hwnd := w32.HWND(native)
-	flags := uint(w32.SWP_NOMOVE | w32.SWP_NOSIZE | w32.SWP_NOOWNERZORDER)
+	frameChanged := false
 
 	style := w32.GetWindowLongPtr(hwnd, w32.GWL_STYLE)
 	targetStyle := ordinaryWindowTaskbarStyle(style)
 	if targetStyle != style {
 		w32.SetWindowLongPtr(hwnd, w32.GWL_STYLE, targetStyle)
-		flags |= w32.SWP_FRAMECHANGED
+		frameChanged = true
 	}
 
 	exStyle := w32.GetWindowLongPtr(hwnd, w32.GWL_EXSTYLE)
 	targetExStyle := ordinaryWindowTaskbarExStyle(exStyle)
 	if targetExStyle != exStyle {
 		w32.SetWindowLongPtr(hwnd, w32.GWL_EXSTYLE, targetExStyle)
-		flags |= w32.SWP_FRAMECHANGED
+		frameChanged = true
 	}
 
 	w32.SetWindowLongPtr(hwnd, w32.GWLP_HWNDPARENT, 0)
-	w32.SetWindowPos(hwnd, w32.HWND_NOTOPMOST, 0, 0, 0, 0, flags)
+	w32.SetWindowPos(hwnd, w32.HWND_NOTOPMOST, 0, 0, 0, 0, ordinaryWindowTaskbarSetWindowPosFlags(frameChanged))
 }
 
 func setOrdinaryWindowIcon(window application.Window, icon []byte) {
@@ -171,6 +171,14 @@ func ordinaryWindowTaskbarExStyle(exStyle uintptr) uintptr {
 	exStyle |= uintptr(w32.WS_EX_APPWINDOW)
 	exStyle &^= uintptr(w32.WS_EX_TOOLWINDOW | w32.WS_EX_NOACTIVATE | w32.WS_EX_TOPMOST)
 	return exStyle
+}
+
+func ordinaryWindowTaskbarSetWindowPosFlags(frameChanged bool) uint {
+	flags := uint(w32.SWP_NOMOVE | w32.SWP_NOSIZE | w32.SWP_NOOWNERZORDER | w32.SWP_SHOWWINDOW)
+	if frameChanged {
+		flags |= w32.SWP_FRAMECHANGED
+	}
+	return flags
 }
 
 func setNetworkMiniTaskbarLayer(window application.Window, show bool) {

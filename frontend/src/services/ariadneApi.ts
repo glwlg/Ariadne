@@ -298,9 +298,10 @@ export async function executeAriadneAction(action: PreviewAction): Promise<Actio
     return response
   }
   if ((action.kind === 'danger' || action.payload?.requiresConfirmation) && !action.payload?.confirmed && !action.payload?.confirm) {
+    const label = String(action.payload?.confirmationLabel ?? action.label ?? '执行此操作')
     return {
       ok: false,
-      message: `再次点击确认运行：${String(action.payload?.command ?? action.label)}`,
+      message: `再次点击确认：${label}`,
       requiresConfirmation: true,
       riskReasons: ['命令类启动项会启动本机进程'],
     }

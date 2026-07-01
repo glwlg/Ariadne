@@ -34,6 +34,15 @@ export function ExportDiagnostics() {
 }
 
 /**
+ * @returns {$CancellablePromise<contracts$0.ActionResult>}
+ */
+export function InstallFileSearchService() {
+    return $Call.ByID(2781707380).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {$models.LegacyHandoffRequest} request
  * @returns {$CancellablePromise<$models.LegacyHandoffResult>}
  */

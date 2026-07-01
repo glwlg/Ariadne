@@ -128,37 +128,6 @@ export const seedResults: SearchResult[] = [
     ],
   },
   {
-    id: 'clipboard-json',
-    type: 'clipboard',
-    title: '复制过的 JSON 片段',
-    subtitle: '剪贴板 · 12 分钟前',
-    detail: '{"service":"gateway","status":"degraded","region":"hk"}',
-    icon: 'clipboard',
-    tags: ['剪贴板', 'JSON'],
-    preview: {
-      kind: 'text',
-      title: '复制过的 JSON 片段',
-      subtitle: '剪贴板历史',
-      text: '{\n  "service": "gateway",\n  "status": "degraded",\n  "region": "hk"\n}',
-      meta: [
-        { label: '内容类型', value: 'JSON' },
-        { label: '可纳入', value: '工作记忆、日报、问题复盘' },
-      ],
-    },
-    actions: [
-      {
-        id: 'copy_value',
-        label: '复制内容',
-        icon: 'copy',
-        kind: 'copy',
-        payload: { text: '{"service":"gateway","status":"degraded","region":"hk"}' },
-        feedback: { successLabel: '已复制' },
-      },
-      { id: 'format_json', label: 'JSON 格式化', icon: 'plugin', kind: 'plugin' },
-      { id: 'remember', label: '加入记忆', icon: 'remember', kind: 'remember' },
-    ],
-  },
-  {
     id: 'workflow-daily',
     type: 'workflow',
     title: '生成今日工作日报',

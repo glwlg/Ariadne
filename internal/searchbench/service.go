@@ -31,7 +31,7 @@ type Runner interface {
 }
 
 type ProviderReporter interface {
-	FileSearchStatus() filesearch.EverythingStatus
+	FileSearchStatus() filesearch.FileIndexStatus
 }
 
 type DefaultStack struct {
@@ -125,7 +125,6 @@ func NewDefaultStack() *DefaultStack {
 		fileSearchService,
 		appService,
 		launcherService,
-		clipboardService,
 		captureService,
 		imageIndexService,
 		workflowService,
@@ -159,9 +158,9 @@ func (s *DefaultStack) PerformanceStatus() search.PerformanceStatus {
 	return s.SearchService.PerformanceStatus()
 }
 
-func (s *DefaultStack) FileSearchStatus() filesearch.EverythingStatus {
+func (s *DefaultStack) FileSearchStatus() filesearch.FileIndexStatus {
 	if s == nil || s.FileSearchService == nil {
-		return filesearch.EverythingStatus{}
+		return filesearch.FileIndexStatus{}
 	}
 	return s.FileSearchService.Status()
 }
@@ -195,7 +194,7 @@ func DefaultQueries() []string {
 		"clipboard",
 		"gateway",
 		"README.md",
-		"Everything64.dll",
+		"ariadne.exe",
 	}
 }
 
@@ -259,8 +258,8 @@ func sampleFromResponse(index int, iteration int, query string, response contrac
 		if result.Type == contracts.ResultFile {
 			sample.FileResultCount++
 		}
-		if isEverythingFile(result) {
-			sample.EverythingFileResults++
+		if isIndexedFile(result) {
+			sample.FileIndexFileResults++
 		}
 	}
 	if err := contracts.ValidateActionSurfaces(response.Results); err != nil {
@@ -269,16 +268,16 @@ func sampleFromResponse(index int, iteration int, query string, response contrac
 	return sample
 }
 
-func isEverythingFile(result contracts.SearchResult) bool {
+func isIndexedFile(result contracts.SearchResult) bool {
 	if result.Type != contracts.ResultFile {
 		return false
 	}
 	for _, tag := range result.Tags {
-		if strings.EqualFold(strings.TrimSpace(tag), "Everything") {
+		if strings.EqualFold(strings.TrimSpace(tag), "Ariadne 索引") {
 			return true
 		}
 	}
-	if source, ok := result.Payload["source"].(string); ok && strings.Contains(strings.ToLower(source), "everything") {
+	if source, ok := result.Payload["source"].(string); ok && strings.Contains(strings.ToLower(source), "ariadne") {
 		return true
 	}
 	return false
@@ -331,9 +330,9 @@ func summarizeQuery(query string, samples []Sample) QuerySummary {
 		if sample.ResultCount == 0 {
 			summary.ZeroResultCount++
 		}
-		if sample.EverythingFileResults > 0 {
-			summary.EverythingFileSamples++
-			summary.EverythingFileResults += sample.EverythingFileResults
+		if sample.FileIndexFileResults > 0 {
+			summary.FileIndexFileSamples++
+			summary.FileIndexFileResults += sample.FileIndexFileResults
 		}
 		if sample.ActionValidationError != "" {
 			summary.ActionValidationErrors++
@@ -396,23 +395,23 @@ func summarize(values []int64) MetricSummary {
 func providerStatus(runner Runner, samples []Sample) ProviderStatus {
 	status := ProviderStatus{}
 	if reporter, ok := runner.(ProviderReporter); ok {
-		status.EverythingStatusAvailable = true
-		status.Everything = reporter.FileSearchStatus()
+		status.FileIndexStatusAvailable = true
+		status.FileIndex = reporter.FileSearchStatus()
 	}
 	hitQueries := []string{}
 	seen := map[string]bool{}
 	for _, sample := range samples {
-		if sample.EverythingFileResults <= 0 {
+		if sample.FileIndexFileResults <= 0 {
 			continue
 		}
-		status.EverythingFileHits += sample.EverythingFileResults
+		status.FileIndexFileHits += sample.FileIndexFileResults
 		key := strings.ToLower(sample.Query)
 		if !seen[key] {
 			seen[key] = true
 			hitQueries = append(hitQueries, sample.Query)
 		}
 	}
-	status.EverythingHitQueries = hitQueries
+	status.FileIndexHitQueries = hitQueries
 	return status
 }
 
@@ -426,14 +425,14 @@ func verdict(report Report) Verdict {
 	if !report.ActionValidation.OK {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("搜索结果动作协议校验失败 %d 个样本，最近错误: %s", report.ActionValidation.InvalidSamples, report.ActionValidation.LastError))
 	}
-	if report.ProviderStatus.EverythingStatusAvailable {
-		if report.ProviderStatus.Everything.DLLFound && report.ProviderStatus.Everything.LastError != "" {
-			result.Warnings = append(result.Warnings, "Everything 查询最近错误: "+report.ProviderStatus.Everything.LastError)
+	if report.ProviderStatus.FileIndexStatusAvailable {
+		if report.ProviderStatus.FileIndex.LastError != "" {
+			result.Warnings = append(result.Warnings, "文件索引查询最近错误: "+report.ProviderStatus.FileIndex.LastError)
 		}
-		if !report.ProviderStatus.Everything.DLLFound {
-			result.Warnings = append(result.Warnings, "未找到 Everything SDK DLL，文件结果真实命中无法验收")
-		} else if report.ProviderStatus.EverythingFileHits == 0 {
-			result.Warnings = append(result.Warnings, "未获得 Everything 文件结果命中样本")
+		if !report.ProviderStatus.FileIndex.Ready && !report.ProviderStatus.FileIndex.Indexing {
+			result.Warnings = append(result.Warnings, "文件索引未就绪，文件结果真实命中无法验收")
+		} else if report.ProviderStatus.FileIndexFileHits == 0 {
+			result.Warnings = append(result.Warnings, "未获得文件索引命中样本")
 		}
 	}
 	return result
@@ -443,7 +442,7 @@ func verificationNotes(report Report) []string {
 	notes := []string{
 		fmt.Sprintf("search_samples=%d queries=%d p95_ms=%d target_ms=%d within_target=%t", report.Summary.Count, report.QueryCount, report.Summary.P95, report.Options.TargetP95Ms, report.Verdict.WithinTarget),
 		fmt.Sprintf("search_action_validation_ok=%t checked_results=%d invalid_samples=%d", report.ActionValidation.OK, report.ActionValidation.CheckedResults, report.ActionValidation.InvalidSamples),
-		fmt.Sprintf("everything_status_available=%t dll_found=%t ready=%t last_query=%q last_results=%d file_hits=%d", report.ProviderStatus.EverythingStatusAvailable, report.ProviderStatus.Everything.DLLFound, report.ProviderStatus.Everything.Ready, report.ProviderStatus.Everything.LastQuery, report.ProviderStatus.Everything.LastResultCount, report.ProviderStatus.EverythingFileHits),
+		fmt.Sprintf("file_index_status_available=%t ready=%t indexing=%t indexed=%d last_query=%q last_results=%d file_hits=%d", report.ProviderStatus.FileIndexStatusAvailable, report.ProviderStatus.FileIndex.Ready, report.ProviderStatus.FileIndex.Indexing, report.ProviderStatus.FileIndex.IndexedCount, report.ProviderStatus.FileIndex.LastQuery, report.ProviderStatus.FileIndex.LastResultCount, report.ProviderStatus.FileIndexFileHits),
 	}
 	if report.RollingPerformance.SampleCount > 0 {
 		notes = append(notes, fmt.Sprintf("rolling_search_samples=%d p95_ms=%d avg_ms=%d max_ms=%d", report.RollingPerformance.SampleCount, report.RollingPerformance.P95Ms, report.RollingPerformance.AverageMs, report.RollingPerformance.MaxMs))

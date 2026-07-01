@@ -284,6 +284,97 @@ export class FileSearchStatus {
              * @member
              * @type {string | undefined}
              */
+            this["provider"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["serviceName"] = undefined;
+        }
+        if (!("serviceInstalled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["serviceInstalled"] = false;
+        }
+        if (!("serviceRunning" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["serviceRunning"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["serviceState"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["serviceError"] = undefined;
+        }
+        if (!("indexing" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["indexing"] = false;
+        }
+        if (!("indexedCount" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["indexedCount"] = 0;
+        }
+        if (!("volumeCount" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["volumeCount"] = 0;
+        }
+        if (!("requiresAdmin" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["requiresAdmin"] = false;
+        }
+        if (!("elevated" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["elevated"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["indexStartedAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["indexFinishedAt"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
             this["lastError"] = undefined;
         }
         if (/** @type {any} */(false)) {
@@ -321,6 +412,13 @@ export class FileSearchStatus {
              */
             this["coverageHint"] = undefined;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string[] | undefined}
+             */
+            this["policyErrors"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }
@@ -331,7 +429,11 @@ export class FileSearchStatus {
      * @returns {FileSearchStatus}
      */
     static createFrom($$source = {}) {
+        const $$createField22_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("policyErrors" in $$parsedSource) {
+            $$parsedSource["policyErrors"] = $$createField22_0($$parsedSource["policyErrors"]);
+        }
         return new FileSearchStatus(/** @type {Partial<FileSearchStatus>} */($$parsedSource));
     }
 }
@@ -711,13 +813,6 @@ export class RuntimeDiagnostics {
              * @type {string}
              */
             this["localAppDataEnv"] = "";
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {string | undefined}
-             */
-            this["everythingDllPath"] = undefined;
         }
         if (/** @type {any} */(false)) {
             /**

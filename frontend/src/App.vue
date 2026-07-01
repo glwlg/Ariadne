@@ -6,6 +6,7 @@ import { Window } from '@wailsio/runtime'
 import { defineAsyncComponent, onMounted, onUnmounted } from 'vue'
 
 const AriadneLauncher = defineAsyncComponent(() => import('./components/launcher/AriadneLauncher.vue'))
+const ApiTestingCenter = defineAsyncComponent(() => import('./components/apitesting/ApiTestingCenter.vue'))
 const CaptureOverlayWindow = defineAsyncComponent(() => import('./components/capture/CaptureOverlayWindow.vue'))
 const CaptureHistoryCenter = defineAsyncComponent(() => import('./components/capture/CaptureHistoryCenter.vue'))
 const ClipboardCenter = defineAsyncComponent(() => import('./components/clipboard/ClipboardCenter.vue'))
@@ -62,7 +63,7 @@ onMounted(() => {
     void ensureLauncherWindow()
     void syncThemeFromSettings()
     uninstallThemeEvents = installSystemThemeListener()
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { reset: true } })), 0)
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { selectAll: true } })), 0)
     return
   }
   void ensureMainWindow()
@@ -156,7 +157,7 @@ async function ensureUtilityWindow(options: {
 }
 
 function isStandaloneToolView(view: string): view is AppToolView {
-  return ['work-memory', 'clipboard', 'capture', 'hosts', 'workflow', 'json-compare', 'network-monitor', 'network-mini', 'settings'].includes(view)
+  return ['work-memory', 'clipboard', 'capture', 'hosts', 'workflow', 'json-compare', 'api-testing', 'network-monitor', 'network-mini', 'settings'].includes(view)
 }
 
 function shouldRenderToolView(view: AppToolView) {
@@ -174,6 +175,7 @@ function shouldRenderToolView(view: AppToolView) {
   <HostsCenter v-else-if="shouldRenderToolView('hosts')" />
   <WorkflowCenter v-else-if="shouldRenderToolView('workflow')" />
   <JsonCompareCenter v-else-if="shouldRenderToolView('json-compare')" />
+  <ApiTestingCenter v-else-if="shouldRenderToolView('api-testing')" />
   <NetworkMonitorCenter v-else-if="shouldRenderToolView('network-monitor')" />
   <NetworkMiniWindow v-else-if="shouldRenderToolView('network-mini')" />
   <SettingsCenter v-else-if="shouldRenderToolView('settings')" />

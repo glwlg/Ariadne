@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Rocket,
   Save,
+  Search,
   Settings,
   Shield,
   Sparkles,
@@ -20,6 +21,7 @@ import {
 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import AriButton from '../ui/AriButton.vue'
+import SearchSettingsPage from './SearchSettingsPage.vue'
 import { useSettingsStore } from '../../stores/settings'
 import type { HotkeySettings, Launcher } from '../../types/ariadne'
 
@@ -38,7 +40,6 @@ const platformCapabilityCounts = computed(() => {
 })
 const legacyRuntime = computed(() => settings.platformStatus?.legacyRuntime)
 const searchPerformance = computed(() => settings.platformStatus?.searchPerformance)
-const fileSearch = computed(() => settings.platformStatus?.fileSearch)
 const platformLogs = computed(() => settings.platformStatus?.logs)
 const shellRuntime = computed(() => settings.platformStatus?.shell)
 const legacyDataSources = computed(() => settings.legacyDataStatus?.sources ?? [])
@@ -128,7 +129,7 @@ function canClearSecret(stored: boolean) {
 }
 
 type HotkeyKey = keyof HotkeySettings
-type SettingsPageId = 'general' | 'hotkeys' | 'plugins' | 'launchers' | 'screenshot' | 'work-memory' | 'ai' | 'privacy' | 'data' | 'advanced'
+type SettingsPageId = 'general' | 'hotkeys' | 'plugins' | 'launchers' | 'screenshot' | 'search' | 'work-memory' | 'ai' | 'privacy' | 'data' | 'advanced'
 
 const activeSettingsPage = ref<SettingsPageId>('general')
 const settingsPages: Array<{
@@ -142,7 +143,8 @@ const settingsPages: Array<{
   { id: 'plugins', label: '插件', detail: '命令与能力开关', icon: Puzzle },
   { id: 'launchers', label: '启动项', detail: '应用、文件、URL', icon: Rocket },
   { id: 'screenshot', label: '截图', detail: '复制、贴图、保存', icon: Camera },
-  { id: 'data', label: '数据与存储', detail: '配置、搜索数据', icon: Database },
+  { id: 'search', label: '搜索', detail: '索引、排除规则', icon: Search },
+  { id: 'data', label: '数据与存储', detail: '配置、检查点', icon: Database },
   { id: 'advanced', label: '高级维护', detail: '诊断、导入、回滚', icon: HardDrive },
 ]
 
@@ -319,9 +321,6 @@ onMounted(() => {
               <p class="settings-note">
                 能力 {{ platformCapabilityCounts.enabled }} 已接入 · {{ platformCapabilityCounts.pending }} 待接入
               </p>
-              <p class="settings-note">
-                Everything {{ settings.platformStatus?.diagnostics.everythingDllPath || '未定位 DLL' }}
-              </p>
               <p class="settings-note" :class="{ 'is-warning': searchPerformance && !searchPerformance.withinTarget }">
                 搜索 p95 {{ formatMs(searchPerformance?.p95Ms) }}
                 · 目标 {{ formatMs(searchPerformance?.targetP95Ms) }}
@@ -331,21 +330,6 @@ onMounted(() => {
                 最近搜索 {{ searchPerformance.lastQuery }}
                 · {{ formatMs(searchPerformance.lastElapsedMs) }}
                 · {{ searchPerformance.lastResultCount }} 项
-              </p>
-              <p
-                class="settings-note"
-                :class="{ 'is-warning': fileSearch && !fileSearch.ready, 'is-danger': Boolean(fileSearch?.lastError) }"
-              >
-                Everything {{ fileSearch?.ready ? '可用' : fileSearch?.dllFound ? '需检查' : '未定位' }}
-                <template v-if="fileSearch?.lastQuery">
-                  · {{ fileSearch.lastQuery }} {{ formatMs(fileSearch.lastElapsedMs) }} / {{ fileSearch.lastResultCount }} 项
-                </template>
-              </p>
-              <p v-if="fileSearch?.lastError" class="settings-note is-danger">
-                {{ fileSearch.lastError }}
-              </p>
-              <p v-if="fileSearch?.coverageHint" class="settings-note is-warning">
-                {{ fileSearch.coverageHint }}
               </p>
               <p class="settings-note">
                 Wails {{ settings.platformStatus?.diagnostics.wailsToolPath || '当前 PATH 未暴露' }}
@@ -390,36 +374,6 @@ onMounted(() => {
               <p v-if="settings.diagnosticsExportResult?.path" class="settings-note">
                 诊断包 {{ formatBytes(settings.diagnosticsExportResult.bytes) }} · {{ settings.diagnosticsExportResult.path }}
               </p>
-            </details>
-
-            <details class="settings-panel settings-disclosure">
-              <summary class="settings-panel-title">
-                <Database :size="15" />
-                搜索数据
-              </summary>
-              <p class="settings-note">
-                收藏/最近使用 {{ settings.searchUsageStatus?.count ?? 0 }} 条
-              </p>
-              <p class="settings-note">{{ settings.searchUsageStatus?.path || '搜索数据未初始化' }}</p>
-              <div v-if="settings.searchUsageStatus?.records?.length" class="tag-row">
-                <span v-for="record in settings.searchUsageStatus.records.slice(0, 5)" :key="record.resultId">
-                  {{ record.favorite ? '★ ' : '' }}{{ record.resultId }} · {{ record.useCount }} 次
-                </span>
-              </div>
-              <p v-if="settings.searchUsageClearResult" class="settings-note" :class="{ 'is-danger': !settings.searchUsageClearResult.ok }">
-                {{ settings.searchUsageClearResult.message }}
-                <span v-if="settings.searchUsageClearResult.cleared"> · {{ settings.searchUsageClearResult.cleared }} 条</span>
-              </p>
-              <AriButton
-                size="sm"
-                variant="secondary"
-                class="danger-action"
-                :disabled="settings.isSaving || !(settings.searchUsageStatus?.count ?? 0)"
-                @click="settings.clearSearchUsageState()"
-              >
-                <Trash2 :size="14" />
-                {{ settings.searchUsageClearArmed ? '确认清理搜索数据' : '清理收藏/最近使用' }}
-              </AriButton>
             </details>
 
             <details v-if="showLegacyPanel" class="settings-panel settings-disclosure">
@@ -1401,6 +1355,8 @@ onMounted(() => {
               </div>
             </section>
 
+            <SearchSettingsPage v-if="activeSettingsPage === 'search'" />
+
             <section v-if="activeSettingsPage === 'data'" class="settings-panel settings-grid-panel">
               <div class="settings-panel-title">
                 <Database :size="15" />
@@ -1417,11 +1373,6 @@ onMounted(() => {
                 <small>读回 {{ settings.storageStatus?.readBackOk ? '正常' : '失败' }} · v{{ settings.storageStatus?.readBackVersion || '-' }}</small>
               </div>
               <div class="settings-status-card">
-                <span>搜索收藏/最近使用</span>
-                <strong>{{ settings.searchUsageStatus?.count ?? 0 }} 条</strong>
-                <small>{{ settings.searchUsageStatus?.path || '搜索数据未初始化' }}</small>
-              </div>
-              <div class="settings-status-card">
                 <span>APPDATA</span>
                 <strong>{{ settings.storageStatus?.appDataEnv ? '已定位' : '未设置' }}</strong>
                 <small>{{ settings.storageStatus?.appDataEnv || '-' }}</small>
@@ -1432,18 +1383,6 @@ onMounted(() => {
               <p v-if="settings.storageStatus?.readBackError" class="settings-note is-danger">
                 {{ settings.storageStatus.readBackError }}
               </p>
-              <div class="settings-inline-actions">
-                <AriButton
-                  size="sm"
-                  variant="secondary"
-                  class="danger-action"
-                  :disabled="settings.isSaving || !(settings.searchUsageStatus?.count ?? 0)"
-                  @click="settings.clearSearchUsageState()"
-                >
-                  <Trash2 :size="14" />
-                  {{ settings.searchUsageClearArmed ? '确认清理搜索数据' : '清理搜索数据' }}
-                </AriButton>
-              </div>
             </section>
 
             <section v-if="activeSettingsPage === 'advanced'" class="settings-panel">
@@ -1458,16 +1397,6 @@ onMounted(() => {
                   <small>pid {{ settings.platformStatus?.diagnostics.processId || '-' }}</small>
                 </div>
                 <div class="settings-status-card">
-                  <span>搜索性能</span>
-                  <strong>{{ formatMs(searchPerformance?.p95Ms) }}</strong>
-                  <small>目标 {{ formatMs(searchPerformance?.targetP95Ms) }} · 样本 {{ searchPerformance?.sampleCount ?? 0 }}</small>
-                </div>
-                <div class="settings-status-card">
-                  <span>Everything</span>
-                  <strong>{{ fileSearch?.ready ? '可用' : fileSearch?.dllFound ? '需检查' : '未定位' }}</strong>
-                  <small>{{ fileSearch?.lastQuery ? `${fileSearch.lastQuery} ${formatMs(fileSearch.lastElapsedMs)} / ${fileSearch.lastResultCount} 项` : settings.platformStatus?.diagnostics.everythingDllPath || '-' }}</small>
-                </div>
-                <div class="settings-status-card">
                   <span>日志</span>
                   <strong>{{ platformLogs?.exists ? formatBytes(platformLogs.bytes) : platformLogs?.directoryExists ? '待写入' : '目录未创建' }}</strong>
                   <small>{{ platformLogs?.path || '日志路径未初始化' }}</small>
@@ -1476,13 +1405,11 @@ onMounted(() => {
               <p v-if="shellRuntime?.lastError" class="settings-note is-warning">
                 快捷键/启动状态：{{ shellRuntime.lastError }}
               </p>
-              <p v-if="fileSearch?.lastError" class="settings-note is-danger">
-                Everything：{{ fileSearch.lastError }}
-              </p>
-              <p v-if="fileSearch?.coverageHint" class="settings-note is-warning">
-                {{ fileSearch.coverageHint }}
-              </p>
               <div class="settings-inline-actions">
+                <AriButton size="sm" variant="secondary" @click="settings.refreshPlatformStatus()">
+                  <RotateCcw :size="14" />
+                  刷新状态
+                </AriButton>
                 <AriButton size="sm" variant="secondary" :disabled="settings.isExportingDiagnostics" @click="settings.exportDiagnostics()">
                   <HardDrive :size="14" />
                   {{ settings.isExportingDiagnostics ? '导出中' : '导出诊断包' }}

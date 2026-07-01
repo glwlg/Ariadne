@@ -3,6 +3,7 @@ package platform
 import (
 	"archive/zip"
 	"ariadne/internal/contracts"
+	"ariadne/internal/elevation"
 	"ariadne/internal/ocr"
 	"encoding/json"
 	"fmt"
@@ -23,18 +24,17 @@ type Capability struct {
 }
 
 type RuntimeDiagnostics struct {
-	OS                string `json:"os"`
-	Arch              string `json:"arch"`
-	GoVersion         string `json:"goVersion"`
-	ProcessID         int    `json:"processId"`
-	WorkingDir        string `json:"workingDir"`
-	ExecutablePath    string `json:"executablePath"`
-	ExecutableBytes   int64  `json:"executableBytes"`
-	AppDataEnv        string `json:"appDataEnv"`
-	LocalAppDataEnv   string `json:"localAppDataEnv"`
-	EverythingDLLPath string `json:"everythingDllPath,omitempty"`
-	GoToolPath        string `json:"goToolPath,omitempty"`
-	WailsToolPath     string `json:"wailsToolPath,omitempty"`
+	OS              string `json:"os"`
+	Arch            string `json:"arch"`
+	GoVersion       string `json:"goVersion"`
+	ProcessID       int    `json:"processId"`
+	WorkingDir      string `json:"workingDir"`
+	ExecutablePath  string `json:"executablePath"`
+	ExecutableBytes int64  `json:"executableBytes"`
+	AppDataEnv      string `json:"appDataEnv"`
+	LocalAppDataEnv string `json:"localAppDataEnv"`
+	GoToolPath      string `json:"goToolPath,omitempty"`
+	WailsToolPath   string `json:"wailsToolPath,omitempty"`
 }
 
 type LegacyRuntimeStatus struct {
@@ -70,15 +70,29 @@ type SearchPerformanceStatus struct {
 }
 
 type FileSearchStatus struct {
-	DLLPath         string `json:"dllPath,omitempty"`
-	DLLFound        bool   `json:"dllFound"`
-	Ready           bool   `json:"ready"`
-	LastError       string `json:"lastError,omitempty"`
-	LastQuery       string `json:"lastQuery,omitempty"`
-	LastElapsedMs   int64  `json:"lastElapsedMs"`
-	LastResultCount int    `json:"lastResultCount"`
-	LastUpdatedAt   int64  `json:"lastUpdatedAt,omitempty"`
-	CoverageHint    string `json:"coverageHint,omitempty"`
+	DLLPath          string   `json:"dllPath,omitempty"`
+	DLLFound         bool     `json:"dllFound"`
+	Ready            bool     `json:"ready"`
+	Provider         string   `json:"provider,omitempty"`
+	ServiceName      string   `json:"serviceName,omitempty"`
+	ServiceInstalled bool     `json:"serviceInstalled"`
+	ServiceRunning   bool     `json:"serviceRunning"`
+	ServiceState     string   `json:"serviceState,omitempty"`
+	ServiceError     string   `json:"serviceError,omitempty"`
+	Indexing         bool     `json:"indexing"`
+	IndexedCount     int      `json:"indexedCount"`
+	VolumeCount      int      `json:"volumeCount"`
+	RequiresAdmin    bool     `json:"requiresAdmin"`
+	Elevated         bool     `json:"elevated"`
+	IndexStartedAt   int64    `json:"indexStartedAt,omitempty"`
+	IndexFinishedAt  int64    `json:"indexFinishedAt,omitempty"`
+	LastError        string   `json:"lastError,omitempty"`
+	LastQuery        string   `json:"lastQuery,omitempty"`
+	LastElapsedMs    int64    `json:"lastElapsedMs"`
+	LastResultCount  int      `json:"lastResultCount"`
+	LastUpdatedAt    int64    `json:"lastUpdatedAt,omitempty"`
+	CoverageHint     string   `json:"coverageHint,omitempty"`
+	PolicyErrors     []string `json:"policyErrors,omitempty"`
 }
 
 type LogStatus struct {
@@ -166,6 +180,7 @@ type commandRunRequest struct {
 	Command    string
 	Arguments  []string
 	WorkingDir string
+	Wait       bool
 }
 
 type systemCommand struct {
@@ -183,10 +198,13 @@ type Service struct {
 	legacyRuntime     func(ShellStatus, RuntimeDiagnostics) LegacyRuntimeStatus
 	searchPerformance func() SearchPerformanceStatus
 	fileSearchStatus  func() FileSearchStatus
+	serviceFileSearch func(FileSearchStatus) FileSearchStatus
 	logStatus         func() LogStatus
 	hotkeyRetry       func() ShellStatus
 	legacyHandoff     func(LegacyHandoffRequest, LegacyRuntimeStatus) legacyHandoffOutcome
 	commandRunner     func(commandRunRequest) error
+	elevatedRunner    func(string, []string) error
+	applicationQuit   func()
 	rememberAction    func(contracts.PreviewAction) contracts.ActionResult
 }
 
@@ -222,6 +240,12 @@ func WithFileSearchStatus(provider func() FileSearchStatus) Option {
 	}
 }
 
+func WithFileSearchServiceStatus(provider func(FileSearchStatus) FileSearchStatus) Option {
+	return func(service *Service) {
+		service.serviceFileSearch = provider
+	}
+}
+
 func WithLogStatus(provider func() LogStatus) Option {
 	return func(service *Service) {
 		service.logStatus = provider
@@ -246,6 +270,18 @@ func WithCommandRunner(handler func(commandRunRequest) error) Option {
 	}
 }
 
+func WithElevatedRunner(handler func(string, []string) error) Option {
+	return func(service *Service) {
+		service.elevatedRunner = handler
+	}
+}
+
+func WithApplicationQuit(handler func()) Option {
+	return func(service *Service) {
+		service.applicationQuit = handler
+	}
+}
+
 func WithRememberActionHandler(handler func(contracts.PreviewAction) contracts.ActionResult) Option {
 	return func(service *Service) {
 		service.rememberAction = handler
@@ -266,7 +302,7 @@ func (s *Service) Status() EnvironmentStatus {
 			{ID: "preview_actions", Enabled: true, Provider: "Ariadne contracts", Note: "结果动作由后端显式声明，非文件结果不继承文件动作。"},
 			{ID: "settings", Enabled: true, Provider: "Ariadne settings service", Note: "支持旧配置安全导入、写后读回校验和 MSIX AppData virtualization 诊断。"},
 			{ID: "work_memory", Enabled: true, Provider: "Ariadne work memory", Note: "时间线、手动补记、手动笔记、删除/清理、可读数据包导出、后台屏幕时间机器、日报、知识草稿、外部代理任务包、SQLite FTS、本地语义检索、外部 embedding、内置向量缓存和 Milvus 向量存储已接入。"},
-			{ID: "file_search", Enabled: fileSearch.Ready, Provider: "Everything SDK", Note: everythingNote(fileSearch)},
+			{ID: "file_search", Enabled: fileSearch.Ready || fileSearch.Indexing || fileSearch.ServiceRunning, Provider: firstNonEmpty(fileSearch.Provider, "Ariadne USN/MFT"), Note: fileSearchNote(fileSearch)},
 			{ID: "app_scan", Enabled: true, Provider: "Start Menu shortcuts", Note: "已接入用户和系统开始菜单 .lnk 扫描。"},
 			{ID: "custom_launchers", Enabled: true, Provider: "Ariadne launcher registry", Note: "自定义启动项已接入搜索 provider；支持应用、文件、文件夹、URL 和需要确认的命令。"},
 			{ID: "clipboard_history", Enabled: true, Provider: "Ariadne clipboard history", Note: "文本和图片剪贴板历史已接入自动监听、持久化、搜索、置顶、预览和中心 UI。"},
@@ -445,7 +481,27 @@ func (s *Service) ExportDiagnostics() DiagnosticsExportResult {
 	}
 }
 
+func (s *Service) InstallFileSearchService() contracts.ActionResult {
+	if runtime.GOOS != "windows" {
+		return contracts.ActionResult{OK: false, Message: "搜索服务仅支持 Windows"}
+	}
+	exePath, err := os.Executable()
+	if err != nil || strings.TrimSpace(exePath) == "" {
+		if err == nil {
+			err = fmt.Errorf("缺少 Ariadne 程序路径")
+		}
+		return contracts.ActionResult{OK: false, Message: "搜索服务安装失败: " + err.Error()}
+	}
+	if err := s.runElevated(exePath, []string{"filesearch-service-install"}); err != nil {
+		return contracts.ActionResult{OK: false, Message: "搜索服务安装未完成: " + err.Error()}
+	}
+	return contracts.ActionResult{OK: true, Message: "搜索服务已安装"}
+}
+
 func (s *Service) ExecuteAction(action contracts.PreviewAction) contracts.ActionResult {
+	if action.ID == "install_file_search_service" {
+		return s.InstallFileSearchService()
+	}
 	if action.Kind == contracts.ActionCopy {
 		return contracts.ActionResult{OK: true, Message: "已复制"}
 	}
@@ -492,18 +548,31 @@ func (s *Service) ExecuteAction(action contracts.PreviewAction) contracts.Action
 			if !payloadBool(action.Payload, "confirmed") && !payloadBool(action.Payload, "confirm") {
 				return contracts.ActionResult{
 					OK:                   false,
-					Message:              "再次点击确认运行：" + commandLabel(command, arguments),
+					Message:              "再次点击确认：" + actionConfirmationLabel(action, command, arguments),
 					RequiresConfirmation: true,
 					RiskReasons:          []string{"命令类启动项会启动本机进程", "请确认目标、参数和工作目录可信"},
 				}
 			}
 		}
-		if err := s.runCommand(commandRunRequest{Command: command, Arguments: arguments, WorkingDir: workingDir}); err != nil {
+		if err := s.runCommand(commandRunRequest{Command: command, Arguments: arguments, WorkingDir: workingDir, Wait: payloadBool(action.Payload, "waitForExit")}); err != nil {
 			return contracts.ActionResult{OK: false, Message: err.Error()}
+		}
+		if payloadBool(action.Payload, "quitAfterStart") {
+			s.requestApplicationQuit()
 		}
 		return contracts.ActionResult{OK: true, Message: actionSuccess(action, "命令已启动："+commandLabel(command, arguments))}
 	}
 	return contracts.ActionResult{OK: true, Message: action.Label + " 已发送"}
+}
+
+func actionConfirmationLabel(action contracts.PreviewAction, command string, arguments []string) string {
+	if label := payloadString(action.Payload, "confirmationLabel"); label != "" {
+		return label
+	}
+	if strings.TrimSpace(action.Label) != "" {
+		return action.Label
+	}
+	return commandLabel(command, arguments)
 }
 
 func (s *Service) executeSystemCommandAction(action contracts.PreviewAction) contracts.ActionResult {
@@ -537,6 +606,24 @@ func (s *Service) runCommand(request commandRunRequest) error {
 	return nil
 }
 
+func (s *Service) runElevated(file string, args []string) error {
+	runner := s.elevatedRunner
+	if runner == nil {
+		runner = elevation.RunasWait
+	}
+	return runner(file, args)
+}
+
+func (s *Service) requestApplicationQuit() {
+	if s.applicationQuit == nil {
+		return
+	}
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		s.applicationQuit()
+	}()
+}
+
 func (s *Service) performLegacyHandoff(request LegacyHandoffRequest, before LegacyRuntimeStatus) legacyHandoffOutcome {
 	if s.legacyHandoff != nil {
 		return s.legacyHandoff(request, before)
@@ -552,18 +639,17 @@ func runtimeDiagnostics() RuntimeDiagnostics {
 		executableBytes = info.Size()
 	}
 	return RuntimeDiagnostics{
-		OS:                runtime.GOOS,
-		Arch:              runtime.GOARCH,
-		GoVersion:         runtime.Version(),
-		ProcessID:         os.Getpid(),
-		WorkingDir:        workingDir,
-		ExecutablePath:    executablePath,
-		ExecutableBytes:   executableBytes,
-		AppDataEnv:        os.Getenv("APPDATA"),
-		LocalAppDataEnv:   os.Getenv("LOCALAPPDATA"),
-		EverythingDLLPath: findUp("Everything64.dll", workingDir, filepath.Dir(executablePath)),
-		GoToolPath:        findTool("go"),
-		WailsToolPath:     findTool("wails3"),
+		OS:              runtime.GOOS,
+		Arch:            runtime.GOARCH,
+		GoVersion:       runtime.Version(),
+		ProcessID:       os.Getpid(),
+		WorkingDir:      workingDir,
+		ExecutablePath:  executablePath,
+		ExecutableBytes: executableBytes,
+		AppDataEnv:      os.Getenv("APPDATA"),
+		LocalAppDataEnv: os.Getenv("LOCALAPPDATA"),
+		GoToolPath:      findTool("go"),
+		WailsToolPath:   findTool("wails3"),
 	}
 }
 
@@ -583,7 +669,7 @@ func runtimeMetrics(diagnostics RuntimeDiagnostics, searchPerformance SearchPerf
 		)
 	}
 	if fileSearch.LastUpdatedAt > 0 {
-		metrics = append(metrics, RuntimeMetric{ID: "everything_last", Label: "Everything last query", Value: fileSearch.LastElapsedMs, Unit: "ms"})
+		metrics = append(metrics, RuntimeMetric{ID: "file_index_last", Label: "File index last query", Value: fileSearch.LastElapsedMs, Unit: "ms"})
 	}
 	if logs.Exists {
 		metrics = append(metrics, RuntimeMetric{ID: "log_file_size", Label: "Log file size", Value: logs.Bytes, Unit: "bytes"})
@@ -622,19 +708,26 @@ func (s *Service) currentSearchPerformance() SearchPerformanceStatus {
 func (s *Service) currentFileSearchStatus(diagnostics RuntimeDiagnostics) FileSearchStatus {
 	if s.fileSearchStatus != nil {
 		status := s.fileSearchStatus()
-		if status.DLLPath == "" {
-			status.DLLPath = diagnostics.EverythingDLLPath
-		}
-		if !status.DLLFound {
-			status.DLLFound = status.DLLPath != ""
-		}
-		return status
+		status.Provider = firstNonEmpty(status.Provider, "Ariadne USN/MFT")
+		return normalizeFileSearchStatus(s.currentFileSearchServiceStatus(status))
 	}
-	return FileSearchStatus{
-		DLLPath:  diagnostics.EverythingDLLPath,
-		DLLFound: diagnostics.EverythingDLLPath != "",
-		Ready:    diagnostics.EverythingDLLPath != "",
+	return normalizeFileSearchStatus(s.currentFileSearchServiceStatus(FileSearchStatus{
+		Provider: "Ariadne USN/MFT",
+	}))
+}
+
+func (s *Service) currentFileSearchServiceStatus(status FileSearchStatus) FileSearchStatus {
+	if s.serviceFileSearch != nil {
+		return s.serviceFileSearch(status)
 	}
+	return enrichFileSearchServiceStatus(status)
+}
+
+func normalizeFileSearchStatus(status FileSearchStatus) FileSearchStatus {
+	if status.ServiceRunning && isSearchServiceStateMessage(status.CoverageHint) {
+		status.CoverageHint = ""
+	}
+	return status
 }
 
 func (s *Service) currentLogStatus(diagnostics RuntimeDiagnostics) LogStatus {
@@ -781,20 +874,47 @@ func firstNonEmpty(value string, fallback string) string {
 	return fallback
 }
 
-func everythingNote(status FileSearchStatus) string {
-	if !status.DLLFound {
-		return "未定位到 Everything64.dll，文件搜索将降级为空结果。"
+func fileSearchNote(status FileSearchStatus) string {
+	if !status.ServiceInstalled && !status.ServiceRunning {
+		if status.LastError != "" && !isPrivilegeFileSearchMessage(status.LastError) {
+			return "文件索引最近查询失败：" + status.LastError
+		}
+		return "搜索服务未安装；安装后会自动维护本机文件索引。"
+	}
+	if status.ServiceRunning && status.RequiresAdmin && !status.Elevated {
+		return "文件索引服务正在运行；Ariadne 可保持普通权限启动。"
+	}
+	if status.RequiresAdmin && !status.Elevated {
+		if status.ServiceInstalled && !status.ServiceRunning {
+			return "搜索服务已停止；启动服务后可搜索本机文件。"
+		}
+		return "搜索服务未安装；安装后会自动维护本机文件索引。"
+	}
+	if status.Indexing {
+		return "文件索引正在建立，完成后会返回本机文件结果。"
 	}
 	if status.LastError != "" {
-		return "已定位 Everything SDK，但最近查询失败：" + status.LastError
+		return "文件索引最近查询失败：" + status.LastError
 	}
 	if strings.TrimSpace(status.CoverageHint) != "" {
 		return status.CoverageHint
 	}
 	if status.LastUpdatedAt > 0 {
-		return "Everything 查询可用；最近查询 " + intString(int(status.LastElapsedMs)) + "ms，返回 " + intString(status.LastResultCount) + " 项：" + firstNonEmpty(status.DLLPath, "injected client")
+		return "文件索引可用；最近查询 " + intString(int(status.LastElapsedMs)) + "ms，返回 " + intString(status.LastResultCount) + " 项。"
 	}
-	return "已接入 Go 查询主路径；若 Everything 后台服务未运行，搜索会降级为空结果：" + firstNonEmpty(status.DLLPath, "injected client")
+	if status.Ready {
+		return "文件索引已就绪，已索引 " + intString(status.IndexedCount) + " 项。"
+	}
+	return "文件索引尚未建立；首次文件搜索会触发后台索引。"
+}
+
+func isPrivilegeFileSearchMessage(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(message, "管理员权限") || strings.Contains(message, "权限不足") || strings.Contains(lower, "access is denied")
+}
+
+func isSearchServiceStateMessage(message string) bool {
+	return strings.Contains(message, "搜索服务未运行") || strings.Contains(message, "搜索服务未安装")
 }
 
 func searchPerformanceNote(status SearchPerformanceStatus) string {
@@ -930,41 +1050,6 @@ func intString(value int) string {
 		digits = append([]byte{'-'}, digits...)
 	}
 	return string(digits)
-}
-
-func findUp(filename string, roots ...string) string {
-	seen := map[string]bool{}
-	for _, root := range roots {
-		for _, dir := range ancestorDirs(root, 8) {
-			key := strings.ToLower(filepath.Clean(dir))
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			candidate := filepath.Join(dir, filename)
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-				return candidate
-			}
-		}
-	}
-	return ""
-}
-
-func ancestorDirs(root string, limit int) []string {
-	if root == "" {
-		return nil
-	}
-	dirs := []string{}
-	current := filepath.Clean(root)
-	for i := 0; i < limit; i++ {
-		dirs = append(dirs, current)
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
-		}
-		current = parent
-	}
-	return dirs
 }
 
 func payloadString(payload map[string]interface{}, key string) string {
@@ -1154,6 +1239,13 @@ func defaultCommandRunner(request commandRunRequest) error {
 	cmd := exec.Command(command, request.Arguments...)
 	if request.WorkingDir != "" {
 		cmd.Dir = request.WorkingDir
+	}
+	if request.Wait {
+		output, err := cmd.CombinedOutput()
+		if err != nil && len(output) > 0 {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return err
 	}
 	return cmd.Start()
 }

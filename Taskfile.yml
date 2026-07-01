@@ -26,10 +26,15 @@ tasks:
       - go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --out ariadne_resource.syso --no-suffix
 
   windows:package:
-    summary: Build Ariadne and create a user-level Windows release package.
+    summary: Build Ariadne and create a user-level Windows setup exe plus zip package.
     cmds:
       - wails3 task windows:build
       - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/releasepack -version dev } else { go run ./cmd/releasepack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) }"
+
+  windows:setup:
+    summary: Alias for windows:package; produces AriadneSetup-<version>-windows-x64.exe.
+    cmds:
+      - wails3 task windows:package
 
   windows:msix:
     summary: Build Ariadne and create an unsigned MSIX layout.

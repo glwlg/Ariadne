@@ -479,6 +479,10 @@ func (m *Manager) openView(view string) {
 	window.Show().Focus()
 	window.EmitEvent(navigateEvent, view)
 	window.ExecJS(fmt.Sprintf("window.dispatchEvent(new CustomEvent(%q, { detail: %q }));", navigateEvent, view))
+	if view == "launcher" {
+		window.EmitEvent("ariadne:focus-launcher", map[string]any{"selectAll": true})
+		window.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:focus-launcher", { detail: { selectAll: true } }));`)
+	}
 }
 
 func (m *Manager) setError(message string) {

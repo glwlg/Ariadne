@@ -369,30 +369,6 @@ func seedResults() []contracts.SearchResult {
 			},
 		},
 		{
-			ID:       "clipboard-json",
-			Type:     contracts.ResultClipboard,
-			Title:    "复制过的 JSON 片段",
-			Subtitle: "剪贴板 · 12 分钟前",
-			Detail:   `{"service":"gateway","status":"degraded","region":"hk"}`,
-			Icon:     "clipboard",
-			Tags:     []string{"剪贴板", "JSON"},
-			Preview: contracts.PreviewDescriptor{
-				Kind:     contracts.PreviewText,
-				Title:    "复制过的 JSON 片段",
-				Subtitle: "剪贴板历史",
-				Text:     "{\n  \"service\": \"gateway\",\n  \"status\": \"degraded\",\n  \"region\": \"hk\"\n}",
-				Meta: []contracts.LabelValue{
-					{Label: "内容类型", Value: "JSON"},
-					{Label: "可纳入", Value: "工作记忆、日报、问题复盘"},
-				},
-			},
-			Actions: []contracts.PreviewAction{
-				contracts.CopyAction("copy_value", "复制内容", `{"service":"gateway","status":"degraded","region":"hk"}`, ""),
-				contracts.PluginAction("format_json", "JSON 格式化", "json"),
-				contracts.RememberAction("remember", "加入记忆", "clipboard-json"),
-			},
-		},
-		{
 			ID:       "workflow-daily",
 			Type:     contracts.ResultWorkflow,
 			Title:    "生成今日工作日报",

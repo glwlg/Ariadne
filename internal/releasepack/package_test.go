@@ -4,9 +4,7 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +46,7 @@ func TestWindowsResourceTaskEmitsGoLinkableSyso(t *testing.T) {
 	assertContains(t, taskfile, "--out ariadne_resource.syso --no-suffix")
 }
 
-func TestBuildCreatesReleasePackageWithInstallerScripts(t *testing.T) {
+func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	base := t.TempDir()
 	exePath := filepath.Join(base, "bin", "ariadne.exe")
 	iconPath := filepath.Join(base, "assets", "logo.ico")
@@ -68,34 +66,40 @@ func TestBuildCreatesReleasePackageWithInstallerScripts(t *testing.T) {
 	}
 
 	manifest := result.Manifest
-	if manifest.ProductName != "Ariadne" || manifest.LegacyName != "x-tools" || manifest.Version != "0.1.0-test" {
+	if manifest.ProductName != "Ariadne" || manifest.Version != "0.1.0-test" {
 		t.Fatalf("unexpected manifest identity: %#v", manifest)
 	}
 	if manifest.ZipPath == "" || manifest.PackageDir == "" || len(manifest.Files) != 2 {
 		t.Fatalf("manifest should describe package paths and files: %#v", manifest)
 	}
-	assertContains(t, strings.Join(manifest.CoexistenceNotes, "\n"), "does not remove legacy")
-	assertContains(t, strings.Join(manifest.CoexistenceNotes, "\n"), "retry Alt+Q")
+	if manifest.SetupPath == "" || manifest.SetupFile == nil || manifest.SetupFile.Path != "AriadneSetup-0.1.0-test-windows-x64.exe" {
+		t.Fatalf("manifest should describe setup exe: %#v", manifest)
+	}
+	if _, err := os.Stat(manifest.SetupPath); err != nil {
+		t.Fatalf("setup exe missing: %v", err)
+	}
 	assertContains(t, strings.Join(manifest.RollbackNotes, "\n"), "Ariadne.previous")
-	assertContains(t, strings.Join(manifest.RollbackNotes, "\n"), "pre_restore")
-
-	installScript := readFile(t, filepath.Join(manifest.PackageDir, "scripts", "install.ps1"))
-	for _, text := range []string{"NoShortcuts", "SkipProcessStop", "StartMenuDir", "DesktopDir", "install_receipt.json", "Programs\\Ariadne", "x-tools", "Ariadne.lnk", "Uninstall Ariadne.lnk", "Ariadne.previous"} {
-		assertContains(t, installScript, text)
-	}
-	uninstallScript := readFile(t, filepath.Join(manifest.PackageDir, "scripts", "uninstall.ps1"))
-	for _, text := range []string{"RemoveUserData", "NoShortcuts", "SkipProcessStop", "Synchronous", "StartMenuDir", "DesktopDir", "install_receipt.json", "Ariadne.lnk", "Uninstall Ariadne.lnk", "CurrentVersion\\Run"} {
-		assertContains(t, uninstallScript, text)
-	}
 	readme := readFile(t, filepath.Join(manifest.PackageDir, "README.txt"))
-	assertContains(t, readme, "confirmed handoff")
-	assertContains(t, readme, "pre_restore")
-	assertContains(t, readme, "Temporary install smoke")
+	assertContains(t, readme, "AriadneSetup-0.1.0-test-windows-x64.exe")
+	for _, forbidden := range []string{"install.ps1", "uninstall.ps1", "x-tools"} {
+		if strings.Contains(strings.ToLower(readme), forbidden) {
+			t.Fatalf("package README should not contain %q:\n%s", forbidden, readme)
+		}
+	}
 
 	var manifestFile Manifest
 	readJSON(t, filepath.Join(manifest.PackageDir, "manifest.json"), &manifestFile)
 	if manifestFile.Files[0].SHA256 == "" || manifestFile.Files[0].Bytes <= 0 {
 		t.Fatalf("manifest file should include hashes and sizes: %#v", manifestFile.Files)
+	}
+	manifestRaw := readFile(t, filepath.Join(manifest.PackageDir, "manifest.json"))
+	for _, forbidden := range []string{"legacyName", "legacyInstallDir", "coexistenceNotes", "scripts", "x-tools"} {
+		if strings.Contains(strings.ToLower(manifestRaw), strings.ToLower(forbidden)) {
+			t.Fatalf("manifest should not contain %q:\n%s", forbidden, manifestRaw)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(manifest.PackageDir, "scripts")); !os.IsNotExist(err) {
+		t.Fatalf("scripts directory should not be generated, stat err=%v", err)
 	}
 
 	entries := zipEntries(t, manifest.ZipPath)
@@ -103,8 +107,6 @@ func TestBuildCreatesReleasePackageWithInstallerScripts(t *testing.T) {
 	for _, name := range []string{
 		packageRoot + "/app/ariadne.exe",
 		packageRoot + "/app/logo.ico",
-		packageRoot + "/scripts/install.ps1",
-		packageRoot + "/scripts/uninstall.ps1",
 		packageRoot + "/manifest.json",
 		packageRoot + "/README.txt",
 	} {
@@ -112,28 +114,26 @@ func TestBuildCreatesReleasePackageWithInstallerScripts(t *testing.T) {
 			t.Fatalf("missing zip entry %s; entries=%#v", name, entries)
 		}
 	}
+	for _, name := range []string{
+		packageRoot + "/scripts/install.ps1",
+		packageRoot + "/scripts/uninstall.ps1",
+	} {
+		if entries[name] {
+			t.Fatalf("zip should not contain %s", name)
+		}
+	}
 }
 
-func TestInstallAndUninstallScriptsSupportTempDirectorySmoke(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("PowerShell install smoke only runs on Windows")
-	}
-	if _, err := exec.LookPath("powershell.exe"); err != nil {
-		t.Skip("powershell.exe not available")
-	}
-
+func TestSetupInstallerRequiresAdministratorAndEmbedsPayload(t *testing.T) {
 	base := t.TempDir()
 	exePath := filepath.Join(base, "bin", "ariadne.exe")
 	iconPath := filepath.Join(base, "assets", "logo.ico")
 	outputDir := filepath.Join(base, "dist", "release")
-	installDir := filepath.Join(base, "install target")
-	startMenuDir := filepath.Join(base, "start menu")
-	desktopDir := filepath.Join(base, "desktop")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
 
 	result, err := Build(Options{
-		Version:   "0.1.0-smoke",
+		Version:   "0.1.0-setup-smoke",
 		ExePath:   exePath,
 		IconPath:  iconPath,
 		OutputDir: outputDir,
@@ -143,49 +143,15 @@ func TestInstallAndUninstallScriptsSupportTempDirectorySmoke(t *testing.T) {
 		t.Fatalf("build package: %v", err)
 	}
 
-	installScript := filepath.Join(result.Manifest.PackageDir, "scripts", "install.ps1")
-	runPowerShell(t, installScript, "-InstallDir", installDir, "-StartMenuDir", startMenuDir, "-DesktopDir", desktopDir, "-CreateDesktopShortcut", "-SkipLegacyCheck", "-SkipProcessStop")
-	if _, err := os.Stat(filepath.Join(installDir, "ariadne.exe")); err != nil {
-		t.Fatalf("installed exe missing: %v", err)
+	if _, err := os.Stat(result.Manifest.SetupPath); err != nil {
+		t.Fatalf("setup exe missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(installDir, "uninstall.ps1")); err != nil {
-		t.Fatalf("installed uninstall script missing: %v", err)
-	}
-	for _, path := range []string{
-		filepath.Join(startMenuDir, "Ariadne.lnk"),
-		filepath.Join(startMenuDir, "Uninstall Ariadne.lnk"),
-		filepath.Join(desktopDir, "Ariadne.lnk"),
-	} {
-		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("shortcut missing after install %s: %v", path, err)
-		}
-	}
-	receipt := readFile(t, filepath.Join(installDir, "install_receipt.json"))
-	assertContains(t, receipt, "0.1.0-smoke")
-	assertContains(t, receipt, "Ariadne.lnk")
-
-	runPowerShell(t, installScript, "-InstallDir", installDir, "-StartMenuDir", startMenuDir, "-DesktopDir", desktopDir, "-CreateDesktopShortcut", "-SkipLegacyCheck", "-SkipProcessStop")
-	previous, err := filepath.Glob(filepath.Join(base, "Ariadne.previous-*"))
-	if err != nil {
-		t.Fatalf("glob previous installs: %v", err)
-	}
-	if len(previous) != 1 {
-		t.Fatalf("expected one previous install directory, got %#v", previous)
-	}
-
-	uninstallScript := filepath.Join(result.Manifest.PackageDir, "scripts", "uninstall.ps1")
-	runPowerShell(t, uninstallScript, "-InstallDir", installDir, "-SkipProcessStop", "-Synchronous")
-	if _, err := os.Stat(installDir); !os.IsNotExist(err) {
-		t.Fatalf("install dir should be removed, stat err=%v", err)
-	}
-	for _, path := range []string{
-		filepath.Join(startMenuDir, "Ariadne.lnk"),
-		filepath.Join(startMenuDir, "Uninstall Ariadne.lnk"),
-		filepath.Join(desktopDir, "Ariadne.lnk"),
-	} {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("shortcut should be removed after uninstall %s, stat err=%v", path, err)
-		}
+	config := setupWinresConfig(Options{ProductName: "Ariadne", Version: "0.1.0-setup-smoke"}, "setup-logo.png", "AriadneSetup.exe")
+	assertContains(t, config, `"execution-level": "as invoker"`)
+	assertContains(t, strings.Join(result.Manifest.VerificationNotes, "\n"), "administrator permission only when installing the search service")
+	assertContains(t, strings.Join(result.Manifest.VerificationNotes, "\n"), "AriadneFileSearch")
+	if result.Manifest.SetupFile == nil || result.Manifest.SetupFile.Bytes <= 0 || result.Manifest.SetupFile.SHA256 == "" {
+		t.Fatalf("setup file should include size and hash: %#v", result.Manifest.SetupFile)
 	}
 }
 
@@ -204,14 +170,22 @@ func TestBuildRejectsMissingExecutable(t *testing.T) {
 	}
 }
 
-func runPowerShell(t *testing.T, script string, args ...string) {
-	t.Helper()
-	commandArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script}
-	commandArgs = append(commandArgs, args...)
-	cmd := exec.Command("powershell.exe", commandArgs...)
-	output, err := cmd.CombinedOutput()
+func TestBuildDoesNotRequireEverythingRuntimeDLL(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	iconPath := filepath.Join(base, "assets", "logo.ico")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, iconPath, "fake icon")
+
+	_, err := Build(Options{
+		Version:   "0.1.0-test",
+		ExePath:   exePath,
+		IconPath:  iconPath,
+		OutputDir: filepath.Join(base, "out"),
+		SkipSetup: true,
+	})
 	if err != nil {
-		t.Fatalf("powershell %s failed: %v\n%s", script, err, output)
+		t.Fatalf("build should not require Everything runtime DLL: %v", err)
 	}
 }
 

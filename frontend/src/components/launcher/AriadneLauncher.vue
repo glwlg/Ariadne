@@ -183,6 +183,28 @@ function sourceTone(type: SearchResult['type']) {
   return 'text-[var(--muted)]'
 }
 
+function resultTypeLabel(type: SearchResult['type']) {
+  const labels: Record<SearchResult['type'], string> = {
+    app: '应用',
+    capture: '截图',
+    clipboard: '剪贴板',
+    command: '命令',
+    file: '文件',
+    memory: '记忆',
+    plugin_result: '插件',
+    plugin_trigger: '插件',
+    settings: '设置',
+    workflow: '工作流',
+  }
+  return labels[type] ?? '结果'
+}
+
+function triggerResultAction(result: SearchResult, action?: PreviewAction) {
+  if (!action) return
+  launcher.select(result.id)
+  void launcher.triggerAction(action)
+}
+
 async function hideLauncher() {
   try {
     await Window.SetAlwaysOnTop(false)
@@ -195,7 +217,6 @@ async function hideLauncher() {
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     event.preventDefault()
-    launcher.reset()
     void hideLauncher()
     return
   }
@@ -222,8 +243,11 @@ function focusLauncher(event?: Event) {
   if (event instanceof CustomEvent && event.detail?.reset) {
     launcher.reset()
   }
+  void resizePalette(launcher.isExpanded)
   searchInput.value?.focus()
-  searchInput.value?.select()
+  if (!event || !(event instanceof CustomEvent) || event.detail?.selectAll !== false) {
+    searchInput.value?.select()
+  }
 }
 
 onMounted(() => {
@@ -280,13 +304,16 @@ watch(
               <small>{{ launcher.results.length }} 项</small>
             </div>
 
-            <button
+            <div
               v-for="result in launcher.results"
               :key="result.id"
               class="result-row"
               :class="{ 'is-selected': result.id === launcher.selectedId }"
+              role="button"
+              tabindex="0"
               @click="launcher.select(result.id)"
-              @dblclick="launcher.runPrimaryAction()"
+              @dblclick="triggerResultAction(result, result.actions[0])"
+              @keydown.enter.stop.prevent="triggerResultAction(result, result.actions[0])"
             >
               <span class="result-icon" :class="sourceTone(result.type)">
                 <component :is="resultIcon(result.type, result.icon)" :size="18" />
@@ -295,10 +322,16 @@ watch(
                 <span class="result-title">{{ result.title }}</span>
                 <span class="result-subtitle">{{ result.subtitle }}</span>
               </span>
-              <span class="result-primary-action">
-                {{ result.actions[0]?.label ?? '打开' }}
-              </span>
-            </button>
+              <button
+                v-if="result.actions[0]"
+                type="button"
+                class="result-primary-action"
+                @click.stop="triggerResultAction(result, result.actions[0])"
+              >
+                {{ result.actions[0].label }}
+              </button>
+              <span v-else class="result-primary-action">打开</span>
+            </div>
 
             <div v-if="!launcher.results.length" class="empty-state">
               <Database :size="22" />
@@ -309,7 +342,7 @@ watch(
           <aside v-if="selected && preview" class="preview-pane palette-preview" aria-label="结果预览">
             <header class="preview-header">
               <div>
-                <span class="preview-kicker">{{ selected.type.replace('_', ' ') }}</span>
+                <span class="preview-kicker">{{ resultTypeLabel(selected.type) }}</span>
                 <h1>{{ preview.title || selected.title }}</h1>
                 <p>{{ preview.subtitle || selected.subtitle }}</p>
               </div>
@@ -404,10 +437,10 @@ watch(
           <span v-if="selected?.subtitle && !launcher.lastAction" class="status-detail">
             {{ selected.subtitle }}
           </span>
-          <span v-if="launcher.lastAction" class="inline-feedback">
+          <span v-if="launcher.lastAction" class="inline-feedback" :class="{ 'is-confirmation': launcher.lastAction.requiresConfirmation }">
             {{ launcher.lastAction.message }}
           </span>
-          <div v-else-if="selected" class="palette-action-row">
+          <div v-if="selected && (!launcher.lastAction || launcher.lastAction.requiresConfirmation)" class="palette-action-row">
             <AriButton
               v-for="action in primaryActions"
               :key="action.id"

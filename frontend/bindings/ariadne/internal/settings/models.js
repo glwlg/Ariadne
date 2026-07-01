@@ -236,6 +236,13 @@ export class AppSettings {
              */
             this["plugins"] = (new PluginSettings());
         }
+        if (!("search" in $$source)) {
+            /**
+             * @member
+             * @type {SearchSettings}
+             */
+            this["search"] = (new SearchSettings());
+        }
 
         Object.assign(this, $$source);
     }
@@ -252,6 +259,7 @@ export class AppSettings {
         const $$createField4_0 = $$createType3;
         const $$createField5_0 = $$createType4;
         const $$createField6_0 = $$createType5;
+        const $$createField7_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("general" in $$parsedSource) {
             $$parsedSource["general"] = $$createField1_0($$parsedSource["general"]);
@@ -270,6 +278,9 @@ export class AppSettings {
         }
         if ("plugins" in $$parsedSource) {
             $$parsedSource["plugins"] = $$createField6_0($$parsedSource["plugins"]);
+        }
+        if ("search" in $$parsedSource) {
+            $$parsedSource["search"] = $$createField7_0($$parsedSource["search"]);
         }
         return new AppSettings(/** @type {Partial<AppSettings>} */($$parsedSource));
     }
@@ -410,8 +421,8 @@ export class LegacyConfigStatus {
      * @returns {LegacyConfigStatus}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType6;
-        const $$createField4_0 = $$createType6;
+        const $$createField3_0 = $$createType7;
+        const $$createField4_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("importedKeys" in $$parsedSource) {
             $$parsedSource["importedKeys"] = $$createField3_0($$parsedSource["importedKeys"]);
@@ -446,7 +457,7 @@ export class PluginSettings {
      * @returns {PluginSettings}
      */
     static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType7;
+        const $$createField0_0 = $$createType8;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("enabled" in $$parsedSource) {
             $$parsedSource["enabled"] = $$createField0_0($$parsedSource["enabled"]);
@@ -534,12 +545,55 @@ export class ScreenshotSettings {
      * @returns {ScreenshotSettings}
      */
     static createFrom($$source = {}) {
-        const $$createField8_0 = $$createType6;
+        const $$createField8_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("redactKeywords" in $$parsedSource) {
             $$parsedSource["redactKeywords"] = $$createField8_0($$parsedSource["redactKeywords"]);
         }
         return new ScreenshotSettings(/** @type {Partial<ScreenshotSettings>} */($$parsedSource));
+    }
+}
+
+export class SearchSettings {
+    /**
+     * Creates a new SearchSettings instance.
+     * @param {Partial<SearchSettings>} [$$source = {}] - The source object to create the SearchSettings.
+     */
+    constructor($$source = {}) {
+        if (!("fileExcludeFolders" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["fileExcludeFolders"] = [];
+        }
+        if (!("fileExcludePatterns" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["fileExcludePatterns"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SearchSettings instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {SearchSettings}
+     */
+    static createFrom($$source = {}) {
+        const $$createField0_0 = $$createType7;
+        const $$createField1_0 = $$createType7;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("fileExcludeFolders" in $$parsedSource) {
+            $$parsedSource["fileExcludeFolders"] = $$createField0_0($$parsedSource["fileExcludeFolders"]);
+        }
+        if ("fileExcludePatterns" in $$parsedSource) {
+            $$parsedSource["fileExcludePatterns"] = $$createField1_0($$parsedSource["fileExcludePatterns"]);
+        }
+        return new SearchSettings(/** @type {Partial<SearchSettings>} */($$parsedSource));
     }
 }
 
@@ -692,7 +746,7 @@ export class StorageStatus {
      * @returns {StorageStatus}
      */
     static createFrom($$source = {}) {
-        const $$createField8_0 = $$createType6;
+        const $$createField8_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("entries" in $$parsedSource) {
             $$parsedSource["entries"] = $$createField8_0($$parsedSource["entries"]);
@@ -1109,12 +1163,12 @@ export class WorkMemorySettings {
      * @returns {WorkMemorySettings}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType9;
-        const $$createField39_0 = $$createType6;
-        const $$createField40_0 = $$createType6;
-        const $$createField41_0 = $$createType6;
-        const $$createField42_0 = $$createType6;
-        const $$createField43_0 = $$createType6;
+        const $$createField5_0 = $$createType10;
+        const $$createField39_0 = $$createType7;
+        const $$createField40_0 = $$createType7;
+        const $$createField41_0 = $$createType7;
+        const $$createField42_0 = $$createType7;
+        const $$createField43_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("appCaptureProfiles" in $$parsedSource) {
             $$parsedSource["appCaptureProfiles"] = $$createField5_0($$parsedSource["appCaptureProfiles"]);
@@ -1145,7 +1199,8 @@ const $$createType2 = ScreenshotSettings.createFrom;
 const $$createType3 = WorkMemorySettings.createFrom;
 const $$createType4 = AISettings.createFrom;
 const $$createType5 = PluginSettings.createFrom;
-const $$createType6 = $Create.Array($Create.Any);
-const $$createType7 = $Create.Map($Create.Any, $Create.Any);
-const $$createType8 = WorkMemoryAppCaptureProfile.createFrom;
-const $$createType9 = $Create.Array($$createType8);
+const $$createType6 = SearchSettings.createFrom;
+const $$createType7 = $Create.Array($Create.Any);
+const $$createType8 = $Create.Map($Create.Any, $Create.Any);
+const $$createType9 = WorkMemoryAppCaptureProfile.createFrom;
+const $$createType10 = $Create.Array($$createType9);

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ariadne/internal/aiclient"
+	"ariadne/internal/apitesting"
 	"ariadne/internal/applog"
 	"ariadne/internal/apps"
 	"ariadne/internal/capturehistory"
@@ -55,8 +56,37 @@ var appIcon []byte
 var trayIcon []byte
 
 func main() {
+	if _, err := handleRestartReplacementArgs(os.Args[1:], os.Getpid(), waitForRestartReplacementProcess); err != nil {
+		fmt.Fprintf(os.Stderr, "Ariadne restart replacement: %v\n", err)
+	}
+
 	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "workmemory") {
 		os.Exit(workmemorycli.Run(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service") {
+		if err := filesearch.RunWindowsService(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Ariadne file search service: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service-install") {
+		exePath, err := os.Executable()
+		if err == nil {
+			err = filesearch.InstallWindowsService("Ariadne", exePath)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Ariadne search service install: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service-remove") {
+		if err := filesearch.RemoveWindowsService(); err != nil {
+			fmt.Fprintf(os.Stderr, "Ariadne search service remove: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	logService := applog.NewService()
@@ -74,6 +104,7 @@ func main() {
 	pinnedImageService := pinnedimage.NewService(captureService, clipboardService)
 	hostsService := hosts.NewService()
 	jsonCompareService := jsoncompare.NewService()
+	apiTestingService := apitesting.NewService()
 	networkMonitorService := networkmonitor.NewService()
 	qrScanService := qrscan.NewService(captureService)
 	pluginService := plugins.NewService()
@@ -143,7 +174,7 @@ func main() {
 	workmemory.RegisterExperienceDiscoverer(workMemoryService, aiclient.NewOpenAICompatibleExperienceDiscoverer())
 	workmemory.RegisterEmbeddingClient(workMemoryService, aiclient.NewOpenAICompatibleEmbedder())
 	imageIndexService := imageindex.NewService(captureService, clipboardService, ocrService)
-	searchService := search.NewService(fileSearchService, appService, launcherService, clipboardService, captureService, imageIndexService, workflowService, pluginService)
+	searchService := search.NewService(fileSearchService, appService, launcherService, captureService, imageIndexService, workflowService, pluginService)
 	toolWindowService := toolwindows.NewService()
 	toolWindowService.SetWindowIcon(appIcon)
 	initialHotkeys := settingsService.GetSettings().Hotkeys
@@ -198,16 +229,28 @@ func main() {
 				DLLPath:         status.DLLPath,
 				DLLFound:        status.DLLFound,
 				Ready:           status.Ready,
+				Provider:        status.Provider,
+				Indexing:        status.Indexing,
+				IndexedCount:    status.IndexedCount,
+				VolumeCount:     status.VolumeCount,
+				RequiresAdmin:   status.RequiresAdmin,
+				Elevated:        status.Elevated,
+				IndexStartedAt:  status.IndexStartedAt,
+				IndexFinishedAt: status.IndexFinishedAt,
 				LastError:       status.LastError,
 				LastQuery:       status.LastQuery,
 				LastElapsedMs:   status.LastElapsedMs,
 				LastResultCount: status.LastResultCount,
 				LastUpdatedAt:   status.LastUpdatedAt,
 				CoverageHint:    status.CoverageHint,
+				PolicyErrors:    status.PolicyErrors,
 			}
 		}),
 		platform.WithLogStatus(func() platform.LogStatus {
 			return appLogStatus(logService.Status())
+		}),
+		platform.WithApplicationQuit(func() {
+			shellManager.Quit()
 		}),
 	)
 	notificationService := notifications.New()
@@ -231,6 +274,7 @@ func main() {
 				log.Printf("stop shell: %v", err)
 			}
 			toolWindowService.Stop()
+			fileSearchService.Close()
 			clipboardService.StopWatcher()
 			workMemoryService.Stop()
 			if err := logService.Stop(); err != nil {
@@ -247,6 +291,7 @@ func main() {
 			application.NewService(pinnedImageService),
 			application.NewService(hostsService),
 			application.NewService(jsonCompareService),
+			application.NewService(apiTestingService),
 			application.NewService(networkMonitorService),
 			application.NewService(qrScanService),
 			application.NewService(ocrService),
@@ -287,8 +332,10 @@ func main() {
 		applyRetentionPolicies(workMemoryService, captureService, clipboardService, imageIndexService, next.WorkMemory)
 		clipboardService.ApplyWatcherSettings(next.WorkMemory.PrivacyMode, next.WorkMemory.SourceClipboard)
 		pluginService.ApplyEnabled(next.Plugins.Enabled)
+		applyFileSearchRuntime(fileSearchService, next.Search)
 	})
 	initialSettings := settingsService.GetSettings()
+	applyFileSearchRuntime(fileSearchService, initialSettings.Search)
 	applyCaptureOverlayRuntime(captureOverlayService, initialSettings.Screenshot)
 	applyOCRAIRuntime(ocrService, initialSettings.AI)
 	applyWorkMemoryAIRuntime(workMemoryService, initialSettings.AI, initialSettings.WorkMemory)
@@ -304,6 +351,7 @@ func main() {
 		applyWorkMemoryAIRuntime(workMemoryService, latest.AI, latest.WorkMemory)
 		applyRetentionPolicies(workMemoryService, captureService, clipboardService, imageIndexService, latest.WorkMemory)
 		clipboardService.ApplyWatcherSettings(latest.WorkMemory.PrivacyMode, latest.WorkMemory.SourceClipboard)
+		fileSearchService.StartIndexing()
 	})
 
 	if err := app.Run(); err != nil {
@@ -365,6 +413,13 @@ func applyRetentionPolicies(
 	captureService.ApplyStoragePolicy(config.MaxStorageMB, config.KeepFavoritesForever)
 	clipboardService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
 	imageIndexService.ApplyRetentionPolicy(config.RetentionDays)
+}
+
+func applyFileSearchRuntime(service *filesearch.Service, config settings.SearchSettings) {
+	service.ApplyPolicy(filesearch.FileSearchPolicy{
+		ExcludeFolders:  config.FileExcludeFolders,
+		ExcludePatterns: config.FileExcludePatterns,
+	})
 }
 
 func applyCaptureOverlayRuntime(service *captureoverlay.Service, config settings.ScreenshotSettings) {

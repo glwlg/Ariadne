@@ -2,7 +2,7 @@ package filesearch
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,49 +12,259 @@ import (
 	"ariadne/internal/contracts"
 )
 
-type fakeEverythingClient struct {
-	results []rawResult
-	err     error
+type countingIndexBuilder struct {
+	called int
 }
 
-func (f fakeEverythingClient) Search(query string, maxResults uint32) ([]rawResult, error) {
-	if f.err != nil {
-		return nil, f.err
+func (b *countingIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
+	b.called++
+	return IndexBuildResult{}, nil
+}
+
+type failingPrivilegeIndexBuilder struct{}
+
+func (failingPrivilegeIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
+	return IndexBuildResult{
+		RequiresElevation: true,
+		Elevated:          false,
+		Errors:            []string{"需要以管理员身份运行 Ariadne 后才能读取 NTFS USN/MFT"},
+	}, errors.New("文件索引需要管理员权限")
+}
+
+type fakeIndex struct {
+	count   int
+	volumes []string
+	results []rawResult
+}
+
+func (idx fakeIndex) Search(query string, limit int) []rawResult {
+	return append([]rawResult(nil), idx.results...)
+}
+
+func (idx fakeIndex) Count() int {
+	return idx.count
+}
+
+func (idx fakeIndex) Volumes() []string {
+	return append([]string(nil), idx.volumes...)
+}
+
+func (idx fakeIndex) Close() {}
+
+type fullDiskIndexBuilder struct{}
+
+func (fullDiskIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
+	index := fakeIndex{
+		count:   250001,
+		volumes: []string{`P:\`},
+		results: []rawResult{{Name: "target.xlsx", Path: `P:\workspace\target.xlsx`}},
 	}
-	return f.results, nil
+	return IndexBuildResult{
+		Index:        index,
+		IndexedCount: index.Count(),
+		Volumes:      index.Volumes(),
+		Elevated:     true,
+	}, nil
 }
 
-type countingEverythingClient struct {
-	results []rawResult
-	called  int
+type cachedRefreshIndexBuilder struct {
+	cached  fileIndex
+	started chan struct{}
+	release chan struct{}
 }
 
-func (f *countingEverythingClient) Search(query string, maxResults uint32) ([]rawResult, error) {
-	f.called++
-	return f.results, nil
+func (b cachedRefreshIndexBuilder) CachedIndex(ctx context.Context) (IndexBuildResult, error) {
+	return IndexBuildResult{
+		Index:        b.cached,
+		IndexedCount: b.cached.Count(),
+		Volumes:      b.cached.Volumes(),
+	}, nil
 }
 
-type contextAwareEverythingClient struct {
-	results        []rawResult
-	contextCalled  int
-	fallbackCalled int
+func (b cachedRefreshIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
+	close(b.started)
+	select {
+	case <-b.release:
+		return IndexBuildResult{}, nil
+	case <-ctx.Done():
+		return IndexBuildResult{}, ctx.Err()
+	}
 }
 
-func (f *contextAwareEverythingClient) Search(query string, maxResults uint32) ([]rawResult, error) {
-	f.fallbackCalled++
-	return f.results, nil
+type blockingIndexBuilder struct {
+	started chan struct{}
+	release chan struct{}
 }
 
-func (f *contextAwareEverythingClient) SearchContext(ctx context.Context, query string, maxResults uint32) ([]rawResult, error) {
-	f.contextCalled++
-	return f.results, nil
+func (b blockingIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
+	close(b.started)
+	select {
+	case <-b.release:
+		return IndexBuildResult{}, nil
+	case <-ctx.Done():
+		return IndexBuildResult{}, ctx.Err()
+	}
 }
 
-func TestSearchReturnsEverythingFileResults(t *testing.T) {
-	service := NewServiceWithClient(fakeEverythingClient{
-		results: []rawResult{
-			{Name: "README.md", Path: `P:\workspace\glwlg\app\x-tools\README.md`},
+func TestStartIndexingMarksStatusAsIndexing(t *testing.T) {
+	builder := blockingIndexBuilder{started: make(chan struct{}), release: make(chan struct{})}
+	service := NewServiceWithIndexer(builder)
+	t.Cleanup(func() { close(builder.release) })
+
+	status := service.StartIndexing()
+	<-builder.started
+
+	if !status.Indexing || status.IndexStartedAt == 0 {
+		t.Fatalf("StartIndexing should expose indexing state immediately: %#v", status)
+	}
+}
+
+func TestStartIndexingReportsAdminRequirementWithoutReadyIndex(t *testing.T) {
+	service := NewServiceWithIndexer(failingPrivilegeIndexBuilder{})
+	service.StartIndexing()
+
+	status := waitForFileIndexStatus(t, service, func(status FileIndexStatus) bool {
+		return !status.Indexing && status.LastError != ""
+	})
+
+	if !status.RequiresAdmin || status.Elevated || status.Ready {
+		t.Fatalf("permission failure should be explicit and degraded: %#v", status)
+	}
+	if !strings.Contains(status.CoverageHint, "搜索服务未安装") {
+		t.Fatalf("coverage hint should tell the user how to recover through the search service: %#v", status)
+	}
+	results := service.Search("README.md")
+	if len(results) != 1 || results[0].ID != "file-search-coverage-hint" {
+		t.Fatalf("file-like search should return an actionable permission hint, got %#v", results)
+	}
+	if !hasActionID(results[0], "install_file_search_service") {
+		t.Fatalf("permission hint should expose search service install action: %#v", results[0].Actions)
+	}
+	action, ok := actionByID(results[0], "install_file_search_service")
+	if !ok {
+		t.Fatalf("missing search service install action: %#v", results[0].Actions)
+	}
+	if action.Label != "安装搜索服务" || action.Kind != contracts.ActionRun {
+		t.Fatalf("search service install action should be a direct product action: %#v", action)
+	}
+	results = service.Search("工作日历")
+	if len(results) != 1 || !strings.Contains(results[0].Detail, "搜索服务未安装") {
+		t.Fatalf("plain filename search should still expose permission recovery, got %#v", results)
+	}
+}
+
+func TestSearchWhileIndexingShowsProgressHintForPlainFilename(t *testing.T) {
+	builder := blockingIndexBuilder{started: make(chan struct{}), release: make(chan struct{})}
+	service := NewServiceWithIndexer(builder)
+	t.Cleanup(func() { close(builder.release) })
+
+	results := service.Search("工作日历")
+	<-builder.started
+
+	if len(results) != 1 || !strings.Contains(results[0].Detail, "正在建立") {
+		t.Fatalf("search should expose indexing progress for plain filenames, got %#v", results)
+	}
+}
+
+func TestStartIndexingUsesFullDiskIndexWithoutCoverageLimit(t *testing.T) {
+	service := NewServiceWithIndexer(fullDiskIndexBuilder{})
+	service.StartIndexing()
+
+	status := waitForFileIndexStatus(t, service, func(status FileIndexStatus) bool {
+		return !status.Indexing && status.Ready
+	})
+
+	if status.IndexedCount != 250001 || status.CoverageHint != "" {
+		t.Fatalf("full disk index should not be reported as capped or degraded: %#v", status)
+	}
+	results := service.Search("target")
+	if len(results) != 1 || results[0].Title != "target.xlsx" {
+		t.Fatalf("search should use the full disk-backed index: %#v", results)
+	}
+}
+
+func TestSearchUsesCachedLineIndexWhileRefreshing(t *testing.T) {
+	builder := cachedRefreshIndexBuilder{
+		cached: fakeIndex{
+			count:   1,
+			volumes: []string{`P:\`},
+			results: []rawResult{{Name: "target.xlsx", Path: `P:\workspace\target.xlsx`}},
 		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	service := NewServiceWithIndexer(builder)
+	t.Cleanup(func() { close(builder.release) })
+
+	results := service.Search("target")
+	<-builder.started
+	status := service.Status()
+
+	if len(results) != 1 || results[0].Title != "target.xlsx" {
+		t.Fatalf("cached index should be searchable immediately, got %#v", results)
+	}
+	if !status.Ready || !status.Indexing || status.IndexedCount != 1 {
+		t.Fatalf("cached index should be ready while refresh continues: %#v", status)
+	}
+}
+
+func TestChangedPathIsSearchableImmediately(t *testing.T) {
+	service := NewServiceWithIndex([]rawResult{{Name: "README.md", Path: `P:\workspace\README.md`}})
+
+	service.applyChangedPath(rawResult{Name: "搜索测试.txt", Path: `P:\桌面\搜索测试.txt`})
+
+	results := service.Search("搜索测试")
+	if len(results) != 1 || results[0].Detail != `P:\桌面\搜索测试.txt` {
+		t.Fatalf("changed path should be searchable immediately, got %#v", results)
+	}
+	status := service.Status()
+	if status.IndexedCount != 2 {
+		t.Fatalf("changed path should update indexed count, got %#v", status)
+	}
+}
+
+func TestSearchFiltersExcludedFolder(t *testing.T) {
+	service := NewServiceWithIndex([]rawResult{
+		{Name: "搜索测试.txt.lnk", Path: `C:\Users\luwei\AppData\Roaming\Microsoft\Windows\Recent\搜索测试.txt.lnk`},
+		{Name: "搜索测试.txt", Path: `C:\Users\luwei\OneDrive\桌面\搜索测试.txt`},
+	})
+	service.ApplyPolicy(FileSearchPolicy{ExcludeFolders: []string{`C:\Users\luwei\AppData\Roaming\Microsoft\Windows\Recent`}})
+
+	results := service.Search("搜索测试")
+
+	if len(results) != 1 || results[0].Title != "搜索测试.txt" {
+		t.Fatalf("excluded Recent shortcut should not be returned, got %#v", results)
+	}
+}
+
+func TestSearchFiltersExcludedRegex(t *testing.T) {
+	service := NewServiceWithIndex([]rawResult{
+		{Name: "keep.txt", Path: `P:\workspace\keep.txt`},
+		{Name: "drop.tmp", Path: `P:\workspace\drop.tmp`},
+	})
+	service.ApplyPolicy(FileSearchPolicy{ExcludePatterns: []string{`\.tmp$`}})
+
+	results := service.Search("p:\\workspace")
+
+	if len(results) != 1 || results[0].Title != "keep.txt" {
+		t.Fatalf("regex-excluded file should not be returned, got %#v", results)
+	}
+}
+
+func TestInvalidExcludeRegexIsReported(t *testing.T) {
+	service := NewServiceWithIndex([]rawResult{{Name: "README.md", Path: `P:\workspace\README.md`}})
+	service.ApplyPolicy(FileSearchPolicy{ExcludePatterns: []string{"["}})
+
+	status := service.Status()
+
+	if len(status.PolicyErrors) != 1 || !strings.Contains(status.PolicyErrors[0], "missing closing") {
+		t.Fatalf("invalid regex should be exposed in status, got %#v", status.PolicyErrors)
+	}
+}
+
+func TestSearchReturnsAriadneIndexedFileResults(t *testing.T) {
+	service := NewServiceWithIndex([]rawResult{
+		{Name: "README.md", Path: `P:\workspace\glwlg\app\Ariadne\README.md`},
 	})
 
 	results := service.Search("readme")
@@ -70,7 +280,10 @@ func TestSearchReturnsEverythingFileResults(t *testing.T) {
 		t.Fatalf("expected generic open action, got %#v", result.Actions[0])
 	}
 	if !hasActionKind(result, contracts.ActionOpenParent) {
-		t.Fatal("Everything file result should expose open_parent")
+		t.Fatal("Ariadne indexed file result should expose open_parent")
+	}
+	if source := result.Payload["source"]; source != fileIndexProvider {
+		t.Fatalf("expected Ariadne file index source, got %#v", source)
 	}
 	if err := contracts.ValidateActionSurface(result); err != nil {
 		t.Fatalf("invalid action surface: %v", err)
@@ -87,9 +300,7 @@ func TestFileResultIncludesFilesystemMetadata(t *testing.T) {
 	if err := os.Chtimes(filePath, modified, modified); err != nil {
 		t.Fatalf("set temp file time: %v", err)
 	}
-	service := NewServiceWithClient(fakeEverythingClient{
-		results: []rawResult{{Name: "sample.log", Path: filePath}},
-	})
+	service := NewServiceWithIndex([]rawResult{{Name: "sample.log", Path: filePath}})
 
 	results := service.Search("sample.log")
 
@@ -116,9 +327,7 @@ func TestFileResultIncludesFilesystemMetadata(t *testing.T) {
 
 func TestDirectoryResultUsesFolderMetadata(t *testing.T) {
 	dir := t.TempDir()
-	service := NewServiceWithClient(fakeEverythingClient{
-		results: []rawResult{{Name: filepath.Base(dir), Path: dir}},
-	})
+	service := NewServiceWithIndex([]rawResult{{Name: filepath.Base(dir), Path: dir, IsDirectory: true}})
 
 	results := service.Search(filepath.Base(dir))
 
@@ -138,115 +347,87 @@ func TestDirectoryResultUsesFolderMetadata(t *testing.T) {
 }
 
 func TestSearchSkipsShortQueries(t *testing.T) {
-	service := NewServiceWithClient(fakeEverythingClient{
-		results: []rawResult{{Name: "a.txt", Path: `P:\a.txt`}},
-	})
+	service := NewServiceWithIndex([]rawResult{{Name: "a.txt", Path: `P:\a.txt`}})
 
 	if results := service.Search("a"); len(results) != 0 {
-		t.Fatalf("short query should not hit Everything: %#v", results)
+		t.Fatalf("short query should not hit file index: %#v", results)
 	}
 }
 
-func TestSearchContextSkipsEverythingWhenCancelled(t *testing.T) {
+func TestSearchContextSkipsIndexingWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	client := &countingEverythingClient{
-		results: []rawResult{{Name: "README.md", Path: `P:\workspace\glwlg\app\x-tools\README.md`}},
-	}
-	service := NewServiceWithClient(client)
+	builder := &countingIndexBuilder{}
+	service := NewServiceWithIndexer(builder)
 
 	results := service.SearchContext(ctx, "readme")
 
 	if len(results) != 0 {
 		t.Fatalf("cancelled search should return no results, got %#v", results)
 	}
-	if client.called != 0 {
-		t.Fatalf("cancelled search should not call Everything, called %d time(s)", client.called)
+	if builder.called != 0 {
+		t.Fatalf("cancelled search should not start indexing, called %d time(s)", builder.called)
 	}
 	status := service.Status()
 	if status.LastQuery != "" || status.LastUpdatedAt != 0 || status.LastError != "" {
-		t.Fatalf("cancelled search should not update Everything diagnostics: %#v", status)
+		t.Fatalf("cancelled search should not update file index diagnostics: %#v", status)
 	}
 }
 
-func TestSearchContextUsesContextAwareEverythingClient(t *testing.T) {
-	client := &contextAwareEverythingClient{
-		results: []rawResult{{Name: "README.md", Path: `P:\workspace\glwlg\app\x-tools\README.md`}},
-	}
-	service := NewServiceWithClient(client)
-
-	results := service.SearchContext(context.Background(), "readme")
-
-	if len(results) != 1 {
-		t.Fatalf("expected context-aware Everything result, got %#v", results)
-	}
-	if client.contextCalled != 1 || client.fallbackCalled != 0 {
-		t.Fatalf("expected SearchContext path, context=%d fallback=%d", client.contextCalled, client.fallbackCalled)
-	}
-}
-
-func TestSearchRecordsEverythingErrors(t *testing.T) {
-	service := NewServiceWithClient(fakeEverythingClient{err: fmt.Errorf("Everything IPC unavailable")})
-
-	results := service.Search("readme")
-
-	if len(results) != 0 {
-		t.Fatalf("Everything error should return no results: %#v", results)
-	}
-	if service.LastError() == "" {
-		t.Fatal("Everything error should be recorded for diagnostics")
-	}
-	status := service.Status()
-	if status.Ready || status.LastError == "" || status.LastQuery != "readme" || status.LastUpdatedAt == 0 {
-		t.Fatalf("Everything diagnostic status should expose the failure: %#v", status)
-	}
-}
-
-func TestStatusReportsLastSuccessfulEverythingQuery(t *testing.T) {
-	service := NewServiceWithClient(fakeEverythingClient{
-		results: []rawResult{
-			{Name: "README.md", Path: `P:\workspace\glwlg\app\x-tools\README.md`},
-			{Name: "main.py", Path: `P:\workspace\glwlg\app\x-tools\main.py`},
-		},
+func TestStatusReportsLastSuccessfulFileIndexQuery(t *testing.T) {
+	service := NewServiceWithIndex([]rawResult{
+		{Name: "README.md", Path: `P:\workspace\glwlg\app\Ariadne\README.md`},
+		{Name: "main.go", Path: `P:\workspace\glwlg\app\Ariadne\main.go`},
 	})
 
 	service.Search("readme")
 	status := service.Status()
 
-	if !status.Ready || !status.DLLFound || status.LastError != "" {
-		t.Fatalf("Everything should be ready after a successful injected query: %#v", status)
+	if !status.Ready || status.Provider != fileIndexProvider || status.LastError != "" {
+		t.Fatalf("file index should be ready after an injected query: %#v", status)
 	}
-	if status.LastQuery != "readme" || status.LastResultCount != 2 || status.LastUpdatedAt == 0 {
-		t.Fatalf("Everything status should record query details: %#v", status)
+	if status.LastQuery != "readme" || status.LastResultCount != 1 || status.LastUpdatedAt == 0 {
+		t.Fatalf("file index status should record query details: %#v", status)
+	}
+	if status.IndexedCount != 2 {
+		t.Fatalf("file index status should expose indexed count: %#v", status)
 	}
 }
 
-func TestFileLikeZeroResultsReturnsCoverageHint(t *testing.T) {
-	service := NewServiceWithClient(fakeEverythingClient{})
+func TestFileLikeZeroResultsDoNotReturnCoverageHintWhenIndexReady(t *testing.T) {
+	service := NewServiceWithIndex([]rawResult{{Name: "README.md", Path: `P:\workspace\README.md`}})
 
 	results := service.Search("P:\\workspace\\missing.json")
 
-	if len(results) != 1 {
-		t.Fatalf("expected coverage hint result, got %#v", results)
-	}
-	result := results[0]
-	if result.ID != "file-search-coverage-hint" || result.Type != contracts.ResultSettings {
-		t.Fatalf("expected explicit settings diagnostic result, got %#v", result)
-	}
-	if !strings.Contains(result.Detail, "目标盘或目录已加入索引") {
-		t.Fatalf("coverage hint should explain index coverage, got %#v", result.Detail)
-	}
-	if err := contracts.ValidateActionSurface(result); err != nil {
-		t.Fatalf("invalid coverage hint action surface: %v", err)
+	if len(results) != 0 {
+		t.Fatalf("ready index should not add diagnostic result for an ordinary miss, got %#v", results)
 	}
 	status := service.Status()
-	if status.CoverageHint == "" {
-		t.Fatalf("status should expose coverage hint: %#v", status)
+	if status.CoverageHint != "" {
+		t.Fatalf("ready index miss should not set coverage hint: %#v", status)
+	}
+}
+
+func TestReadyIndexServiceWarningDoesNotPolluteNoMatchResults(t *testing.T) {
+	service := NewServiceWithIndex([]rawResult{{Name: "README.md", Path: `P:\workspace\README.md`}})
+	service.mu.Lock()
+	service.requiresAdmin = true
+	service.elevated = false
+	service.mu.Unlock()
+
+	results := service.Search("explorer.ex")
+
+	if len(results) != 0 {
+		t.Fatalf("service warning should stay in settings and not appear as a search result: %#v", results)
+	}
+	status := service.Status()
+	if !strings.Contains(status.CoverageHint, "搜索服务未运行") {
+		t.Fatalf("status should still expose service warning for settings: %#v", status)
 	}
 }
 
 func TestOrdinaryZeroResultsDoNotReturnCoverageHint(t *testing.T) {
-	service := NewServiceWithClient(fakeEverythingClient{})
+	service := NewServiceWithIndex([]rawResult{{Name: "README.md", Path: `P:\workspace\README.md`}})
 
 	results := service.Search("gateway")
 
@@ -258,19 +439,6 @@ func TestOrdinaryZeroResultsDoNotReturnCoverageHint(t *testing.T) {
 	}
 }
 
-func TestMissingEverythingDLLReturnsFileCoverageHint(t *testing.T) {
-	service := NewServiceWithDLLPath("")
-
-	results := service.Search("README.md")
-
-	if len(results) != 1 || results[0].ID != "file-search-coverage-hint" {
-		t.Fatalf("missing DLL should explain file-search setup for file-like query: %#v", results)
-	}
-	if !strings.Contains(results[0].Detail, "Everything64.dll") {
-		t.Fatalf("missing DLL hint should mention SDK DLL, got %#v", results[0].Detail)
-	}
-}
-
 func hasActionKind(result contracts.SearchResult, kind contracts.PreviewActionKind) bool {
 	for _, action := range result.Actions {
 		if action.Kind == kind {
@@ -278,6 +446,35 @@ func hasActionKind(result contracts.SearchResult, kind contracts.PreviewActionKi
 		}
 	}
 	return false
+}
+
+func hasActionID(result contracts.SearchResult, id string) bool {
+	_, ok := actionByID(result, id)
+	return ok
+}
+
+func actionByID(result contracts.SearchResult, id string) (contracts.PreviewAction, bool) {
+	for _, action := range result.Actions {
+		if action.ID == id {
+			return action, true
+		}
+	}
+	return contracts.PreviewAction{}, false
+}
+
+func waitForFileIndexStatus(t *testing.T, service *Service, done func(FileIndexStatus) bool) FileIndexStatus {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var status FileIndexStatus
+	for time.Now().Before(deadline) {
+		status = service.Status()
+		if done(status) {
+			return status
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("file index status did not reach expected state: %#v", status)
+	return status
 }
 
 func metaValue(result contracts.SearchResult, label string) string {

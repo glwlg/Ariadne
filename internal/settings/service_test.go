@@ -48,6 +48,9 @@ func TestDefaultSettingsEnableAutonomousFlowWithoutStartingCapture(t *testing.T)
 	if !contains(settings.WorkMemory.ExcludeApps, "mstsc.exe") {
 		t.Fatalf("default excluded apps should include remote desktop: %#v", settings.WorkMemory.ExcludeApps)
 	}
+	if len(settings.Search.FileExcludeFolders) != 1 || !strings.HasSuffix(filepath.ToSlash(settings.Search.FileExcludeFolders[0]), "Microsoft/Windows/Recent") {
+		t.Fatalf("file search should exclude Windows Recent by default: %#v", settings.Search)
+	}
 	if settings.AI.Enabled || settings.AI.EmbeddingEnabled {
 		t.Fatal("AI and embedding should be opt-in")
 	}
@@ -77,6 +80,8 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	next.WorkMemory.ExcludeApps = []string{" bitwarden.exe ", "BITWARDEN.exe", ""}
 	next.WorkMemory.ExcludeWindowKeywords = nil
 	next.WorkMemory.ExcludeURLs = []string{" https://internal.example.com/private ", "HTTPS://INTERNAL.EXAMPLE.COM/PRIVATE", ""}
+	next.Search.FileExcludeFolders = []string{` C:\Temp `, `c:\temp`, ""}
+	next.Search.FileExcludePatterns = []string{` \.tmp$ `, `\.tmp$`, ""}
 	next.WorkMemory.AppCaptureProfiles = []WorkMemoryAppCaptureProfile{
 		{DisplayName: "微信", ProcessName: " Weixin.exe ", Enabled: true, WindowSwitchDelaySeconds: -1, ActiveIntervalSeconds: 1},
 		{DisplayName: "重复微信", ProcessName: "weixin.EXE", Enabled: true, WindowSwitchDelaySeconds: 30, ActiveIntervalSeconds: 300},
@@ -115,6 +120,12 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	if len(updated.WorkMemory.ExcludeURLs) != 1 || updated.WorkMemory.ExcludeURLs[0] != "https://internal.example.com/private" {
 		t.Fatalf("exclude URLs should be trimmed and deduplicated: %#v", updated.WorkMemory.ExcludeURLs)
 	}
+	if len(updated.Search.FileExcludeFolders) != 1 || updated.Search.FileExcludeFolders[0] != `C:\Temp` {
+		t.Fatalf("search exclude folders should be trimmed and deduplicated: %#v", updated.Search.FileExcludeFolders)
+	}
+	if len(updated.Search.FileExcludePatterns) != 1 || updated.Search.FileExcludePatterns[0] != `\.tmp$` {
+		t.Fatalf("search exclude patterns should be trimmed and deduplicated: %#v", updated.Search.FileExcludePatterns)
+	}
 	if len(updated.WorkMemory.AppCaptureProfiles) != 1 {
 		t.Fatalf("app capture profiles should be deduplicated: %#v", updated.WorkMemory.AppCaptureProfiles)
 	}
@@ -139,6 +150,12 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	if len(reloaded.Screenshot.RedactKeywords) != 2 || reloaded.Screenshot.RedactKeywords[0] != "手机号" || reloaded.Screenshot.RedactKeywords[1] != "Token" {
 		t.Fatalf("persisted screenshot redact keywords not reloaded: %#v", reloaded.Screenshot.RedactKeywords)
 	}
+	if len(reloaded.Search.FileExcludeFolders) != 1 || reloaded.Search.FileExcludeFolders[0] != `C:\Temp` {
+		t.Fatalf("persisted search exclude folders not reloaded: %#v", reloaded.Search.FileExcludeFolders)
+	}
+	if len(reloaded.Search.FileExcludePatterns) != 1 || reloaded.Search.FileExcludePatterns[0] != `\.tmp$` {
+		t.Fatalf("persisted search exclude patterns not reloaded: %#v", reloaded.Search.FileExcludePatterns)
+	}
 
 	storage := service.StorageStatus()
 	expectedStoragePath := appdb.DatabasePathForPath(configPath)
@@ -147,6 +164,24 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	}
 	if storage.ReadBackBytes <= 0 || storage.ReadBackVersion != currentSettingsVersion {
 		t.Fatalf("storage readback should expose persisted bytes and version: %#v", storage)
+	}
+}
+
+func TestLegacySettingsGetDefaultSearchExcludes(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	raw := []byte(`{"version":16,"general":{"theme":"light"},"hotkeys":{"toggleWindow":"alt+q","screenshot":"alt+a","pinClipboard":"alt+v"},"screenshot":{},"workMemory":{},"ai":{},"plugins":{"enabled":{}}}`)
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded := NewServiceWithPaths(configPath, "").GetSettings()
+
+	if loaded.Version != currentSettingsVersion {
+		t.Fatalf("legacy settings should upgrade, got %d", loaded.Version)
+	}
+	if len(loaded.Search.FileExcludeFolders) != 1 || !strings.HasSuffix(filepath.ToSlash(loaded.Search.FileExcludeFolders[0]), "Microsoft/Windows/Recent") {
+		t.Fatalf("legacy settings should receive default search excludes: %#v", loaded.Search)
 	}
 }
 

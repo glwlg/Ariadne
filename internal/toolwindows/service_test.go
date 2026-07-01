@@ -11,7 +11,7 @@ import (
 )
 
 func TestNormalizeViewAcceptsKnownToolViews(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "network-monitor", "network-mini", "settings"} {
+	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "network-monitor", "network-mini", "settings"} {
 		if normalizeView(" "+view+" ") != view {
 			t.Fatalf("expected %q to be accepted", view)
 		}
@@ -54,7 +54,7 @@ func TestToolWindowSizingKeepsPaletteSeparateFromToolWindows(t *testing.T) {
 }
 
 func TestOnlyNetworkMiniUsesFramelessFixedUtilityWindow(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "network-monitor", "settings"} {
+	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "network-monitor", "settings"} {
 		if frameless(view) {
 			t.Fatalf("%s should use native window chrome", view)
 		}
@@ -125,8 +125,34 @@ func TestOrdinaryTaskbarExStyleUsesAppWindow(t *testing.T) {
 	}
 }
 
+func TestOrdinaryTaskbarSetWindowPosFlagsForceShellRefresh(t *testing.T) {
+	flags := ordinaryWindowTaskbarSetWindowPosFlags(true)
+	if flags&w32.SWP_SHOWWINDOW == 0 {
+		t.Fatalf("ordinary taskbar policy should force shell visibility refresh: %#x", flags)
+	}
+	if flags&w32.SWP_FRAMECHANGED == 0 {
+		t.Fatalf("ordinary taskbar policy should report frame changes: %#x", flags)
+	}
+	if flags&w32.SWP_NOACTIVATE != 0 {
+		t.Fatalf("ordinary taskbar policy should not make normal tool windows no-activate: %#x", flags)
+	}
+}
+
+func TestOrdinaryWindowPolicyRetriesLateTaskbarRegistration(t *testing.T) {
+	delays := ordinaryWindowPolicyRetryDelays()
+	if len(delays) < 3 {
+		t.Fatalf("expected multiple taskbar policy retries for late HWND shell registration, got %d", len(delays))
+	}
+	if delays[0] > 100*time.Millisecond {
+		t.Fatalf("first retry should happen quickly after mount/show, got %s", delays[0])
+	}
+	if delays[len(delays)-1] < 800*time.Millisecond {
+		t.Fatalf("last retry should cover delayed WebView/taskbar registration, got %s", delays[len(delays)-1])
+	}
+}
+
 func TestTaskbarToggleOnlyAppliesToOrdinaryToolWindows(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "network-monitor", "settings"} {
+	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "network-monitor", "settings"} {
 		if !ordinaryTaskbarToggleAllowed(view) {
 			t.Fatalf("%s should keep ordinary taskbar minimise behaviour", view)
 		}
