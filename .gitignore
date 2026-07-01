@@ -21,5 +21,8 @@ frontend/dist/
 # Local git worktrees
 .worktrees/
 
+# Codex local environment configs
+.codex/environments/
+
 # Pre-replacement Ariadne generated leftovers
 experiments/ariadne/
