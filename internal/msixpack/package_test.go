@@ -17,6 +17,7 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 	outputDir := filepath.Join(base, "dist", "msix")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, logoPath, "fake png")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
 
 	result, err := Build(Options{
 		Version:   "1.2",
@@ -44,6 +45,7 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(manifest.LayoutDir, "Ariadne.exe"),
+		filepath.Join(manifest.LayoutDir, "native-capture", "Ariadne.CaptureHost.exe"),
 		filepath.Join(manifest.LayoutDir, "Assets", "Square44x44Logo.png"),
 		filepath.Join(manifest.LayoutDir, "Assets", "Square150x150Logo.png"),
 		filepath.Join(manifest.LayoutDir, "Assets", "StoreLogo.png"),
@@ -55,7 +57,7 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 			t.Fatalf("expected generated MSIX layout file %s: %v", path, err)
 		}
 	}
-	if len(manifest.Files) != 6 {
+	if len(manifest.Files) != 7 {
 		t.Fatalf("manifest should hash the app payload, logos, AppxManifest, and README; got %#v", manifest.Files)
 	}
 	for _, file := range manifest.Files {
@@ -111,6 +113,7 @@ func TestBuildRejectsPackWhenMakeAppxIsUnavailable(t *testing.T) {
 	logoPath := filepath.Join(base, "assets", "logo.png")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, logoPath, "fake png")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
 
 	_, err := Build(Options{
 		ExePath:      exePath,
@@ -121,6 +124,23 @@ func TestBuildRejectsPackWhenMakeAppxIsUnavailable(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "makeappx not found") {
 		t.Fatalf("expected missing makeappx error, got %v", err)
+	}
+}
+
+func TestBuildRejectsMissingNativeCaptureHost(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	logoPath := filepath.Join(base, "assets", "logo.png")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, logoPath, "fake png")
+
+	_, err := Build(Options{
+		ExePath:   exePath,
+		LogoPath:  logoPath,
+		OutputDir: filepath.Join(base, "out"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "Ariadne.CaptureHost.exe") {
+		t.Fatalf("expected missing native capture host error, got %v", err)
 	}
 }
 
@@ -144,6 +164,11 @@ func writeFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+}
+
+func writeNativeCaptureHost(t *testing.T, exeDir string) {
+	t.Helper()
+	writeFile(t, filepath.Join(exeDir, "native-capture", "Ariadne.CaptureHost.exe"), "fake native capture host")
 }
 
 func readFile(t *testing.T, path string) string {

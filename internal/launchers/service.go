@@ -23,6 +23,8 @@ const (
 	LauncherCommand LauncherKind = "command"
 )
 
+const launcherSearchResultLimit = 20
+
 type Launcher struct {
 	ID         string       `json:"id"`
 	Name       string       `json:"name"`
@@ -81,7 +83,7 @@ func (s *Service) Search(query string) []contracts.SearchResult {
 	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
-	return results
+	return limitLauncherResults(results, launcherSearchResultLimit)
 }
 
 func (s *Service) List() []Launcher {
@@ -303,7 +305,7 @@ func launcherPreviewText(launcher Launcher) string {
 	if launcher.Kind == LauncherCommand {
 		return "命令类启动项属于中高风险动作，Ariadne 只展示确认动作，不会把命令伪装成低风险打开。"
 	}
-	return "由 Ariadne 自定义启动项配置提供。动作由结果显式声明，不根据 path 字段推断。"
+	return "来自 Ariadne 自定义启动项配置，可直接打开或复制目标。"
 }
 
 func launcherIcon(kind LauncherKind) string {
@@ -432,6 +434,16 @@ func wordPrefix(value string, query string) bool {
 func stableID(value string) string {
 	sum := sha1.Sum([]byte(strings.ToLower(value)))
 	return hex.EncodeToString(sum[:])[:12]
+}
+
+func limitLauncherResults(results []contracts.SearchResult, limit int) []contracts.SearchResult {
+	if limit <= 0 {
+		return nil
+	}
+	if len(results) <= limit {
+		return results
+	}
+	return results[:limit]
 }
 
 func firstNonEmpty(values ...string) string {

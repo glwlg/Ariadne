@@ -85,6 +85,11 @@ func Build(options Options) (Result, error) {
 		return Result{}, err
 	}
 	files = append(files, runtimeFiles...)
+	nativeCaptureFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "native-capture"), filepath.Join(appDir, "native-capture"), packageDir, "Ariadne.CaptureHost.exe")
+	if err != nil {
+		return Result{}, err
+	}
+	files = append(files, nativeCaptureFiles...)
 	if file, err := copyPackageFile(options.IconPath, filepath.Join(appDir, "logo.ico"), packageDir); err != nil {
 		return Result{}, err
 	} else {
@@ -255,6 +260,48 @@ func copyRuntimeFiles(exePath string, appDir string, packageDir string) ([]Packa
 	return files, nil
 }
 
+func copyRequiredDirectory(sourceDir string, targetDir string, packageDir string, requiredFile string) ([]PackageFile, error) {
+	info, err := os.Stat(sourceDir)
+	if errors.Is(err, os.ErrNotExist) {
+		if requiredFile != "" {
+			return nil, fmt.Errorf("required runtime file not found: %s", filepath.Join(sourceDir, requiredFile))
+		}
+		return nil, fmt.Errorf("required runtime directory not found: %s", sourceDir)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("expected runtime directory: %s", sourceDir)
+	}
+	if requiredFile != "" {
+		requiredPath := filepath.Join(sourceDir, requiredFile)
+		if info, err := os.Stat(requiredPath); err != nil || info.IsDir() {
+			return nil, fmt.Errorf("required runtime file not found: %s", requiredPath)
+		}
+	}
+	files := []PackageFile{}
+	err = filepath.WalkDir(sourceDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		file, err := copyPackageFile(path, filepath.Join(targetDir, rel), packageDir)
+		if err != nil {
+			return err
+		}
+		files = append(files, file)
+		return nil
+	})
+	return files, err
+}
+
 func writeManifest(path string, manifest Manifest) error {
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -330,6 +377,7 @@ Install directory:
 
 Package contents:
   app\ariadne.exe
+  app\native-capture\Ariadne.CaptureHost.exe
   app\logo.ico
 
 Data:

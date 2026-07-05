@@ -71,7 +71,7 @@ export const seedResults: SearchResult[] = [
       text: 'x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Ariadne 将继承搜索、截图、插件和工作记忆能力。',
       meta: [
         { label: '路径', value: 'P:\\workspace\\glwlg\\app\\x-tools\\README.md' },
-        { label: '动作来源', value: '文件结果默认动作' },
+        { label: '默认操作', value: '打开文件 / 复制路径' },
       ],
     },
     actions: [
@@ -109,10 +109,10 @@ export const seedResults: SearchResult[] = [
       kind: 'text',
       title: 'UUID 生成器',
       subtitle: 'uuid [count]',
-      text: '输入 uuid 或 guid 后生成 UUID。插件结果通过 preview actions 明确声明复制动作。',
+      text: '输入 uuid 或 guid 后生成 UUID，结果可直接复制。',
       meta: [
         { label: '示例', value: 'uuid 5' },
-        { label: '协议', value: 'plugin_trigger → plugin_result' },
+        { label: '结果动作', value: '生成后复制' },
       ],
     },
     actions: [

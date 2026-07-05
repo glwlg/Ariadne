@@ -12,6 +12,8 @@ import (
 
 const searchPerformanceSampleLimit = 200
 const searchPerformanceTargetP95Ms int64 = 100
+const searchResultLimit = 40
+const searchProviderResultLimit = 60
 
 type Service struct {
 	results     []contracts.SearchResult
@@ -92,6 +94,7 @@ func (s *Service) Search(ctx context.Context, query string) contracts.SearchResp
 		if ctx.Err() != nil {
 			return newSearchResponse(query, results, started)
 		}
+		providerResults = limitSearchResults(providerResults, searchProviderResultLimit)
 		for _, result := range providerResults {
 			if ctx.Err() != nil {
 				return newSearchResponse(query, results, started)
@@ -104,12 +107,15 @@ func (s *Service) Search(ctx context.Context, query string) contracts.SearchResp
 		return results[i].Score > results[j].Score
 	})
 
+	totalResults := len(results)
+	results = limitSearchResults(results, searchResultLimit)
 	elapsed := time.Since(started).Milliseconds()
 	s.recordPerformance(query, elapsed, len(results))
 	return contracts.SearchResponse{
-		Query:   query,
-		Results: results,
-		Elapsed: elapsed,
+		Query:        query,
+		Results:      results,
+		Elapsed:      elapsed,
+		TotalResults: totalResults,
 	}
 }
 
@@ -127,11 +133,24 @@ func newSearchResponse(query string, results []contracts.SearchResult, started t
 	if results == nil {
 		results = []contracts.SearchResult{}
 	}
+	totalResults := len(results)
+	results = limitSearchResults(results, searchResultLimit)
 	return contracts.SearchResponse{
-		Query:   query,
-		Results: results,
-		Elapsed: time.Since(started).Milliseconds(),
+		Query:        query,
+		Results:      results,
+		Elapsed:      time.Since(started).Milliseconds(),
+		TotalResults: totalResults,
 	}
+}
+
+func limitSearchResults(results []contracts.SearchResult, limit int) []contracts.SearchResult {
+	if limit <= 0 {
+		return nil
+	}
+	if len(results) <= limit {
+		return results
+	}
+	return results[:limit]
 }
 
 func (s *Service) PerformanceStatus() PerformanceStatus {
@@ -324,7 +343,7 @@ func seedResults() []contracts.SearchResult {
 				Text:     "x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Ariadne 将继承搜索、截图、插件和工作记忆能力。",
 				Meta: []contracts.LabelValue{
 					{Label: "路径", Value: "P:\\workspace\\glwlg\\app\\x-tools\\README.md"},
-					{Label: "动作来源", Value: "文件结果默认动作"},
+					{Label: "默认操作", Value: "打开文件 / 复制路径"},
 				},
 			},
 			Actions: []contracts.PreviewAction{
@@ -357,10 +376,10 @@ func seedResults() []contracts.SearchResult {
 				Kind:     contracts.PreviewText,
 				Title:    "UUID 生成器",
 				Subtitle: "uuid [count]",
-				Text:     "输入 uuid 或 guid 后生成 UUID。插件结果通过 preview actions 明确声明复制动作。",
+				Text:     "输入 uuid 或 guid 后生成 UUID，结果可直接复制。",
 				Meta: []contracts.LabelValue{
 					{Label: "示例", Value: "uuid 5"},
-					{Label: "协议", Value: "plugin_trigger -> plugin_result"},
+					{Label: "结果动作", Value: "生成后复制"},
 				},
 			},
 			Actions: []contracts.PreviewAction{

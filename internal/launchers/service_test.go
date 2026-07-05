@@ -127,6 +127,27 @@ func TestDisabledLaunchersDoNotSearch(t *testing.T) {
 	}
 }
 
+func TestSearchLimitsCustomLauncherResults(t *testing.T) {
+	service := NewServiceWithPath(filepath.Join(t.TempDir(), "launchers.json"))
+	for i := 0; i < launcherSearchResultLimit+5; i++ {
+		id := "tool-" + string(rune('a'+i))
+		service.Upsert(Launcher{
+			ID:       id,
+			Name:     "工具 " + string(rune('a'+i)),
+			Kind:     LauncherApp,
+			Target:   `C:\Windows\notepad.exe`,
+			Keywords: []string{"tools"},
+			Enabled:  true,
+		})
+	}
+
+	results := service.Search("tools")
+
+	if len(results) != launcherSearchResultLimit {
+		t.Fatalf("expected %d launcher results, got %d", launcherSearchResultLimit, len(results))
+	}
+}
+
 func TestRemovePersistsDefaultLauncherTombstone(t *testing.T) {
 	appData := filepath.Join(t.TempDir(), "AppData", "Roaming")
 	if err := os.MkdirAll(appData, 0o755); err != nil {

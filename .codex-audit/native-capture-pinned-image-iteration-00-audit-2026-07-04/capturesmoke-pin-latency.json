@@ -1,0 +1,126 @@
+{
+  "productName": "Ariadne",
+  "createdAt": 1783133228,
+  "exePath": "P:\\workspace\\glwlg\\app\\Ariadne\\bin\\ariadne.exe",
+  "tempRoot": "C:\\Users\\luwei\\AppData\\Local\\Temp\\ariadne-capture-smoke-2112803085",
+  "virtualScreen": {
+    "x": 0,
+    "y": 0,
+    "width": 1920,
+    "height": 1080
+  },
+  "monitors": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "selection": {
+    "x": 160,
+    "y": 140,
+    "width": 260,
+    "height": 180
+  },
+  "hotkeyBefore": {
+    "alt+a": {
+      "available": true
+    },
+    "alt+q": {
+      "available": true
+    }
+  },
+  "hotkeyDuring": {
+    "alt+a": {
+      "available": false,
+      "errorCode": 1409,
+      "error": "Hot key is already registered."
+    },
+    "alt+q": {
+      "available": false,
+      "errorCode": 1409,
+      "error": "Hot key is already registered."
+    }
+  },
+  "startedProcessId": 105732,
+  "mainWindow": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "overlayWindow": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "pinnedWindow": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "pinnedAfterDrag": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "appLogTail": [
+    "2026-07-04T10:47:08+08:00 ariadne log started",
+    "2026/07/04 10:47:08 Ariadne starting",
+    "2026/07/04 10:47:10 [WebView2] Environment created successfully"
+  ],
+  "steps": [
+    {
+      "name": "hotkey_registration",
+      "ok": true,
+      "detail": "during alt+a=blocked_or_failed:1409:Hot key is already registered. alt+q=blocked_or_failed:1409:Hot key is already registered."
+    },
+    {
+      "name": "start_app",
+      "ok": true,
+      "detail": "pid=105732 tray startup without visible main window",
+      "elapsedMs": 2517
+    },
+    {
+      "name": "reference_capture",
+      "ok": true,
+      "detail": "260x180 at 160,140"
+    },
+    {
+      "name": "fallback_post_screenshot_hotkey",
+      "ok": true,
+      "detail": "posted WM_HOTKEY id=2 to 24 process thread(s)"
+    },
+    {
+      "name": "wait capture overlay",
+      "ok": false,
+      "detail": "capture overlay not found within 15s after Alt+A"
+    }
+  ],
+  "pass": false,
+  "error": "capture overlay not found within 15s after Alt+A"
+}

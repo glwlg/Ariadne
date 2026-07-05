@@ -301,7 +301,7 @@ watch(
           <section class="results-pane">
             <div class="pane-title">
               <span>结果</span>
-              <small>{{ launcher.results.length }} 项</small>
+              <small>{{ launcher.resultCountLabel }}</small>
             </div>
 
             <div
@@ -454,7 +454,7 @@ watch(
 
             <DropdownMenuRoot v-if="extraActions.length">
               <DropdownMenuTrigger as-child>
-                <AriButton size="sm" variant="ghost">
+                <AriButton size="sm" variant="ghost" aria-label="更多操作" title="更多操作">
                   <MoreHorizontal :size="15" />
                 </AriButton>
               </DropdownMenuTrigger>

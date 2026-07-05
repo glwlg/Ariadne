@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"ariadne/internal/jsoncompare"
 	"ariadne/internal/launchers"
 	"ariadne/internal/migration"
+	"ariadne/internal/nativecapture"
 	"ariadne/internal/networkmonitor"
 	"ariadne/internal/ocr"
 	"ariadne/internal/pinnedimage"
@@ -159,7 +161,11 @@ func main() {
 	releaseService := release.NewService()
 	ocrService := ocr.NewService(captureService, clipboardService, workMemoryService)
 	ocr.RegisterAIClient(ocrService, aiclient.NewOpenAICompatibleImageOCR())
-	captureOverlayService := captureoverlay.NewService(captureService, pinnedImageService, ocrService)
+	var nativeCaptureManager *nativecapture.Manager
+	if runtime.GOOS == "windows" {
+		nativeCaptureManager = nativecapture.NewManager(nativecapture.Options{})
+	}
+	captureOverlayService := captureoverlay.NewServiceWithNative(captureService, pinnedImageService, nativeCaptureManager, ocrService)
 	workmemory.RegisterAutoOCRProcessor(workMemoryService, func(entry workmemory.Entry) workmemory.Entry {
 		result := ocrService.RecognizeWorkMemory(entry.ID)
 		if result.WorkMemory == nil {
@@ -274,6 +280,11 @@ func main() {
 				log.Printf("stop shell: %v", err)
 			}
 			toolWindowService.Stop()
+			if nativeCaptureManager != nil {
+				if err := nativeCaptureManager.Stop(); err != nil {
+					log.Printf("stop native capture host: %v", err)
+				}
+			}
 			fileSearchService.Close()
 			clipboardService.StopWatcher()
 			workMemoryService.Stop()
@@ -339,6 +350,11 @@ func main() {
 	applyCaptureOverlayRuntime(captureOverlayService, initialSettings.Screenshot)
 	applyOCRAIRuntime(ocrService, initialSettings.AI)
 	applyWorkMemoryAIRuntime(workMemoryService, initialSettings.AI, initialSettings.WorkMemory)
+	if nativeCaptureManager != nil {
+		if err := nativeCaptureManager.Start(); err != nil {
+			log.Printf("start native capture host: %v", err)
+		}
+	}
 
 	shellManager.Attach(app, nil, trayIcon)
 	if err := shellManager.ApplyAutostart(settingsService.GetSettings().General.RunOnStartup); err != nil {

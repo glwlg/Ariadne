@@ -83,9 +83,10 @@ type SearchResult struct {
 }
 
 type SearchResponse struct {
-	Query   string         `json:"query"`
-	Results []SearchResult `json:"results"`
-	Elapsed int64          `json:"elapsedMs"`
+	Query        string         `json:"query"`
+	Results      []SearchResult `json:"results"`
+	Elapsed      int64          `json:"elapsedMs"`
+	TotalResults int            `json:"totalResults,omitempty"`
 }
 
 type ActionResult struct {

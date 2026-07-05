@@ -18,6 +18,8 @@ type CancellableSearchPromise = Promise<SearchResponse> & {
   cancel?: (cause?: unknown) => Promise<void> | void
 }
 
+const fallbackSearchResultLimit = 40
+
 function normalize(value: string) {
   return value.trim().toLowerCase()
 }
@@ -30,6 +32,7 @@ function fallbackSearch(query: string): SearchResponse {
       query,
       results: [],
       elapsedMs: Math.round(performance.now() - started),
+      totalResults: 0,
     }
   }
 
@@ -56,8 +59,9 @@ function fallbackSearch(query: string): SearchResponse {
 
   return {
     query,
-    results,
+    results: results.slice(0, fallbackSearchResultLimit),
     elapsedMs: Math.round(performance.now() - started),
+    totalResults: results.length,
   }
 }
 
@@ -155,7 +159,7 @@ function copyResult(id: string, title: string, subtitle: string, text: string, d
       title,
       subtitle,
       text,
-      meta: [{ label: '动作来源', value: '开发态 fallback preview action' }],
+      meta: [{ label: '结果动作', value: '复制结果' }],
     },
     actions: [copyAction('copy_value', '复制结果', text), {
       id: 'remember',

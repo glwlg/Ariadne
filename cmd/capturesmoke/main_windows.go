@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"unsafe"
 
 	"ariadne/internal/capturehistory"
+	"ariadne/internal/clipboardhistory"
 
 	"golang.org/x/sys/windows"
 )
@@ -35,10 +37,12 @@ const (
 
 	swHide = 0
 
-	vkA    = 0x41
-	vkMenu = 0x12
-	vkP    = 0x50
-	vkQ    = 0x51
+	vkA      = 0x41
+	vkF1     = 0x70
+	vkMenu   = 0x12
+	vkP      = 0x50
+	vkQ      = 0x51
+	vkReturn = 0x0D
 
 	inputKeyboard = 1
 	keyEventUp    = 0x0002
@@ -51,6 +55,24 @@ const (
 	mouseEventLeftUp   = 0x0004
 
 	wmHotkey = 0x0312
+	cfDIB    = 8
+	cfDIBV5  = 17
+
+	contentStrictMatchPercent   = 98.0
+	contentStrictMeanAbsDiff    = 2.0
+	contentTolerantMatchPercent = 95.0
+	contentTolerantMeanAbsDiff  = 0.75
+	contentPhysicalMatchPercent = 60.0
+	contentPhysicalMeanAbsDiff  = 15.0
+
+	pinnedDragMaxAttempts   = 2
+	pinnedDragReadyDelay    = 300 * time.Millisecond
+	pinnedDragRetryDelay    = 250 * time.Millisecond
+	pinnedDragSettleDelay   = 650 * time.Millisecond
+	pinnedDragMoveX         = 90
+	pinnedDragMoveY         = 55
+	pinnedDragMinDelta      = 20
+	maxCopyClipboardLatency = 750 * time.Millisecond
 )
 
 var (
@@ -71,15 +93,27 @@ var (
 	procSetCursorPos        = user32.NewProc("SetCursorPos")
 	procMouseEvent          = user32.NewProc("mouse_event")
 	procPostThreadMessage   = user32.NewProc("PostThreadMessageW")
+	procOpenClipboard       = user32.NewProc("OpenClipboard")
+	procCloseClipboard      = user32.NewProc("CloseClipboard")
+	procGetClipboardData    = user32.NewProc("GetClipboardData")
+	procIsFormatAvailable   = user32.NewProc("IsClipboardFormatAvailable")
+	kernel32                = windows.NewLazySystemDLL("kernel32.dll")
+	procGlobalLock          = kernel32.NewProc("GlobalLock")
+	procGlobalUnlock        = kernel32.NewProc("GlobalUnlock")
 )
 
 type options struct {
-	ExePath         string
-	OutputPath      string
-	Timeout         time.Duration
-	KeepTemp        bool
-	SelectionWidth  int
-	SelectionHeight int
+	ExePath           string
+	OutputPath        string
+	Timeout           time.Duration
+	MaxPinLatency     time.Duration
+	PinLatencyOnly    bool
+	CopyClipboardOnly bool
+	UseCurrentProfile bool
+	ScreenshotHotkey  string
+	KeepTemp          bool
+	SelectionWidth    int
+	SelectionHeight   int
 }
 
 type report struct {
@@ -97,6 +131,9 @@ type report struct {
 	OverlayWindow     windowSample                  `json:"overlayWindow,omitempty"`
 	PinnedWindow      windowSample                  `json:"pinnedWindow,omitempty"`
 	PinnedAfterDrag   windowSample                  `json:"pinnedAfterDrag,omitempty"`
+	ClipboardType     string                        `json:"clipboardType,omitempty"`
+	ClipboardWidth    int                           `json:"clipboardWidth,omitempty"`
+	ClipboardHeight   int                           `json:"clipboardHeight,omitempty"`
 	CapturedImagePath string                        `json:"capturedImagePath,omitempty"`
 	CapturedWidth     int                           `json:"capturedWidth,omitempty"`
 	CapturedHeight    int                           `json:"capturedHeight,omitempty"`
@@ -128,6 +165,7 @@ type hotkeyAttempt struct {
 
 type windowSample struct {
 	Handle        uint64 `json:"handle,omitempty"`
+	ProcessID     uint32 `json:"processId,omitempty"`
 	Title         string `json:"title,omitempty"`
 	Visible       bool   `json:"visible"`
 	X             int    `json:"x"`
@@ -164,6 +202,20 @@ type inputEvent struct {
 	_        [8]byte
 }
 
+type pinnedDragRuntime struct {
+	Sleep      func(time.Duration)
+	DragMouse  func(int, int, int, int)
+	ReadWindow func(windowSample) windowSample
+}
+
+type pinnedDragAttempt struct {
+	Attempt     int
+	DeltaX      int
+	DeltaY      int
+	TotalDeltaX int
+	TotalDeltaY int
+}
+
 func main() {
 	opts := parseOptions()
 	result := run(opts)
@@ -191,9 +243,15 @@ func main() {
 func parseOptions() options {
 	opts := options{}
 	var timeoutMs int64
+	var maxPinMs int64
 	flag.StringVar(&opts.ExePath, "exe", filepath.Join("bin", "ariadne.exe"), "Path to ariadne.exe")
 	flag.StringVar(&opts.OutputPath, "output", "", "Optional JSON report path")
 	flag.Int64Var(&timeoutMs, "timeout-ms", 12000, "Timeout per UI wait in milliseconds")
+	flag.Int64Var(&maxPinMs, "max-pin-ms", 0, "Fail if the pinned image window takes longer than this many milliseconds to appear; 0 disables the latency assertion")
+	flag.BoolVar(&opts.PinLatencyOnly, "pin-latency-only", false, "Stop after the pinned image window appears and only fail the run on the pin latency assertion")
+	flag.BoolVar(&opts.CopyClipboardOnly, "copy-clipboard-only", false, "Stop after pressing Enter and verifying the system clipboard contains the captured image")
+	flag.BoolVar(&opts.UseCurrentProfile, "use-current-profile", false, "Use the current user's APPDATA and LOCALAPPDATA instead of an isolated temporary profile")
+	flag.StringVar(&opts.ScreenshotHotkey, "screenshot-hotkey", "alt+a", "Screenshot hotkey to send: alt+a or f1")
 	flag.BoolVar(&opts.KeepTemp, "keep-temp", false, "Keep temporary APPDATA/LOCALAPPDATA after the smoke run")
 	flag.IntVar(&opts.SelectionWidth, "selection-width", 260, "Native selection width to drag")
 	flag.IntVar(&opts.SelectionHeight, "selection-height", 180, "Native selection height to drag")
@@ -201,6 +259,9 @@ func parseOptions() options {
 	opts.Timeout = time.Duration(timeoutMs) * time.Millisecond
 	if opts.Timeout <= 0 {
 		opts.Timeout = 12 * time.Second
+	}
+	if maxPinMs > 0 {
+		opts.MaxPinLatency = time.Duration(maxPinMs) * time.Millisecond
 	}
 	return opts
 }
@@ -234,21 +295,25 @@ func run(opts options) report {
 		"alt+q": tryRegisterHotkey(65002, vkQ),
 	}
 
-	tempRoot, err := os.MkdirTemp("", "ariadne-capture-smoke-")
-	if err != nil {
-		return result.fail("create temp appdata", err)
-	}
-	result.TempRoot = tempRoot
-	if !opts.KeepTemp {
-		defer os.RemoveAll(tempRoot)
-	}
-	roaming := filepath.Join(tempRoot, "Roaming")
-	local := filepath.Join(tempRoot, "Local")
-	if err := os.MkdirAll(roaming, 0o755); err != nil {
-		return result.fail("create temp roaming", err)
-	}
-	if err := os.MkdirAll(local, 0o755); err != nil {
-		return result.fail("create temp local", err)
+	roaming := os.Getenv("APPDATA")
+	local := os.Getenv("LOCALAPPDATA")
+	if !opts.UseCurrentProfile {
+		tempRoot, err := os.MkdirTemp("", "ariadne-capture-smoke-")
+		if err != nil {
+			return result.fail("create temp appdata", err)
+		}
+		result.TempRoot = tempRoot
+		if !opts.KeepTemp {
+			defer os.RemoveAll(tempRoot)
+		}
+		roaming = filepath.Join(tempRoot, "Roaming")
+		local = filepath.Join(tempRoot, "Local")
+		if err := os.MkdirAll(roaming, 0o755); err != nil {
+			return result.fail("create temp roaming", err)
+		}
+		if err := os.MkdirAll(local, 0o755); err != nil {
+			return result.fail("create temp local", err)
+		}
 	}
 
 	command := exec.Command(exePath)
@@ -269,32 +334,39 @@ func run(opts options) report {
 		}
 	}()
 
-	mainWindow, ok, err := waitForWindow(uint32(command.Process.Pid), opts.Timeout, func(window windowSample) bool {
+	pid := uint32(command.Process.Pid)
+	mainWindow, ok, err := waitForWindow(pid, minDuration(opts.Timeout, 2500*time.Millisecond), func(window windowSample) bool {
 		return strings.EqualFold(window.Title, "Ariadne")
 	}, exited)
 	if err != nil {
 		return result.fail("wait main window", err)
 	}
-	if !ok {
-		return result.fail("wait main window", fmt.Errorf("main Ariadne window not found within %s", opts.Timeout))
+	if ok {
+		result.MainWindow = mainWindow
 	}
-	result.MainWindow = mainWindow
 	result.HotkeyDuring = map[string]hotkeyAttempt{
 		"alt+a": tryRegisterHotkey(65003, vkA),
 		"alt+q": tryRegisterHotkey(65004, vkQ),
 	}
 	result.addStep("hotkey_registration", hotkeyBlocked(result.HotkeyDuring["alt+a"]) && hotkeyBlocked(result.HotkeyDuring["alt+q"]), fmt.Sprintf("during alt+a=%s alt+q=%s", hotkeyAttemptText(result.HotkeyDuring["alt+a"]), hotkeyAttemptText(result.HotkeyDuring["alt+q"])), 0)
-	result.addStep("start_app", true, fmt.Sprintf("pid=%d title=%q", command.Process.Pid, mainWindow.Title), time.Since(startedAt))
-
-	hideWindow(uintptr(mainWindow.Handle))
-	if !waitForHidden(uintptr(mainWindow.Handle), 2*time.Second) {
-		result.addStep("hide_main", false, "main window stayed visible before capture", 2*time.Second)
+	if ok {
+		result.addStep("start_app", true, fmt.Sprintf("pid=%d title=%q", command.Process.Pid, mainWindow.Title), time.Since(startedAt))
+		hideWindow(uintptr(mainWindow.Handle))
+		if !waitForHidden(uintptr(mainWindow.Handle), 2*time.Second) {
+			result.addStep("hide_main", false, "main window stayed visible before capture", 2*time.Second)
+		} else {
+			result.addStep("hide_main", true, "main window hidden before reference and overlay capture", 0)
+		}
 	} else {
-		result.addStep("hide_main", true, "main window hidden before reference and overlay capture", 0)
+		result.addStep("start_app", true, fmt.Sprintf("pid=%d tray startup without visible main window", command.Process.Pid), time.Since(startedAt))
+		for _, window := range processWindows(pid) {
+			hideWindow(uintptr(window.Handle))
+		}
 	}
 
 	moveCursor(selection.X-10, selection.Y-10)
 	var referenceImage image.Image
+	referenceImages := map[string]image.Image{}
 	referencePNG, _, _, err := capturehistory.CaptureRegionPNG(selection.X, selection.Y, selection.Width, selection.Height)
 	if err != nil {
 		result.addSkippedStep("reference_capture", fmt.Sprintf("reference BitBlt unavailable in this desktop session: %v", err), 0)
@@ -303,14 +375,30 @@ func run(opts options) report {
 		if err != nil {
 			result.addSkippedStep("reference_capture", fmt.Sprintf("reference PNG decode failed: %v", err), 0)
 		} else {
+			referenceImages[imageSizeKey(referenceImage)] = referenceImage
 			result.addStep("reference_capture", true, fmt.Sprintf("%dx%d at %d,%d", selection.Width, selection.Height, selection.X, selection.Y), 0)
 		}
 	}
+	for _, scale := range []float64{1.25, 1.5, 1.75, 2, 2.5, 3} {
+		width := int(math.Round(float64(selection.Width) * scale))
+		height := int(math.Round(float64(selection.Height) * scale))
+		if width == selection.Width && height == selection.Height {
+			continue
+		}
+		data, _, _, err := capturehistory.CaptureRegionPNG(selection.X, selection.Y, width, height)
+		if err != nil {
+			continue
+		}
+		img, err := decodePNG(data)
+		if err != nil {
+			continue
+		}
+		referenceImages[imageSizeKey(img)] = img
+	}
 
 	overlayStart := time.Now()
-	sendAltKey(vkA)
-	pid := uint32(command.Process.Pid)
-	overlays, ok, err := waitForWindows(pid, minDuration(opts.Timeout, 1800*time.Millisecond), func(window windowSample) bool {
+	sendScreenshotHotkey(opts.ScreenshotHotkey)
+	overlays, ok, err := waitForWindows(0, minDuration(opts.Timeout, 1800*time.Millisecond), func(window windowSample) bool {
 		return strings.Contains(window.Title, "截图覆盖层")
 	}, exited)
 	if err != nil {
@@ -323,7 +411,7 @@ func run(opts options) report {
 		} else {
 			result.addStep("fallback_post_screenshot_hotkey", posted > 0, fmt.Sprintf("posted WM_HOTKEY id=2 to %d process thread(s)", posted), 0)
 		}
-		overlays, ok, err = waitForWindows(pid, opts.Timeout, func(window windowSample) bool {
+		overlays, ok, err = waitForWindows(0, opts.Timeout, func(window windowSample) bool {
 			return strings.Contains(window.Title, "截图覆盖层")
 		}, exited)
 		if err != nil {
@@ -344,10 +432,44 @@ func run(opts options) report {
 	time.Sleep(350 * time.Millisecond)
 	result.addStep("drag_selection", true, fmt.Sprintf("%dx%d", selection.Width, selection.Height), 0)
 
+	if opts.CopyClipboardOnly {
+		sentinel, err := solidPNG(9, 7, color.RGBA{R: 211, G: 37, B: 89, A: 255})
+		if err != nil {
+			return result.fail("seed_clipboard_image", err)
+		}
+		if err := clipboardhistory.WritePNGToSystemClipboard(sentinel); err != nil {
+			return result.fail("seed_clipboard_image", err)
+		}
+		result.addStep("seed_clipboard_image", true, "clipboard seeded with stale image sentinel 9x7", 0)
+		sendKey(vkReturn)
+		copyStart := time.Now()
+		clipboardWidth, clipboardHeight, dimensionsDetail, err := waitForClipboardImageMatching(opts.Timeout, selection.Width, selection.Height)
+		if err != nil {
+			return result.fail("verify_clipboard_image", err)
+		}
+		copyElapsed := time.Since(copyStart)
+		result.ClipboardType = "image"
+		result.ClipboardWidth = clipboardWidth
+		result.ClipboardHeight = clipboardHeight
+		latencyOK := copyElapsed <= maxCopyClipboardLatency
+		if !latencyOK {
+			dimensionsDetail += fmt.Sprintf(" latency_exceeded max=%s", maxCopyClipboardLatency)
+		}
+		result.addStep("copy_selection_to_clipboard", latencyOK, dimensionsDetail, copyElapsed)
+		result.Pass = latencyOK
+		result.AppLogTail = readLogTail(filepath.Join(roaming, "Ariadne", "logs", "ariadne.log"), 40)
+		return result
+	}
+
+	existingPinned := matchingWindowHandles(func(window windowSample) bool {
+		return strings.Contains(window.Title, "截图贴图")
+	})
 	sendKey(vkP)
 	pinStart := time.Now()
-	pinnedWindow, ok, err := waitForWindow(uint32(command.Process.Pid), opts.Timeout, func(window windowSample) bool {
-		return strings.Contains(window.Title, "截图贴图")
+	pinnedWindow, ok, err := waitForWindow(0, opts.Timeout, func(window windowSample) bool {
+		return strings.Contains(window.Title, "截图贴图") &&
+			window.ProcessID != uint32(command.Process.Pid) &&
+			!existingPinned[window.Handle]
 	}, exited)
 	if err != nil {
 		return result.fail("wait pinned window", err)
@@ -356,9 +478,20 @@ func run(opts options) report {
 		return result.fail("wait pinned window", fmt.Errorf("pinned image window not found within %s after P", opts.Timeout))
 	}
 	result.PinnedWindow = pinnedWindow
-	result.addStep("pin_selection", true, fmt.Sprintf("title=%q", pinnedWindow.Title), time.Since(pinStart))
+	pinElapsed := time.Since(pinStart)
+	pinOK := opts.MaxPinLatency <= 0 || pinElapsed <= opts.MaxPinLatency
+	pinDetail := fmt.Sprintf("title=%q", pinnedWindow.Title)
+	if opts.MaxPinLatency > 0 {
+		pinDetail = fmt.Sprintf("%s max=%dms", pinDetail, opts.MaxPinLatency.Milliseconds())
+	}
+	result.addStep("pin_selection", pinOK, pinDetail, pinElapsed)
+	if opts.PinLatencyOnly {
+		result.Pass = pinOK
+		result.AppLogTail = readLogTail(filepath.Join(roaming, "Ariadne", "logs", "ariadne.log"), 40)
+		return result
+	}
 
-	latestPNG, err := latestPNG(filepath.Join(roaming, "Ariadne", "capture_images"))
+	latestPNG, err := waitLatestPNG(filepath.Join(roaming, "Ariadne", "capture_images"), opts.Timeout)
 	if err != nil {
 		return result.fail("find captured png", err)
 	}
@@ -373,24 +506,40 @@ func run(opts options) report {
 	}
 	result.CapturedWidth = capturedImage.Bounds().Dx()
 	result.CapturedHeight = capturedImage.Bounds().Dy()
-	dimensionsOK := result.CapturedWidth == selection.Width && result.CapturedHeight == selection.Height
+	dimensionsOK, dimensionsDetail, pixelScale := captureDimensionsOK(result.CapturedWidth, result.CapturedHeight, selection.Width, selection.Height)
 	result.addStep(
 		"check_capture_dimensions",
 		dimensionsOK,
-		fmt.Sprintf("saved=%dx%d expected=%dx%d", result.CapturedWidth, result.CapturedHeight, selection.Width, selection.Height),
+		dimensionsDetail,
 		0,
 	)
-	if referenceImage == nil {
+	if pixelScale > 1 {
+		result.addSkippedStep("compare_capture_content", fmt.Sprintf("physical-DPI capture scale=%.2f; content equality skipped", pixelScale), 0)
+	} else if referenceImage == nil {
 		result.addSkippedStep("compare_capture_content", "reference image unavailable; content equality was not checked", 0)
 	} else {
-		matchPercent, meanDiff := compareImages(referenceImage, capturedImage)
+		expectedImage := referenceImage
+		comparisonImage := capturedImage
+		if scaledReference, ok := referenceImages[imageSizeKey(capturedImage)]; ok {
+			expectedImage = scaledReference
+		} else {
+			comparisonImage = normalizeCapturedForComparison(referenceImage, capturedImage, pixelScale)
+		}
+		matchPercent, meanDiff := compareImages(expectedImage, comparisonImage)
 		result.PixelMatchPercent = matchPercent
 		result.MeanAbsDiff = meanDiff
-		contentOK := matchPercent >= 98 && meanDiff <= 2
+		contentOK, contentDetail := evaluateContentMatch(matchPercent, meanDiff)
+		if !contentOK && pixelScale > 1 && matchPercent >= contentPhysicalMatchPercent && meanDiff <= contentPhysicalMeanAbsDiff {
+			contentOK = true
+			contentDetail = fmt.Sprintf("match=%.2f%% mean_abs_diff=%.3f mode=physical_dpi_tolerance min_match=%.2f%% max_mean=%.3f", matchPercent, meanDiff, contentPhysicalMatchPercent, contentPhysicalMeanAbsDiff)
+		}
+		if pixelScale > 1 {
+			contentDetail = fmt.Sprintf("%s normalized_scale=%.2f", contentDetail, pixelScale)
+		}
 		result.addStep(
 			"compare_capture_content",
 			contentOK,
-			fmt.Sprintf("match=%.2f%% mean_abs_diff=%.3f", matchPercent, meanDiff),
+			contentDetail,
 			0,
 		)
 	}
@@ -407,25 +556,15 @@ func run(opts options) report {
 		0,
 	)
 
-	dragStartX := pinnedWindow.X + max(30, pinnedWindow.Width/2)
-	dragStartY := pinnedWindow.Y + max(44, pinnedWindow.Height/2)
-	if dragStartX >= pinnedWindow.X+pinnedWindow.Width-8 {
-		dragStartX = pinnedWindow.X + pinnedWindow.Width/2
-	}
-	if dragStartY >= pinnedWindow.Y+pinnedWindow.Height-8 {
-		dragStartY = pinnedWindow.Y + pinnedWindow.Height/2
-	}
-	dragMouse(dragStartX, dragStartY, dragStartX+90, dragStartY+55)
-	time.Sleep(650 * time.Millisecond)
-	afterDrag := readWindowSample(uintptr(pinnedWindow.Handle), pinnedWindow.Title)
+	afterDrag, dragAttempts := dragPinnedWindow(pinnedWindow, defaultPinnedDragRuntime())
 	result.PinnedAfterDrag = afterDrag
 	result.DragDeltaX = afterDrag.X - pinnedWindow.X
 	result.DragDeltaY = afterDrag.Y - pinnedWindow.Y
-	dragOK := abs(result.DragDeltaX) >= 20 || abs(result.DragDeltaY) >= 20
+	dragOK := pinnedDragMoved(result.DragDeltaX, result.DragDeltaY)
 	result.addStep(
 		"drag_pinned_window",
 		dragOK,
-		fmt.Sprintf("delta=%d,%d", result.DragDeltaX, result.DragDeltaY),
+		pinnedDragDetail(dragAttempts),
 		0,
 	)
 
@@ -551,7 +690,7 @@ func processWindows(pid uint32) []windowSample {
 		search := (*windowSearchState)(unsafe.Pointer(lparam))
 		var windowPID uint32
 		procGetWindowThreadPID.Call(hwnd, uintptr(unsafe.Pointer(&windowPID)))
-		if windowPID != search.pid {
+		if search.pid != 0 && windowPID != search.pid {
 			return 1
 		}
 		visible, _, _ := procIsWindowVisible.Call(hwnd)
@@ -562,11 +701,21 @@ func processWindows(pid uint32) []windowSample {
 		if strings.TrimSpace(title) == "" {
 			return 1
 		}
-		search.windows = append(search.windows, readWindowSample(hwnd, title))
+		search.windows = append(search.windows, readWindowSample(hwnd, windowPID, title))
 		return 1
 	})
 	procEnumWindows.Call(callback, uintptr(unsafe.Pointer(state)))
 	return state.windows
+}
+
+func matchingWindowHandles(predicate func(windowSample) bool) map[uint64]bool {
+	handles := map[uint64]bool{}
+	for _, window := range processWindows(0) {
+		if predicate(window) {
+			handles[window.Handle] = true
+		}
+	}
+	return handles
 }
 
 type windowSearchState struct {
@@ -601,7 +750,7 @@ func windowTitle(hwnd uintptr) string {
 	return syscall.UTF16ToString(buffer)
 }
 
-func readWindowSample(hwnd uintptr, title string) windowSample {
+func readWindowSample(hwnd uintptr, pid uint32, title string) windowSample {
 	rect := winRect{}
 	procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&rect)))
 	style, _, _ := procGetWindowLongPtr.Call(hwnd, gwlStyleIndex)
@@ -609,6 +758,7 @@ func readWindowSample(hwnd uintptr, title string) windowSample {
 	foreground, _, _ := procGetForegroundWindow.Call()
 	return windowSample{
 		Handle:        uint64(hwnd),
+		ProcessID:     pid,
 		Title:         title,
 		Visible:       windowVisible(hwnd),
 		X:             int(rect.Left),
@@ -648,6 +798,85 @@ func moveCursor(x int, y int) {
 	procSetCursorPos.Call(uintptr(x), uintptr(y))
 }
 
+func defaultPinnedDragRuntime() pinnedDragRuntime {
+	return pinnedDragRuntime{
+		Sleep:     time.Sleep,
+		DragMouse: dragMouse,
+		ReadWindow: func(window windowSample) windowSample {
+			return readWindowSample(uintptr(window.Handle), window.ProcessID, window.Title)
+		},
+	}
+}
+
+func dragPinnedWindow(pinnedWindow windowSample, runtime pinnedDragRuntime) (windowSample, []pinnedDragAttempt) {
+	if runtime.Sleep == nil {
+		runtime.Sleep = time.Sleep
+	}
+	if runtime.DragMouse == nil {
+		runtime.DragMouse = dragMouse
+	}
+	if runtime.ReadWindow == nil {
+		runtime.ReadWindow = func(window windowSample) windowSample {
+			return readWindowSample(uintptr(window.Handle), window.ProcessID, window.Title)
+		}
+	}
+
+	current := pinnedWindow
+	attempts := make([]pinnedDragAttempt, 0, pinnedDragMaxAttempts)
+	runtime.Sleep(pinnedDragReadyDelay)
+	for attempt := 1; attempt <= pinnedDragMaxAttempts; attempt++ {
+		before := runtime.ReadWindow(current)
+		dragStartX, dragStartY := pinnedDragStart(before)
+		runtime.DragMouse(dragStartX, dragStartY, dragStartX+pinnedDragMoveX, dragStartY+pinnedDragMoveY)
+		runtime.Sleep(pinnedDragSettleDelay)
+		after := runtime.ReadWindow(before)
+		current = after
+		next := pinnedDragAttempt{
+			Attempt:     attempt,
+			DeltaX:      after.X - before.X,
+			DeltaY:      after.Y - before.Y,
+			TotalDeltaX: after.X - pinnedWindow.X,
+			TotalDeltaY: after.Y - pinnedWindow.Y,
+		}
+		attempts = append(attempts, next)
+		if pinnedDragMoved(next.TotalDeltaX, next.TotalDeltaY) {
+			return after, attempts
+		}
+		if attempt < pinnedDragMaxAttempts {
+			runtime.Sleep(pinnedDragRetryDelay)
+		}
+	}
+	return current, attempts
+}
+
+func pinnedDragStart(window windowSample) (int, int) {
+	dragStartX := window.X + max(30, window.Width/2)
+	dragStartY := window.Y + max(44, window.Height/2)
+	if dragStartX >= window.X+window.Width-8 {
+		dragStartX = window.X + window.Width/2
+	}
+	if dragStartY >= window.Y+window.Height-8 {
+		dragStartY = window.Y + window.Height/2
+	}
+	return dragStartX, dragStartY
+}
+
+func pinnedDragMoved(deltaX int, deltaY int) bool {
+	return abs(deltaX) >= pinnedDragMinDelta || abs(deltaY) >= pinnedDragMinDelta
+}
+
+func pinnedDragDetail(attempts []pinnedDragAttempt) string {
+	if len(attempts) == 0 {
+		return "attempts=0 delta=0,0"
+	}
+	attemptDeltas := make([]string, 0, len(attempts))
+	for _, attempt := range attempts {
+		attemptDeltas = append(attemptDeltas, fmt.Sprintf("%d:%d,%d", attempt.Attempt, attempt.DeltaX, attempt.DeltaY))
+	}
+	last := attempts[len(attempts)-1]
+	return fmt.Sprintf("attempts=%d delta=%d,%d attempt_deltas=%s", len(attempts), last.TotalDeltaX, last.TotalDeltaY, strings.Join(attemptDeltas, ";"))
+}
+
 func dragMouse(x1 int, y1 int, x2 int, y2 int) {
 	moveCursor(x1, y1)
 	time.Sleep(70 * time.Millisecond)
@@ -672,6 +901,15 @@ func sendAltKey(virtualKey uint16) {
 		keyUp(vkMenu),
 	}
 	sendInputs(inputs)
+}
+
+func sendScreenshotHotkey(hotkey string) {
+	switch strings.ToLower(strings.TrimSpace(hotkey)) {
+	case "f1":
+		sendKey(vkF1)
+	default:
+		sendAltKey(vkA)
+	}
 }
 
 func sendKey(virtualKey uint16) {
@@ -791,6 +1029,92 @@ func latestPNG(root string) (string, error) {
 	return latest, nil
 }
 
+func waitLatestPNG(root string, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		path, err := latestPNG(root)
+		if err == nil {
+			return path, nil
+		}
+		lastErr = err
+		time.Sleep(30 * time.Millisecond)
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("no png found under %s", root)
+}
+
+func waitForClipboardImageMatching(timeout time.Duration, expectedWidth int, expectedHeight int) (int, int, string, error) {
+	deadline := time.Now().Add(timeout)
+	var lastMessage string
+	for time.Now().Before(deadline) {
+		width, height, format, err := readClipboardImageDimensions()
+		if err == nil {
+			ok, detail, _ := captureDimensionsOK(width, height, expectedWidth, expectedHeight)
+			if ok {
+				return width, height, detail + " format=" + format, nil
+			}
+			lastMessage = "stale image " + detail
+		} else if err != nil {
+			lastMessage = err.Error()
+		}
+		time.Sleep(80 * time.Millisecond)
+	}
+	if lastMessage == "" {
+		lastMessage = "clipboard did not contain an image"
+	}
+	return 0, 0, "", fmt.Errorf("matching clipboard image not found within %s: %s", timeout, lastMessage)
+}
+
+func readClipboardImageDimensions() (int, int, string, error) {
+	opened, _, openErr := procOpenClipboard.Call(0)
+	if opened == 0 {
+		return 0, 0, "", fmt.Errorf("open clipboard: %w", openErr)
+	}
+	defer procCloseClipboard.Call()
+
+	format := uintptr(cfDIBV5)
+	available, _, _ := procIsFormatAvailable.Call(format)
+	formatName := "CF_DIBV5"
+	if available == 0 {
+		format = uintptr(cfDIB)
+		formatName = "CF_DIB"
+		available, _, _ = procIsFormatAvailable.Call(format)
+		if available == 0 {
+			return 0, 0, "", fmt.Errorf("clipboard image format unavailable")
+		}
+	}
+
+	handle, _, dataErr := procGetClipboardData.Call(format)
+	if handle == 0 {
+		return 0, 0, "", fmt.Errorf("get clipboard image: %w", dataErr)
+	}
+	pointer, _, lockErr := procGlobalLock.Call(handle)
+	if pointer == 0 {
+		return 0, 0, "", fmt.Errorf("lock clipboard image: %w", lockErr)
+	}
+	defer procGlobalUnlock.Call(handle)
+
+	header := unsafe.Slice((*byte)(unsafe.Pointer(pointer)), 16)
+	if len(header) < 12 {
+		return 0, 0, "", fmt.Errorf("clipboard image header too small")
+	}
+	width := int(int32(binary.LittleEndian.Uint32(header[4:8])))
+	height := int(int32(binary.LittleEndian.Uint32(header[8:12])))
+	if width < 0 {
+		width = -width
+	}
+	if height < 0 {
+		height = -height
+	}
+	if width <= 0 || height <= 0 {
+		return 0, 0, "", fmt.Errorf("clipboard image dimensions invalid: %dx%d", width, height)
+	}
+	return width, height, formatName, nil
+}
+
 func readLogTail(path string, limit int) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -843,6 +1167,90 @@ func compareImages(reference image.Image, captured image.Image) (float64, float6
 		return 0, math.MaxFloat64
 	}
 	return float64(exact) * 100 / float64(total), diffTotal / float64(total*3)
+}
+
+func captureDimensionsOK(savedWidth int, savedHeight int, expectedWidth int, expectedHeight int) (bool, string, float64) {
+	if savedWidth == expectedWidth && savedHeight == expectedHeight {
+		return true, fmt.Sprintf("saved=%dx%d expected=%dx%d mode=logical_pixels", savedWidth, savedHeight, expectedWidth, expectedHeight), 1
+	}
+	if expectedWidth <= 0 || expectedHeight <= 0 || savedWidth <= 0 || savedHeight <= 0 {
+		return false, fmt.Sprintf("saved=%dx%d expected=%dx%d mode=invalid", savedWidth, savedHeight, expectedWidth, expectedHeight), 1
+	}
+	scaleX := float64(savedWidth) / float64(expectedWidth)
+	scaleY := float64(savedHeight) / float64(expectedHeight)
+	if math.Abs(scaleX-scaleY) <= 0.02 && scaleX >= 1 && scaleX <= 4 {
+		return true, fmt.Sprintf("saved=%dx%d expected=%dx%d scale=%.2f mode=physical_pixels", savedWidth, savedHeight, expectedWidth, expectedHeight, scaleX), scaleX
+	}
+	return false, fmt.Sprintf("saved=%dx%d expected=%dx%d scale=%.2f/%.2f mode=failed", savedWidth, savedHeight, expectedWidth, expectedHeight, scaleX, scaleY), 1
+}
+
+func normalizeCapturedForComparison(reference image.Image, captured image.Image, pixelScale float64) image.Image {
+	refBounds := reference.Bounds()
+	capBounds := captured.Bounds()
+	if refBounds.Dx() == capBounds.Dx() && refBounds.Dy() == capBounds.Dy() {
+		return captured
+	}
+	if pixelScale <= 1 {
+		return captured
+	}
+	return resizeNearest(captured, refBounds.Dx(), refBounds.Dy())
+}
+
+func imageSizeKey(img image.Image) string {
+	if img == nil {
+		return ""
+	}
+	bounds := img.Bounds()
+	return fmt.Sprintf("%dx%d", bounds.Dx(), bounds.Dy())
+}
+
+func resizeNearest(source image.Image, width int, height int) *image.RGBA {
+	target := image.NewRGBA(image.Rect(0, 0, max(1, width), max(1, height)))
+	sourceBounds := source.Bounds()
+	for y := 0; y < target.Bounds().Dy(); y++ {
+		sourceY := sourceBounds.Min.Y + min(sourceBounds.Dy()-1, int(float64(y)*float64(sourceBounds.Dy())/float64(target.Bounds().Dy())))
+		for x := 0; x < target.Bounds().Dx(); x++ {
+			sourceX := sourceBounds.Min.X + min(sourceBounds.Dx()-1, int(float64(x)*float64(sourceBounds.Dx())/float64(target.Bounds().Dx())))
+			target.Set(x, y, source.At(sourceX, sourceY))
+		}
+	}
+	return target
+}
+
+func solidPNG(width int, height int, value color.RGBA) ([]byte, error) {
+	img := image.NewRGBA(image.Rect(0, 0, max(1, width), max(1, height)))
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			img.SetRGBA(x, y, value)
+		}
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func evaluateContentMatch(matchPercent float64, meanDiff float64) (bool, string) {
+	mode := "failed"
+	strictOK := matchPercent >= contentStrictMatchPercent && meanDiff <= contentStrictMeanAbsDiff
+	tolerantOK := matchPercent >= contentTolerantMatchPercent && meanDiff <= contentTolerantMeanAbsDiff
+	if strictOK {
+		mode = "strict"
+	} else if tolerantOK {
+		mode = "low_mean_tolerance"
+	}
+	detail := fmt.Sprintf(
+		"match=%.2f%% mean_abs_diff=%.3f mode=%s strict(min_match=%.2f%% max_mean=%.3f) tolerant(min_match=%.2f%% max_mean=%.3f)",
+		matchPercent,
+		meanDiff,
+		mode,
+		contentStrictMatchPercent,
+		contentStrictMeanAbsDiff,
+		contentTolerantMatchPercent,
+		contentTolerantMeanAbsDiff,
+	)
+	return strictOK || tolerantOK, detail
 }
 
 func rgba8(value color.Color) color.RGBA {

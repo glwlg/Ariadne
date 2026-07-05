@@ -67,6 +67,8 @@ type Service struct {
 	clipboards ClipboardSource
 	items      map[string]PinnedImage
 	openWindow func(PinnedImage) error
+	warmWindow application.Window
+	warming    bool
 }
 
 func NewService(captures CaptureSource, clipboards ClipboardSource) *Service {
@@ -81,6 +83,10 @@ func (s *Service) Attach(app *application.App) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.app = app
+	go func() {
+		time.Sleep(1200 * time.Millisecond)
+		s.ensureWarmWindow()
+	}()
 }
 
 func (s *Service) OpenCapture(id string) OpenResult {
@@ -296,10 +302,51 @@ func (s *Service) openWindowWithApp(app *application.App, pin PinnedImage) error
 		existing.Focus()
 		return nil
 	}
+	app.Window.NewWithOptions(pinnedWindowOptions(name, pin, false))
+	return nil
+}
+
+func (s *Service) ensureWarmWindow() {
+	s.mu.Lock()
+	if s.app == nil || s.openWindow != nil || s.warmWindow != nil || s.warming {
+		s.mu.Unlock()
+		return
+	}
+	s.warming = true
+	app := s.app
+	s.mu.Unlock()
+
+	name := "pinned-image-warm"
+	if existing, ok := app.Window.Get(name); ok {
+		existing.Hide()
+		s.mu.Lock()
+		s.warmWindow = existing
+		s.warming = false
+		s.mu.Unlock()
+		return
+	}
+	window := app.Window.NewWithOptions(pinnedWindowOptions(name, PinnedImage{
+		ID:      "",
+		Title:   "Ariadne - 贴图",
+		WindowW: 1,
+		WindowH: 1,
+	}, true))
+	window.Hide()
+	time.Sleep(800 * time.Millisecond)
+	window.Hide()
+	s.mu.Lock()
+	if s.warmWindow == nil {
+		s.warmWindow = window
+	}
+	s.warming = false
+	s.mu.Unlock()
+}
+
+func pinnedWindowOptions(name string, pin PinnedImage, hidden bool) application.WebviewWindowOptions {
 	options := application.WebviewWindowOptions{
 		Name:             name,
 		Title:            pin.Title,
-		URL:              "/?view=pinned-image&pinId=" + url.QueryEscape(pin.ID),
+		URL:              pinnedWindowURL(pin.ID, hidden),
 		Width:            pin.WindowW,
 		Height:           pin.WindowH,
 		MinWidth:         1,
@@ -315,14 +362,21 @@ func (s *Service) openWindowWithApp(app *application.App, pin PinnedImage) error
 			DisableIcon:                       true,
 			DisableFramelessWindowDecorations: true,
 		},
+		Hidden: hidden,
 	}
 	if pin.Positioned {
 		options.X = pin.WindowX
 		options.Y = pin.WindowY
 		options.InitialPosition = application.WindowXY
 	}
-	app.Window.NewWithOptions(options)
-	return nil
+	return options
+}
+
+func pinnedWindowURL(id string, warm bool) string {
+	if warm {
+		return "/?view=pinned-image&warm=1"
+	}
+	return "/?view=pinned-image&pinId=" + url.QueryEscape(id)
 }
 
 func newPinnedImage(source string, sourceID string, title string, imagePath string, dataURL string, width int, height int, bytes int64, canCopy bool, copyAction string) PinnedImage {

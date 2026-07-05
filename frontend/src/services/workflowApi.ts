@@ -191,7 +191,7 @@ export async function runWorkflow(request: WorkflowRunRequest): Promise<Workflow
   }
   return {
     ok: true,
-    message: `工作流完成：${workflow.name}（开发态 fallback）`,
+    message: `工作流完成：${workflow.name}`,
     workflowId: workflow.id,
     workflowName: workflow.name,
     output: request.input || request.clipboardText || workflow.id,

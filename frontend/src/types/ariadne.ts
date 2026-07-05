@@ -222,6 +222,7 @@ export interface SearchResponse {
   query: string
   results: SearchResult[]
   elapsedMs: number
+  totalResults?: number
 }
 
 export interface SearchUsageRecord {

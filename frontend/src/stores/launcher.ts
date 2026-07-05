@@ -27,6 +27,7 @@ export const useLauncherStore = defineStore('launcher', () => {
   const isTimeMachineEnabled = ref(false)
   const privacyMode = ref(false)
   const elapsedMs = ref(0)
+  const totalResults = ref(0)
   const pendingConfirmationKey = ref('')
   let activeSearchRequest: AriadneSearchRequest | null = null
   let searchRequestSerial = 0
@@ -35,6 +36,11 @@ export const useLauncherStore = defineStore('launcher', () => {
 
   const selectedResult = computed(() => {
     return results.value.find((result) => result.id === selectedId.value) ?? results.value[0] ?? null
+  })
+  const resultCountLabel = computed(() => {
+    const shown = results.value.length
+    const total = Math.max(totalResults.value, shown)
+    return total > shown ? `显示 ${shown} / ${total} 项` : `${shown} 项`
   })
 
   function select(id: string) {
@@ -240,13 +246,15 @@ export const useLauncherStore = defineStore('launcher', () => {
     if (action.id === 'run_workflow' && action.payload?.workflowId) {
       const workflowId = String(action.payload.workflowId)
       const input = String(action.payload.input ?? '')
+      const confirmationKey = actionConfirmationKey(action, activeResult)
+      const confirmed = pendingConfirmationKey.value === confirmationKey
       let clipboardText = ''
       try {
         clipboardText = await Clipboard.Text()
       } catch {
         clipboardText = ''
       }
-      const result = await runWorkflow({ workflowId, input, clipboardText })
+      const result = await runWorkflow({ workflowId, input, clipboardText, confirmed })
       if (result.ok && result.output) {
         const copied = await writeClipboardText(result.output)
         lastAction.value = {
@@ -260,11 +268,22 @@ export const useLauncherStore = defineStore('launcher', () => {
           }
         }
       } else {
-        lastAction.value = { ok: false, message: result.message }
+        lastAction.value = {
+          ok: false,
+          message: result.message,
+          requiresConfirmation: result.requiresConfirmation,
+          riskReasons: result.riskReasons,
+        }
       }
+      if (result.requiresConfirmation) {
+        setPendingConfirmation(confirmationKey, action)
+      } else {
+        clearPendingConfirmation()
+      }
+      const feedbackDuration = result.requiresConfirmation ? confirmationTimeoutMs(action) : (action.feedback?.durationMs ?? 1800)
       window.setTimeout(() => {
         lastAction.value = null
-      }, action.feedback?.durationMs ?? 1800)
+      }, feedbackDuration)
       return
     }
 
@@ -337,6 +356,7 @@ export const useLauncherStore = defineStore('launcher', () => {
       results.value = []
       selectedId.value = ''
       elapsedMs.value = 0
+      totalResults.value = 0
       return
     }
 
@@ -353,6 +373,7 @@ export const useLauncherStore = defineStore('launcher', () => {
         results.value = []
         selectedId.value = ''
         elapsedMs.value = 0
+        totalResults.value = 0
       }
       return
     } finally {
@@ -366,6 +387,7 @@ export const useLauncherStore = defineStore('launcher', () => {
     }
     results.value = response.results
     elapsedMs.value = response.elapsedMs
+    totalResults.value = response.totalResults ?? response.results.length
     selectedId.value = results.value[0]?.id ?? ''
   }
 
@@ -407,6 +429,7 @@ export const useLauncherStore = defineStore('launcher', () => {
     selectedId.value = ''
     lastAction.value = null
     elapsedMs.value = 0
+    totalResults.value = 0
   }
 
   return {
@@ -414,6 +437,8 @@ export const useLauncherStore = defineStore('launcher', () => {
     selectedId,
     selectedResult,
     results,
+    totalResults,
+    resultCountLabel,
     isExpanded,
     lastAction,
     isTimeMachineEnabled,
@@ -438,6 +463,8 @@ function actionConfirmationKey(action: PreviewAction, result: SearchResult | nul
     String(action.payload?.command ?? ''),
     String(action.payload?.arguments ?? ''),
     String(action.payload?.workingDir ?? ''),
+    String(action.payload?.workflowId ?? ''),
+    String(action.payload?.input ?? ''),
   ].join('|')
 }
 

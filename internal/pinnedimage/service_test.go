@@ -68,6 +68,17 @@ func TestPinnedImageWindowUsesExactImageSize(t *testing.T) {
 	}
 }
 
+func TestPinnedWindowOptionsCanCreateHiddenWarmWindow(t *testing.T) {
+	options := pinnedWindowOptions("pinned-image-warm", PinnedImage{
+		Title:   "Ariadne - 贴图",
+		WindowW: 1,
+		WindowH: 1,
+	}, true)
+	if !options.Hidden || options.URL != "/?view=pinned-image&warm=1" || options.Width != 1 || options.Height != 1 {
+		t.Fatalf("unexpected warm window options: %#v", options)
+	}
+}
+
 func TestSetPinnedPositionUpdatesStoredPositionWithoutWindow(t *testing.T) {
 	dir := t.TempDir()
 	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))

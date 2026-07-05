@@ -1577,7 +1577,8 @@ html.window-controls-visible .tool-header {
 .palette-results {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(310px, 0.92fr) minmax(330px, 1.08fr);
+  min-width: 0;
+  grid-template-columns: minmax(280px, 0.92fr) minmax(320px, 1.08fr);
   gap: 1px;
   border-top: 1px solid var(--border);
   background: var(--border);
@@ -2065,6 +2066,8 @@ button.result-primary-action:focus-visible {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -12859,6 +12862,18 @@ html.dark .capture-overlay-toast {
   --wails-draggable: drag;
 }
 
+.pinned-image-surface:focus {
+  outline: none;
+}
+
+.pinned-image-surface.is-warm {
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  cursor: default;
+  --wails-draggable: no-drag;
+}
+
 .pinned-image-surface:active {
   cursor: grabbing;
 }
@@ -13171,7 +13186,49 @@ html.dark .capture-overlay-toast {
   }
 
   .palette-results {
+    width: 100%;
+    min-width: 0;
     grid-template-columns: 1fr;
+  }
+
+  .palette-shell {
+    width: calc(100vw - 18px);
+  }
+
+  .palette-shell .status-strip {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 0;
+    padding: 9px 10px;
+  }
+
+  .palette-shell .status-detail {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+
+  .palette-shell .inline-feedback {
+    order: 3;
+    margin-left: 0;
+    max-width: 100%;
+  }
+
+  .palette-shell .palette-action-row {
+    order: 4;
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .result-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .result-primary-action {
+    grid-column: 2;
+    justify-self: start;
+    max-width: min(180px, 100%);
   }
 
   .palette-preview {

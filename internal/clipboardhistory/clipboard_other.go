@@ -17,3 +17,11 @@ func watchSystemClipboard(stop <-chan struct{}, onChange func()) error {
 func writeImageToSystemClipboard(path string) error {
 	return errClipboardUnsupported
 }
+
+func writePNGToSystemClipboard(data []byte) error {
+	return errClipboardUnsupported
+}
+
+func writeTextToSystemClipboard(text string) error {
+	return errClipboardUnsupported
+}

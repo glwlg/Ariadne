@@ -68,7 +68,10 @@ var (
 	clipboardWatcherClassName = windows.StringToUTF16Ptr("AriadneClipboardWatcherWindow")
 	clipboardWatcherWndProc   = syscall.NewCallback(clipboardWatcherWindowProc)
 	clipboardWatcherCallbacks sync.Map
+	clipboardWriteSleep       = time.Sleep
 )
+
+const clipboardWriteAttempts = 12
 
 type point struct {
 	X int32
@@ -334,11 +337,24 @@ func writeImageToSystemClipboard(path string) error {
 	if err != nil {
 		return fmt.Errorf("读取剪贴板图片失败: %w", err)
 	}
-	img, err := png.Decode(bytes.NewReader(raw))
+	return writePNGToSystemClipboard(raw)
+}
+
+func writePNGToSystemClipboard(data []byte) error {
+	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("解码剪贴板图片失败: %w", err)
 	}
 	dib := imageToDIB(img)
+
+	return writeClipboardWithRetry(func() error {
+		return writeImageDIBToSystemClipboardOnce(dib)
+	})
+}
+
+func writeImageDIBToSystemClipboardOnce(dib []byte) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	opened, _, openErr := procOpenClipboard.Call(0)
 	if opened == 0 {
@@ -366,7 +382,71 @@ func writeImageToSystemClipboard(path string) error {
 		procGlobalFree.Call(handle)
 		return fmt.Errorf("set clipboard image: %w", setErr)
 	}
+	if available, _, _ := procIsFormatAvailable.Call(cfDIB); available == 0 {
+		return fmt.Errorf("set clipboard image: image format unavailable after write")
+	}
 	return nil
+}
+
+func writeTextToSystemClipboard(text string) error {
+	data := windows.StringToUTF16(text)
+	if len(data) == 0 || data[len(data)-1] != 0 {
+		data = append(data, 0)
+	}
+	size := len(data) * 2
+
+	return writeClipboardWithRetry(func() error {
+		return writeTextToSystemClipboardOnce(data, size)
+	})
+}
+
+func writeTextToSystemClipboardOnce(data []uint16, size int) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	opened, _, openErr := procOpenClipboard.Call(0)
+	if opened == 0 {
+		return fmt.Errorf("open clipboard: %w", openErr)
+	}
+	defer procCloseClipboard.Call()
+
+	if ok, _, emptyErr := procEmptyClipboard.Call(); ok == 0 {
+		return fmt.Errorf("empty clipboard: %w", emptyErr)
+	}
+
+	handle, _, allocErr := procGlobalAlloc.Call(gmemMoveable, uintptr(size))
+	if handle == 0 {
+		return fmt.Errorf("alloc clipboard text: %w", allocErr)
+	}
+	ptr, _, lockErr := procGlobalLock.Call(handle)
+	if ptr == 0 {
+		procGlobalFree.Call(handle)
+		return fmt.Errorf("lock clipboard text: %w", lockErr)
+	}
+	copy(unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(data)), data)
+	procGlobalUnlock.Call(handle)
+
+	if result, _, setErr := procSetClipboardData.Call(cfUnicodeText, handle); result == 0 {
+		procGlobalFree.Call(handle)
+		return fmt.Errorf("set clipboard text: %w", setErr)
+	}
+	if available, _, _ := procIsFormatAvailable.Call(cfUnicodeText); available == 0 {
+		return fmt.Errorf("set clipboard text: text format unavailable after write")
+	}
+	return nil
+}
+
+func writeClipboardWithRetry(operation func() error) error {
+	var lastErr error
+	for attempt := 0; attempt < clipboardWriteAttempts; attempt++ {
+		if err := operation(); err != nil {
+			lastErr = err
+			clipboardWriteSleep(time.Duration(15+attempt*10) * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+	return lastErr
 }
 
 func dibToPNG(dib []byte) ([]byte, error) {

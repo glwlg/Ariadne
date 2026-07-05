@@ -90,6 +90,11 @@ func Build(options Options) (Result, error) {
 	} else {
 		files = append(files, file)
 	}
+	nativeCaptureFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "native-capture"), filepath.Join(layoutDir, "native-capture"), layoutDir, "Ariadne.CaptureHost.exe")
+	if err != nil {
+		return Result{}, err
+	}
+	files = append(files, nativeCaptureFiles...)
 	for _, name := range []string{"Square44x44Logo.png", "Square150x150Logo.png", "StoreLogo.png"} {
 		file, err := copyFile(options.LogoPath, filepath.Join(assetsDir, name), layoutDir)
 		if err != nil {
@@ -320,6 +325,48 @@ func copyFile(source string, target string, layoutDir string) (File, error) {
 		return File{}, err
 	}
 	return File{Path: filepath.ToSlash(rel), Bytes: written, SHA256: hex.EncodeToString(hasher.Sum(nil))}, nil
+}
+
+func copyRequiredDirectory(sourceDir string, targetDir string, layoutDir string, requiredFile string) ([]File, error) {
+	info, err := os.Stat(sourceDir)
+	if errors.Is(err, os.ErrNotExist) {
+		if requiredFile != "" {
+			return nil, fmt.Errorf("required runtime file not found: %s", filepath.Join(sourceDir, requiredFile))
+		}
+		return nil, fmt.Errorf("required runtime directory not found: %s", sourceDir)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("expected runtime directory: %s", sourceDir)
+	}
+	if requiredFile != "" {
+		requiredPath := filepath.Join(sourceDir, requiredFile)
+		if info, err := os.Stat(requiredPath); err != nil || info.IsDir() {
+			return nil, fmt.Errorf("required runtime file not found: %s", requiredPath)
+		}
+	}
+	files := []File{}
+	err = filepath.WalkDir(sourceDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		file, err := copyFile(path, filepath.Join(targetDir, rel), layoutDir)
+		if err != nil {
+			return err
+		}
+		files = append(files, file)
+		return nil
+	})
+	return files, err
 }
 
 func fileMetadata(path string, layoutDir string) File {

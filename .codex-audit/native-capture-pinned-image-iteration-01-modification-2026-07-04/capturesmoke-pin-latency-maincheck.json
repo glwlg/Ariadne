@@ -1,0 +1,143 @@
+{
+  "productName": "Ariadne",
+  "createdAt": 1783134207,
+  "exePath": "P:\\workspace\\glwlg\\app\\Ariadne\\bin\\ariadne.exe",
+  "tempRoot": "C:\\Users\\luwei\\AppData\\Local\\Temp\\ariadne-capture-smoke-3103119137",
+  "virtualScreen": {
+    "x": 0,
+    "y": 0,
+    "width": 1920,
+    "height": 1080
+  },
+  "monitors": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "selection": {
+    "x": 160,
+    "y": 140,
+    "width": 260,
+    "height": 180
+  },
+  "hotkeyBefore": {
+    "alt+a": {
+      "available": true
+    },
+    "alt+q": {
+      "available": true
+    }
+  },
+  "hotkeyDuring": {
+    "alt+a": {
+      "available": false,
+      "errorCode": 1409,
+      "error": "Hot key is already registered."
+    },
+    "alt+q": {
+      "available": false,
+      "errorCode": 1409,
+      "error": "Hot key is already registered."
+    }
+  },
+  "startedProcessId": 271084,
+  "mainWindow": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "overlayWindow": {
+    "handle": 73340094,
+    "processId": 96724,
+    "title": "Ariadne - 原生截图覆盖层",
+    "visible": true,
+    "x": 0,
+    "y": 0,
+    "width": 1920,
+    "height": 1080,
+    "styleHex": "0x16080000",
+    "exStyleHex": "0x00000008",
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": true,
+    "isForeground": false
+  },
+  "pinnedWindow": {
+    "handle": 73405630,
+    "processId": 271084,
+    "title": "截图贴图 260x180",
+    "visible": true,
+    "x": 160,
+    "y": 140,
+    "width": 260,
+    "height": 180,
+    "styleHex": "0x94000000",
+    "exStyleHex": "0x00250109",
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": true,
+    "isForeground": false
+  },
+  "pinnedAfterDrag": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "appLogTail": [
+    "2026-07-04T11:03:27+08:00 ariadne log started",
+    "2026/07/04 11:03:27 Ariadne starting",
+    "2026/07/04 11:03:28 [WebView2] Environment created successfully",
+    "2026/07/04 11:03:30 [WebView2] Environment created successfully"
+  ],
+  "steps": [
+    {
+      "name": "hotkey_registration",
+      "ok": true,
+      "detail": "during alt+a=blocked_or_failed:1409:Hot key is already registered. alt+q=blocked_or_failed:1409:Hot key is already registered."
+    },
+    {
+      "name": "start_app",
+      "ok": true,
+      "detail": "pid=271084 tray startup without visible main window",
+      "elapsedMs": 2535
+    },
+    {
+      "name": "reference_capture",
+      "ok": true,
+      "detail": "260x180 at 160,140"
+    },
+    {
+      "name": "open_overlay_alt_a",
+      "ok": true,
+      "detail": "overlays=1 chosen=\"Ariadne - 原生截图覆盖层\"",
+      "elapsedMs": 358
+    },
+    {
+      "name": "drag_selection",
+      "ok": true,
+      "detail": "260x180"
+    },
+    {
+      "name": "pin_selection",
+      "ok": true,
+      "detail": "title=\"截图贴图 260x180\" max=1200ms",
+      "elapsedMs": 187
+    }
+  ],
+  "pass": true
+}

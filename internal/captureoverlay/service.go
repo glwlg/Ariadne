@@ -2,6 +2,7 @@ package captureoverlay
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -24,6 +26,7 @@ import (
 
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
+	"ariadne/internal/nativecapture"
 	"ariadne/internal/ocr"
 	"ariadne/internal/pinnedimage"
 	"ariadne/internal/qrscan"
@@ -144,6 +147,8 @@ type redactionCacheEntry struct {
 }
 
 var writeImageToClipboard = clipboardhistory.WriteImageToSystemClipboard
+var writePNGToClipboard = clipboardhistory.WritePNGToSystemClipboard
+var writeTextToClipboard = clipboardhistory.WriteTextToSystemClipboard
 
 const captureOverlayImagePathPrefix = "/capture-overlay-image/"
 
@@ -156,6 +161,7 @@ type Service struct {
 	captures CaptureSink
 	pins     PinService
 	ocr      OCRProvider
+	native   *nativecapture.Manager
 	sessions map[string]overlaySession
 	redact   map[string]*redactionCacheEntry
 	policy   ScreenshotPolicy
@@ -176,6 +182,15 @@ func NewService(captures CaptureSink, pins PinService, ocrProviders ...OCRProvid
 	}
 }
 
+func NewServiceWithNative(captures CaptureSink, pins PinService, native *nativecapture.Manager, ocrProviders ...OCRProvider) *Service {
+	service := NewService(captures, pins, ocrProviders...)
+	service.native = native
+	if native != nil {
+		native.SetPinActionHandler(service.handleNativePinAction)
+	}
+	return service
+}
+
 func (s *Service) Attach(app *application.App) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -189,6 +204,17 @@ func (s *Service) ApplyScreenshotPolicy(policy ScreenshotPolicy) {
 }
 
 func (s *Service) Open() OpenResult {
+	s.mu.RLock()
+	native := s.native
+	s.mu.RUnlock()
+	if native != nil {
+		if !s.tryBeginOpen() {
+			return OpenResult{OK: true, Message: "截图覆盖层正在打开"}
+		}
+		defer s.finishOpen()
+		return s.openNative(native)
+	}
+
 	s.mu.RLock()
 	app := s.app
 	s.mu.RUnlock()
@@ -232,6 +258,30 @@ func (s *Service) Open() OpenResult {
 		message = fmt.Sprintf("已打开截图覆盖层（%d 个显示器）", len(sessions))
 	}
 	return OpenResult{OK: true, Message: message, SessionID: first.ID, Bounds: first.Bounds, Native: first.Native}
+}
+
+func (s *Service) openNative(manager *nativecapture.Manager) OpenResult {
+	policy := s.screenshotPolicy()
+	response, err := manager.Capture(context.Background(), nativeCaptureRequest(policy))
+	if err != nil {
+		return OpenResult{OK: false, Message: err.Error()}
+	}
+	if response.Canceled {
+		return OpenResult{OK: true, Message: firstNonEmpty(response.Message, "已取消截图")}
+	}
+	if os.Getenv("ARIADNE_CAPTURE_DEBUG") == "1" {
+		log.Printf("native capture response action=%s clipboardWritten=%t renderMs=%d clipboardMs=%d totalMs=%d pngBytes=%d", response.Action, response.ClipboardWritten, response.RenderMS, response.ClipboardMS, response.TotalMS, len(response.PNGBase64))
+	}
+	result := s.captureNativeSelection(response, policy)
+	return OpenResult{OK: result.OK, Message: result.Message}
+}
+
+func nativeCaptureRequest(policy ScreenshotPolicy) nativecapture.Request {
+	return nativecapture.Request{
+		Command:             "capture",
+		AutoPin:             policy.AutoPin,
+		DirectClipboardCopy: true,
+	}
 }
 
 func (s *Service) tryBeginOpen() bool {
@@ -374,6 +424,13 @@ func (s *Service) CaptureSelection(request SelectionRequest) CaptureResult {
 	if shouldPin {
 		sideEffects = append(sideEffects, "pin")
 	}
+	clipboardWritten := false
+	if shouldCopy {
+		if err := writePNGToClipboard(pngBytes); err != nil {
+			return CaptureResult{OK: false, Message: "复制失败: " + err.Error()}
+		}
+		clipboardWritten = true
+	}
 
 	status := s.captures.AddPNG(pngBytes, cropSelection.Dx(), cropSelection.Dy(), "overlay_selection", savedPath, actionTags(action, request.Operations, sideEffects))
 	if status.LastCaptureError != "" || status.LastSaveError != "" || len(status.Entries) == 0 {
@@ -395,7 +452,13 @@ func (s *Service) CaptureSelection(request SelectionRequest) CaptureResult {
 	}
 
 	if shouldCopy {
-		if err := writeImageToClipboard(entry.ImagePath); err != nil {
+		if clipboardWritten {
+			if action == "copy" {
+				result.Message = appendResultMessage(result.Message, "已复制截图")
+			} else if policy.AutoCopy || action == "redact_copy" {
+				result.Message = appendResultMessage(result.Message, "已复制")
+			}
+		} else if err := writeImageToClipboard(entry.ImagePath); err != nil {
 			result.OK = false
 			result.Message = "已保存截图，复制失败: " + err.Error()
 		} else if action == "copy" {
@@ -448,6 +511,332 @@ func (s *Service) CaptureSelection(request SelectionRequest) CaptureResult {
 	return result
 }
 
+func (s *Service) captureNativeSelection(response nativecapture.Response, policy ScreenshotPolicy) CaptureResult {
+	if !response.OK {
+		return CaptureResult{OK: false, Message: firstNonEmpty(response.Message, "原生截图失败")}
+	}
+
+	action := normalizeAction(response.Action)
+	if action == "ocr" && strings.TrimSpace(response.PNGBase64) == "" {
+		return CaptureResult{OK: true, Message: firstNonEmpty(response.Message, "OCR 文本已复制")}
+	}
+
+	pngBytes, err := base64.StdEncoding.DecodeString(response.PNGBase64)
+	if err != nil || len(pngBytes) == 0 {
+		if nativeClipboardSatisfied(response, action) {
+			return CaptureResult{OK: true, Message: firstNonEmpty(response.Message, "已复制截图"), Width: response.Width, Height: response.Height}
+		}
+		return CaptureResult{OK: false, Message: "原生截图结果无效"}
+	}
+	width, height := response.Width, response.Height
+	if width <= 0 || height <= 0 {
+		config, decodeErr := png.DecodeConfig(bytes.NewReader(pngBytes))
+		if decodeErr != nil {
+			if nativeClipboardSatisfied(response, action) {
+				return CaptureResult{OK: true, Message: firstNonEmpty(response.Message, "已复制截图"), Width: response.Width, Height: response.Height}
+			}
+			return CaptureResult{OK: false, Message: "原生截图尺寸无效"}
+		}
+		width, height = config.Width, config.Height
+	}
+
+	operations := nativeAnnotationOperations(response.Operations)
+	shouldCopy := action != "qr" && (action == "copy" || action == "redact_copy" || policy.AutoCopy)
+	shouldPin := action != "qr" && (action == "pin" || policy.AutoPin || response.Pinned)
+	if nativeClipboardSatisfied(response, action) {
+		go s.persistNativeCopiedSelection(response, policy, append([]byte(nil), pngBytes...), width, height, operations)
+		message := firstNonEmpty(response.Message, selectionResultMessage(action, len(operations), ""))
+		if action == "copy" {
+			message = appendResultMessage(message, "已复制截图")
+		}
+		return CaptureResult{OK: true, Message: message, Width: width, Height: height}
+	}
+
+	if s.captures == nil {
+		return CaptureResult{OK: false, Message: "截图历史服务不可用"}
+	}
+
+	if response.Pinned && action == "pin" && shouldPin {
+		go s.persistNativePinnedSelection(response, policy, append([]byte(nil), pngBytes...), width, height, action, operations, shouldCopy)
+		pin := nativePinnedOpenResult(firstNonEmpty(response.NativePinID, "pending"), width, height)
+		message := firstNonEmpty(response.Message, selectionResultMessage(action, len(operations), ""))
+		message = appendResultMessage(message, "已创建贴图")
+		return CaptureResult{
+			OK:      true,
+			Message: message,
+			Width:   width,
+			Height:  height,
+			Pin:     &pin,
+		}
+	}
+
+	redactedCount := 0
+	if redactionPolicy, ok := redactionPolicyForAction(action, policy); ok {
+		var redactErr error
+		pngBytes, redactedCount, redactErr = s.redactSelectionPNG(pngBytes, redactionPolicy)
+		if redactErr != nil {
+			return CaptureResult{OK: false, Message: "自动打码失败: " + redactErr.Error()}
+		}
+	}
+
+	sideEffects := []string{}
+	if redactedCount > 0 {
+		sideEffects = append(sideEffects, "redacted")
+	}
+	savedPath := ""
+	autoSaveError := ""
+	if action == "save_as" {
+		savedPath, err = writeExternalPNG(response.SavedPath, pngBytes)
+		if err != nil {
+			return CaptureResult{OK: false, Message: err.Error()}
+		}
+		sideEffects = append(sideEffects, "save")
+	} else if action != "qr" && policy.AutoSave {
+		autoSavePath, err := autoSavePath(policy, time.Now())
+		if err != nil {
+			autoSaveError = err.Error()
+		} else {
+			savedPath, err = writeExternalPNG(autoSavePath, pngBytes)
+			if err != nil {
+				autoSaveError = err.Error()
+				savedPath = ""
+			} else {
+				sideEffects = append(sideEffects, "save")
+			}
+		}
+	}
+
+	if shouldCopy {
+		sideEffects = append(sideEffects, "copy")
+	}
+	if shouldPin {
+		sideEffects = append(sideEffects, "pin")
+	}
+	clipboardWritten := false
+	if shouldCopy {
+		if err := writePNGToClipboard(pngBytes); err != nil {
+			return CaptureResult{OK: false, Message: "复制失败: " + err.Error()}
+		}
+		clipboardWritten = true
+	}
+
+	status := s.captures.AddPNG(pngBytes, width, height, "native_overlay_selection", savedPath, actionTags(action, operations, sideEffects))
+	if status.LastCaptureError != "" || status.LastSaveError != "" || len(status.Entries) == 0 {
+		return CaptureResult{OK: false, Message: firstNonEmpty(status.LastCaptureError, status.LastSaveError, "截图保存失败")}
+	}
+	entry := status.Entries[0]
+	message := firstNonEmpty(response.Message, selectionResultMessage(action, len(operations), autoSaveError))
+	if autoSaveError != "" && !strings.Contains(message, autoSaveError) {
+		message = appendResultMessage(message, "自动保存失败: "+autoSaveError)
+	}
+	if redactedCount > 0 {
+		message = appendResultMessage(message, "已打码")
+	}
+	result := CaptureResult{
+		OK:        true,
+		Message:   message,
+		CaptureID: entry.ID,
+		ImagePath: entry.ImagePath,
+		SavedPath: entry.SavedPath,
+		Width:     entry.Width,
+		Height:    entry.Height,
+	}
+
+	if shouldCopy {
+		if clipboardWritten {
+			if action == "copy" {
+				result.Message = appendResultMessage(result.Message, "已复制截图")
+			} else if policy.AutoCopy || action == "redact_copy" {
+				result.Message = appendResultMessage(result.Message, "已复制")
+			}
+		} else if err := writeImageToClipboard(entry.ImagePath); err != nil {
+			result.OK = false
+			result.Message = "已保存截图，复制失败: " + err.Error()
+		} else if action == "copy" {
+			result.Message = appendResultMessage(result.Message, "已复制截图")
+		} else if policy.AutoCopy {
+			result.Message = appendResultMessage(result.Message, "已复制")
+		}
+	}
+	if shouldPin {
+		if response.Pinned {
+			pin := nativePinnedOpenResult(entry.ID, width, height)
+			result.Pin = &pin
+			if action == "pin" {
+				result.Message = appendResultMessage(result.Message, "已创建贴图")
+			} else if policy.AutoPin || response.Pinned {
+				result.Message = appendResultMessage(result.Message, "已贴图")
+			}
+		} else if s.pins == nil {
+			result.OK = false
+			result.Message = "已保存截图，但贴图服务不可用"
+		} else {
+			pin := s.openPinnedSelection(entry.ID, nativeResponseSelection(response, width, height), nativePinRequest(response, action))
+			result.Pin = &pin
+			if pin.OK {
+				if action == "pin" {
+					result.Message = appendResultMessage(result.Message, "已创建贴图")
+				} else if policy.AutoPin || response.Pinned {
+					result.Message = appendResultMessage(result.Message, "已贴图")
+				}
+			} else {
+				result.OK = false
+				result.Message = "已保存截图，贴图失败: " + pin.Message
+			}
+		}
+	}
+
+	if action == "qr" {
+		qr := qrscan.DecodeImagePath(entry.ImagePath)
+		qr.Source = "capture_overlay"
+		qr.CaptureID = entry.ID
+		qr.ImagePath = entry.ImagePath
+		qr.Width = entry.Width
+		qr.Height = entry.Height
+		result.QR = &qr
+		if qr.OK {
+			result.Message = "已识别二维码"
+			if strings.TrimSpace(qr.Text) != "" {
+				if err := writeTextToClipboard(qr.Text); err != nil {
+					result.Message = "已识别二维码，复制失败: " + err.Error()
+				} else {
+					result.Message = "二维码已复制"
+				}
+			}
+		} else {
+			result.OK = false
+			result.Message = qr.Error
+		}
+	}
+	return result
+}
+
+func nativeClipboardSatisfied(response nativecapture.Response, action string) bool {
+	return response.ClipboardWritten && action == "copy"
+}
+
+func (s *Service) persistNativeCopiedSelection(response nativecapture.Response, policy ScreenshotPolicy, pngBytes []byte, width int, height int, operations []AnnotationOperation) {
+	if s.captures == nil || len(pngBytes) == 0 {
+		return
+	}
+	savedPath := ""
+	sideEffects := []string{"copy"}
+	if policy.AutoSave {
+		if autoSavePath, err := autoSavePath(policy, time.Now()); err == nil {
+			if path, err := writeExternalPNG(autoSavePath, pngBytes); err == nil {
+				savedPath = path
+				sideEffects = append(sideEffects, "save")
+			}
+		}
+	}
+	s.captures.AddPNG(pngBytes, width, height, "native_overlay_selection", savedPath, actionTags(response.Action, operations, sideEffects))
+}
+
+func (s *Service) persistNativePinnedSelection(response nativecapture.Response, policy ScreenshotPolicy, pngBytes []byte, width int, height int, action string, operations []AnnotationOperation, shouldCopy bool) {
+	redactedCount := 0
+	if redactionPolicy, ok := redactionPolicyForAction(action, policy); ok {
+		redacted, count, err := s.redactSelectionPNG(pngBytes, redactionPolicy)
+		if err == nil {
+			pngBytes = redacted
+			redactedCount = count
+		}
+	}
+
+	sideEffects := []string{"pin"}
+	if redactedCount > 0 {
+		sideEffects = append(sideEffects, "redacted")
+	}
+	savedPath := ""
+	if action != "qr" && policy.AutoSave {
+		if autoSavePath, err := autoSavePath(policy, time.Now()); err == nil {
+			if path, err := writeExternalPNG(autoSavePath, pngBytes); err == nil {
+				savedPath = path
+				sideEffects = append(sideEffects, "save")
+			}
+		}
+	}
+	if shouldCopy {
+		sideEffects = append(sideEffects, "copy")
+	}
+
+	status := s.captures.AddPNG(pngBytes, width, height, "native_overlay_selection", savedPath, actionTags(action, operations, sideEffects))
+	if shouldCopy && len(status.Entries) > 0 {
+		_ = writeImageToClipboard(status.Entries[0].ImagePath)
+	}
+}
+
+func nativePinnedOpenResult(nativeID string, width int, height int) pinnedimage.OpenResult {
+	return pinnedimage.OpenResult{
+		OK:      true,
+		Message: "已创建贴图",
+		PinID:   "native-" + strings.TrimSpace(nativeID),
+		Title:   "截图贴图",
+		Width:   width,
+		Height:  height,
+	}
+}
+
+func (s *Service) handleNativePinAction(request nativecapture.PinActionRequest) nativecapture.PinActionResponse {
+	switch strings.TrimSpace(strings.ToLower(request.Action)) {
+	case "ocr_text":
+		provider := s.ocrProvider()
+		if provider == nil {
+			return nativecapture.PinActionResponse{OK: false, Message: "OCR 服务不可用"}
+		}
+		result := provider.RecognizeImagePath(request.ImagePath)
+		if !result.OK {
+			return nativecapture.PinActionResponse{OK: false, Message: firstNonEmpty(result.Error, "OCR 识别失败")}
+		}
+		return nativecapture.PinActionResponse{OK: true, Message: "OCR 已完成", Text: strings.TrimSpace(result.Text)}
+	default:
+		return nativecapture.PinActionResponse{OK: false, Message: "不支持的贴图动作"}
+	}
+}
+
+func nativeResponseSelection(response nativecapture.Response, width int, height int) image.Rectangle {
+	x, y := response.X, response.Y
+	return image.Rect(x, y, x+width, y+height)
+}
+
+func nativePinRequest(response nativecapture.Response, action string) SelectionRequest {
+	return SelectionRequest{
+		Action:        action,
+		PinPositioned: response.PinPositioned,
+		PinX:          response.PinX,
+		PinY:          response.PinY,
+	}
+}
+
+func nativeAnnotationOperations(operations []nativecapture.AnnotationOperation) []AnnotationOperation {
+	if len(operations) == 0 {
+		return nil
+	}
+	result := make([]AnnotationOperation, 0, len(operations))
+	for _, operation := range operations {
+		points := make([]AnnotationPoint, 0, len(operation.Points))
+		for _, point := range operation.Points {
+			points = append(points, AnnotationPoint{X: point.X, Y: point.Y})
+		}
+		result = append(result, AnnotationOperation{
+			Kind:        operation.Kind,
+			X:           operation.X,
+			Y:           operation.Y,
+			Width:       operation.Width,
+			Height:      operation.Height,
+			EndX:        operation.EndX,
+			EndY:        operation.EndY,
+			Color:       operation.Color,
+			StrokeWidth: operation.StrokeWidth,
+			PixelSize:   operation.PixelSize,
+			Points:      points,
+			Text:        operation.Text,
+			FontSize:    operation.FontSize,
+			Number:      operation.Number,
+		})
+	}
+	return result
+}
+
 func (s *Service) openPinnedSelection(captureID string, selection image.Rectangle, request SelectionRequest) pinnedimage.OpenResult {
 	if positioned, ok := s.pins.(PositionedPinService); ok {
 		if request.PinPositioned {
@@ -488,7 +877,7 @@ func (s *Service) ocrProvider() OCRProvider {
 
 func shouldRedactSelection(action string, policy ScreenshotPolicy) bool {
 	switch action {
-	case "qr", "copy":
+	case "qr":
 		return false
 	case "redact_copy":
 		return true
@@ -1407,6 +1796,8 @@ func normalizeAction(action string) string {
 		return "pin"
 	case "qr":
 		return "qr"
+	case "ocr":
+		return "ocr"
 	case "save_as":
 		return "save_as"
 	default:

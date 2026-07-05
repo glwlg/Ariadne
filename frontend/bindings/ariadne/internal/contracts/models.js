@@ -349,6 +349,13 @@ export class SearchResponse {
              */
             this["elapsedMs"] = 0;
         }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {number | undefined}
+             */
+            this["totalResults"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }

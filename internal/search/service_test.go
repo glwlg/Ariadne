@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"ariadne/internal/apps"
@@ -418,6 +420,43 @@ func TestSearchDoesNotDuplicateProviderResults(t *testing.T) {
 	}
 }
 
+func TestSearchLimitsProviderAndAggregateResults(t *testing.T) {
+	results := make([]contracts.SearchResult, 0, 75)
+	for i := 0; i < 75; i++ {
+		id := strconv.Itoa(i)
+		results = append(results, scoredResult("launcher-limit-"+id, "Limit Result "+id, float64(1000-i)))
+	}
+	service := NewServiceWithState(NewStateStore(""), fakeProvider{results: results})
+
+	response := service.Search(context.Background(), "limit-query")
+
+	if len(response.Results) != searchResultLimit {
+		t.Fatalf("expected launcher to return %d visible results, got %d", searchResultLimit, len(response.Results))
+	}
+	if response.TotalResults != searchProviderResultLimit {
+		t.Fatalf("expected total to reflect provider boundary %d, got %d", searchProviderResultLimit, response.TotalResults)
+	}
+	if status := service.PerformanceStatus(); status.LastResultCount != searchResultLimit {
+		t.Fatalf("performance status should record visible result count, got %#v", status)
+	}
+}
+
+func TestSeedPreviewCopyUsesProductLanguage(t *testing.T) {
+	service := NewServiceWithState(NewStateStore(""))
+
+	response := service.Search(context.Background(), "UUID 生成器")
+
+	if len(response.Results) == 0 || response.Results[0].ID != "plugin-uuid" {
+		t.Fatalf("expected seeded UUID plugin trigger, got %#v", response.Results)
+	}
+	visible := resultVisibleText(response.Results[0])
+	for _, forbidden := range []string{"preview actions", "plugin_trigger", "plugin_result", "动作来源", "协议"} {
+		if strings.Contains(visible, forbidden) {
+			t.Fatalf("seed result should use product language, found %q in %q", forbidden, visible)
+		}
+	}
+}
+
 func TestSearchRecordsPerformanceStatus(t *testing.T) {
 	service := NewServiceWithState(NewStateStore(""))
 	if status := service.PerformanceStatus(); status.SampleCount != 0 || !status.WithinTarget || status.TargetP95Ms != 100 {
@@ -502,6 +541,18 @@ func scoredResult(id string, title string, score float64) contracts.SearchResult
 			{ID: "open", Label: "打开", Kind: contracts.ActionOpen, Payload: map[string]interface{}{"path": title}},
 		},
 	}
+}
+
+func resultVisibleText(result contracts.SearchResult) string {
+	parts := []string{result.Title, result.Subtitle, result.Detail, result.Preview.Title, result.Preview.Subtitle, result.Preview.Text}
+	parts = append(parts, result.Tags...)
+	for _, item := range result.Preview.Meta {
+		parts = append(parts, item.Label, item.Value)
+	}
+	for _, item := range result.Preview.Evidence {
+		parts = append(parts, item.Label, item.Value)
+	}
+	return strings.Join(parts, " ")
 }
 
 type fakeProvider struct {

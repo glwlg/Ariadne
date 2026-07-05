@@ -53,6 +53,7 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	outputDir := filepath.Join(base, "dist", "release")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
 
 	result, err := Build(Options{
 		Version:   "0.1.0-test",
@@ -69,7 +70,7 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	if manifest.ProductName != "Ariadne" || manifest.Version != "0.1.0-test" {
 		t.Fatalf("unexpected manifest identity: %#v", manifest)
 	}
-	if manifest.ZipPath == "" || manifest.PackageDir == "" || len(manifest.Files) != 2 {
+	if manifest.ZipPath == "" || manifest.PackageDir == "" || len(manifest.Files) != 3 {
 		t.Fatalf("manifest should describe package paths and files: %#v", manifest)
 	}
 	if manifest.SetupPath == "" || manifest.SetupFile == nil || manifest.SetupFile.Path != "AriadneSetup-0.1.0-test-windows-x64.exe" {
@@ -106,6 +107,7 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	packageRoot := filepath.Base(manifest.PackageDir)
 	for _, name := range []string{
 		packageRoot + "/app/ariadne.exe",
+		packageRoot + "/app/native-capture/Ariadne.CaptureHost.exe",
 		packageRoot + "/app/logo.ico",
 		packageRoot + "/manifest.json",
 		packageRoot + "/README.txt",
@@ -131,6 +133,7 @@ func TestSetupInstallerRequiresAdministratorAndEmbedsPayload(t *testing.T) {
 	outputDir := filepath.Join(base, "dist", "release")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
 
 	result, err := Build(Options{
 		Version:   "0.1.0-setup-smoke",
@@ -176,6 +179,7 @@ func TestBuildDoesNotRequireEverythingRuntimeDLL(t *testing.T) {
 	iconPath := filepath.Join(base, "assets", "logo.ico")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
 
 	_, err := Build(Options{
 		Version:   "0.1.0-test",
@@ -189,6 +193,25 @@ func TestBuildDoesNotRequireEverythingRuntimeDLL(t *testing.T) {
 	}
 }
 
+func TestBuildRejectsMissingNativeCaptureHost(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	iconPath := filepath.Join(base, "assets", "logo.ico")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, iconPath, "fake icon")
+
+	_, err := Build(Options{
+		Version:   "0.1.0-test",
+		ExePath:   exePath,
+		IconPath:  iconPath,
+		OutputDir: filepath.Join(base, "out"),
+		SkipSetup: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "Ariadne.CaptureHost.exe") {
+		t.Fatalf("expected missing native capture host error, got %v", err)
+	}
+}
+
 func writeFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -197,6 +220,11 @@ func writeFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+}
+
+func writeNativeCaptureHost(t *testing.T, exeDir string) {
+	t.Helper()
+	writeFile(t, filepath.Join(exeDir, "native-capture", "Ariadne.CaptureHost.exe"), "fake native capture host")
 }
 
 func readFile(t *testing.T, path string) string {

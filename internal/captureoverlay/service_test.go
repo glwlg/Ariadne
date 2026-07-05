@@ -16,8 +16,11 @@ import (
 	"time"
 
 	"ariadne/internal/capturehistory"
+	"ariadne/internal/nativecapture"
 	"ariadne/internal/ocr"
 	"ariadne/internal/pinnedimage"
+
+	goqrcode "github.com/skip2/go-qrcode"
 )
 
 type failingPinService struct{}
@@ -50,17 +53,44 @@ func (f failingPinService) OpenCapture(id string) pinnedimage.OpenResult {
 }
 
 type positionedPinRecorder struct {
-	id string
-	x  int
-	y  int
+	id    string
+	x     int
+	y     int
+	calls int
+}
+
+type blockingCaptureSink struct {
+	called  chan struct{}
+	release chan struct{}
+}
+
+type panicCaptureSink struct{}
+
+func (b *blockingCaptureSink) AddPNG(data []byte, width int, height int, source string, savedPath string, actions []string) capturehistory.Status {
+	close(b.called)
+	<-b.release
+	return capturehistory.Status{
+		Entries: []capturehistory.Entry{{
+			ID:        "cap-async",
+			ImagePath: "async.png",
+			Width:     width,
+			Height:    height,
+		}},
+	}
+}
+
+func (panicCaptureSink) AddPNG(data []byte, width int, height int, source string, savedPath string, actions []string) capturehistory.Status {
+	panic("OCR text action must not write screenshot history")
 }
 
 func (p *positionedPinRecorder) OpenCapture(id string) pinnedimage.OpenResult {
+	p.calls++
 	p.id = id
 	return pinnedimage.OpenResult{OK: true, Message: "pinned", PinID: id}
 }
 
 func (p *positionedPinRecorder) OpenCaptureAt(id string, x int, y int) pinnedimage.OpenResult {
+	p.calls++
 	p.id = id
 	p.x = x
 	p.y = y
@@ -437,6 +467,350 @@ func TestOpenGuardRejectsConcurrentOpen(t *testing.T) {
 	service.finishOpen()
 }
 
+func TestOpenNativeUsesOpenGuard(t *testing.T) {
+	service := NewServiceWithNative(nil, nil, nativecapture.NewManager(nativecapture.Options{
+		ExePath: filepath.Join(t.TempDir(), "missing-native-host.exe"),
+	}))
+
+	if !service.tryBeginOpen() {
+		t.Fatal("test should acquire the open guard")
+	}
+	defer service.finishOpen()
+
+	result := service.Open()
+	if !result.OK || result.Message != "截图覆盖层正在打开" {
+		t.Fatalf("native open should reuse open guard before starting host, got %#v", result)
+	}
+}
+
+func TestCaptureNativeSelectionRedactsBeforeSaveAs(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "联系电话 13800138000", Rect: ocr.Rect{X: 2, Y: 2, Width: 5, Height: 4}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	savePath := filepath.Join(dir, "exports", "native-redacted.png")
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:        true,
+		Action:    "save_as",
+		PNGBase64: base64.StdEncoding.EncodeToString(testOverlayPNG(t, 12, 8)),
+		Width:     12,
+		Height:    8,
+		SavedPath: savePath,
+	}, ScreenshotPolicy{AutoRedact: true, RedactPhones: true})
+
+	if !result.OK || result.CaptureID == "" || !strings.Contains(result.Message, "已打码") {
+		t.Fatalf("expected redacted native save_as capture, got %#v", result)
+	}
+	for _, path := range []string{result.ImagePath, result.SavedPath} {
+		img := readPNG(t, path)
+		if !sameRGBA(img.At(3, 3), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+			t.Fatalf("expected redacted pixel in %s, got %#v", path, img.At(3, 3))
+		}
+	}
+	entry := captures.Entry(result.CaptureID)
+	if !containsString(entry.Actions, "redacted") || !containsString(entry.Actions, "save_as") || !containsString(entry.Actions, "save") {
+		t.Fatalf("expected redacted save_as metadata, got %#v", entry.Actions)
+	}
+}
+
+func TestCaptureNativeSelectionRedactCopyRedactsBeforeClipboard(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "TOKEN=abcdef", Rect: ocr.Rect{X: 4, Y: 1, Width: 4, Height: 3}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	copiedPNG := stubPNGClipboardWriter(t)
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:        true,
+		Action:    "redact_copy",
+		PNGBase64: base64.StdEncoding.EncodeToString(testOverlayPNG(t, 12, 8)),
+		Width:     12,
+		Height:    8,
+	}, ScreenshotPolicy{RedactKeywords: []string{"token"}})
+
+	if !result.OK || result.CaptureID == "" || len(*copiedPNG) == 0 {
+		t.Fatalf("expected redacted native copy, got result=%#v copied_png=%d", result, len(*copiedPNG))
+	}
+	img := readPNG(t, result.ImagePath)
+	if !sameRGBA(img.At(5, 2), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("expected copied image to be redacted, got %#v", img.At(5, 2))
+	}
+}
+
+func TestCaptureNativeSelectionTrustsNativeClipboardAndPersistsHistoryAsync(t *testing.T) {
+	captures := &blockingCaptureSink{called: make(chan struct{}), release: make(chan struct{})}
+	service := NewService(captures, nil)
+	previousWriter := writeImageToClipboard
+	copiedPNG := stubPNGClipboardWriter(t)
+	imageWriterCalled := false
+	writeImageToClipboard = func(path string) error {
+		imageWriterCalled = true
+		return nil
+	}
+	t.Cleanup(func() {
+		writeImageToClipboard = previousWriter
+	})
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:               true,
+		Action:           "copy",
+		PNGBase64:        base64.StdEncoding.EncodeToString(testOverlayPNG(t, 12, 8)),
+		Width:            12,
+		Height:           8,
+		ClipboardWritten: true,
+	}, ScreenshotPolicy{})
+
+	if !result.OK || result.CaptureID != "" || !strings.Contains(result.Message, "已复制截图") {
+		t.Fatalf("expected native clipboard copy result, got %#v", result)
+	}
+	if len(*copiedPNG) != 0 {
+		t.Fatal("Go clipboard writer must not run after native host reports clipboardWritten")
+	}
+	if imageWriterCalled {
+		t.Fatal("path-based clipboard writer must not run after native host reports clipboardWritten")
+	}
+	select {
+	case <-captures.called:
+	case <-time.After(time.Second):
+		t.Fatal("expected native copy history to be persisted asynchronously")
+	}
+	close(captures.release)
+}
+
+func TestNativeCaptureRequestUsesNativeClipboardForPlainCopy(t *testing.T) {
+	request := nativeCaptureRequest(ScreenshotPolicy{})
+	if !request.DirectClipboardCopy {
+		t.Fatal("plain native capture should write the clipboard in the native host")
+	}
+}
+
+func TestNativeCaptureRequestKeepsPlainCopyInNativeHostWhenAutoRedactIsConfigured(t *testing.T) {
+	request := nativeCaptureRequest(ScreenshotPolicy{AutoRedact: true, RedactKeywords: []string{"token"}})
+	if !request.DirectClipboardCopy {
+		t.Fatal("plain native copy should stay in the native host even when auto redaction is configured")
+	}
+}
+
+func TestCaptureNativeSelectionTrustsNativeClipboardWhenAutoRedactingPlainCopy(t *testing.T) {
+	captures := &blockingCaptureSink{called: make(chan struct{}), release: make(chan struct{})}
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "数字国联整体架构图", Rect: ocr.Rect{X: 0, Y: 0, Width: 90, Height: 10}},
+			},
+		},
+	}
+	service := NewService(captures, nil, ocrProvider)
+	copiedPNG := stubPNGClipboardWriter(t)
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:               true,
+		Action:           "copy",
+		PNGBase64:        base64.StdEncoding.EncodeToString(testOverlayPNG(t, 90, 12)),
+		Width:            90,
+		Height:           12,
+		ClipboardWritten: true,
+	}, ScreenshotPolicy{AutoRedact: true, RedactKeywords: []string{"国联"}})
+
+	if !result.OK || result.CaptureID != "" || len(*copiedPNG) != 0 {
+		t.Fatalf("expected native clipboard result without Go copy, got result=%#v copied_png=%d", result, len(*copiedPNG))
+	}
+	if ocrProvider.pathCount() != 0 {
+		t.Fatalf("plain native copy should not run OCR, got %d calls", ocrProvider.pathCount())
+	}
+	select {
+	case <-captures.called:
+	case <-time.After(time.Second):
+		t.Fatal("expected native copy history to be persisted asynchronously")
+	}
+	close(captures.release)
+}
+
+func TestCaptureNativeSelectionWritesClipboardBeforeHistory(t *testing.T) {
+	captures := &blockingCaptureSink{called: make(chan struct{}), release: make(chan struct{})}
+	service := NewService(captures, nil)
+	copiedPNG := stubPNGClipboardWriter(t)
+
+	done := make(chan CaptureResult, 1)
+	go func() {
+		done <- service.captureNativeSelection(nativecapture.Response{
+			OK:        true,
+			Action:    "copy",
+			PNGBase64: base64.StdEncoding.EncodeToString(testOverlayPNG(t, 12, 8)),
+			Width:     12,
+			Height:    8,
+		}, ScreenshotPolicy{})
+	}()
+
+	waitForCondition(t, time.Second, func() bool {
+		return len(*copiedPNG) > 0
+	})
+	select {
+	case <-captures.called:
+	case <-time.After(time.Second):
+		t.Fatal("expected history write to start after clipboard write")
+	}
+	select {
+	case result := <-done:
+		t.Fatalf("copy result should wait on blocked history in this test, got %#v", result)
+	default:
+	}
+	close(captures.release)
+	result := <-done
+	if !result.OK {
+		t.Fatalf("expected copy to finish after history release, got %#v", result)
+	}
+}
+
+func TestCaptureNativeSelectionDecodesQRFromHistoryEntry(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	service := NewService(captures, nil)
+	copiedText := stubTextClipboardWriter(t)
+	text := "https://ariadne.local/native-qr"
+	data, err := goqrcode.Encode(text, goqrcode.Medium, 192)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:        true,
+		Action:    "qr",
+		PNGBase64: base64.StdEncoding.EncodeToString(data),
+	}, ScreenshotPolicy{})
+
+	if !result.OK || result.QR == nil || !result.QR.OK || result.QR.Text != text {
+		t.Fatalf("expected native QR decode result, got %#v", result)
+	}
+	if *copiedText != text || result.Message != "二维码已复制" {
+		t.Fatalf("expected native QR text copied, got copied=%q message=%q", *copiedText, result.Message)
+	}
+	if result.QR.CaptureID != result.CaptureID || result.QR.Source != "capture_overlay" {
+		t.Fatalf("expected QR evidence to reference history entry, got %#v", result.QR)
+	}
+	entry := captures.Entry(result.CaptureID)
+	if !containsString(entry.Actions, "qr") {
+		t.Fatalf("expected qr action metadata, got %#v", entry.Actions)
+	}
+}
+
+func TestCaptureNativeSelectionPinsThroughPinnedService(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	pins := &positionedPinRecorder{}
+	service := NewService(captures, pins)
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:        true,
+		Action:    "pin",
+		PNGBase64: base64.StdEncoding.EncodeToString(testOverlayPNG(t, 10, 6)),
+		X:         50,
+		Y:         70,
+		Width:     10,
+		Height:    6,
+	}, ScreenshotPolicy{})
+
+	if !result.OK || result.Pin == nil || !result.Pin.OK || result.Pin.PinID == "native" {
+		t.Fatalf("expected manageable native pin, got %#v", result)
+	}
+	if pins.id != result.CaptureID || pins.x != 50 || pins.y != 70 {
+		t.Fatalf("expected pinned service call at native selection origin, got id=%q x=%d y=%d", pins.id, pins.x, pins.y)
+	}
+}
+
+func TestCaptureNativeSelectionDoesNotReopenWailsWhenNativeResponseReportsPinned(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	pins := &positionedPinRecorder{}
+	service := NewService(captures, pins)
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:        true,
+		Action:    "pin",
+		PNGBase64: base64.StdEncoding.EncodeToString(testOverlayPNG(t, 10, 6)),
+		X:         50,
+		Y:         70,
+		Width:     10,
+		Height:    6,
+		Pinned:    true,
+	}, ScreenshotPolicy{})
+
+	if !result.OK || result.CaptureID != "" || result.Pin == nil || !result.Pin.OK || !strings.HasPrefix(result.Pin.PinID, "native-") {
+		t.Fatalf("expected native pinned image result, got %#v", result)
+	}
+	if pins.calls != 0 {
+		t.Fatalf("native pinned response must not reopen Wails pinned service, got calls=%d", pins.calls)
+	}
+	waitCaptureHistoryCount(t, captures, 1)
+}
+
+func TestCaptureNativeSelectionReturnsBeforeHistoryWriteForNativePin(t *testing.T) {
+	captures := &blockingCaptureSink{called: make(chan struct{}), release: make(chan struct{})}
+	service := NewService(captures, &positionedPinRecorder{})
+	defer close(captures.release)
+
+	done := make(chan CaptureResult, 1)
+	go func() {
+		done <- service.captureNativeSelection(nativecapture.Response{
+			OK:          true,
+			Action:      "pin",
+			PNGBase64:   base64.StdEncoding.EncodeToString(testOverlayPNG(t, 10, 6)),
+			Width:       10,
+			Height:      6,
+			Pinned:      true,
+			NativePinID: "native-test",
+		}, ScreenshotPolicy{})
+	}()
+
+	select {
+	case result := <-done:
+		if !result.OK || result.CaptureID != "" || result.Pin == nil || result.Pin.PinID != "native-native-test" {
+			t.Fatalf("expected immediate native pin result without capture id, got %#v", result)
+		}
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("native pin result waited for screenshot history write")
+	}
+
+	select {
+	case <-captures.called:
+	case <-time.After(time.Second):
+		t.Fatal("expected screenshot history write to run in background")
+	}
+}
+
+func TestCaptureNativeSelectionOcrDoesNotRequirePNGOrHistory(t *testing.T) {
+	service := NewService(panicCaptureSink{}, &positionedPinRecorder{})
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:      true,
+		Action:  "ocr",
+		Message: "OCR 文本已复制",
+	}, ScreenshotPolicy{AutoCopy: true, AutoSave: true, AutoPin: true})
+
+	if !result.OK || result.Message != "OCR 文本已复制" {
+		t.Fatalf("expected OCR text result, got %#v", result)
+	}
+	if result.CaptureID != "" || result.ImagePath != "" || result.Pin != nil {
+		t.Fatalf("OCR text action should not create image artifacts, got %#v", result)
+	}
+}
+
 func TestOverlaySessionsReuseVirtualPNGForSingleDisplay(t *testing.T) {
 	service := NewService(nil, nil)
 	virtual := capturehistory.ScreenBounds{X: 0, Y: 0, Width: 1280, Height: 720}
@@ -604,13 +978,13 @@ func TestCaptureSelectionCopiesToClipboardAndSavesHistory(t *testing.T) {
 	service := NewService(captures, nil)
 	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 4, Height: 3})
 
-	copiedPath := stubImageClipboardWriter(t)
+	copiedPNG := stubPNGClipboardWriter(t)
 	result := service.CaptureSelection(SelectionRequest{SessionID: session.ID, X: 0, Y: 0, Width: 3, Height: 2, Action: "copy"})
 	if !result.OK || result.CaptureID == "" {
 		t.Fatalf("expected copied capture, got %#v", result)
 	}
-	if *copiedPath != result.ImagePath {
-		t.Fatalf("expected copied image path %q, got %q", result.ImagePath, *copiedPath)
+	if len(*copiedPNG) == 0 {
+		t.Fatal("expected copied image bytes")
 	}
 	entry := captures.Entry(result.CaptureID)
 	if !containsString(entry.Actions, "copy") {
@@ -840,7 +1214,7 @@ func TestCaptureSelectionRedactsOnlyKeywordSegment(t *testing.T) {
 	service := NewService(captures, nil, ocrProvider)
 	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: false, RedactKeywords: []string{"国联"}})
 	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 12})
-	stubImageClipboardWriter(t)
+	stubPNGClipboardWriter(t)
 
 	result := service.CaptureSelection(SelectionRequest{
 		SessionID: session.ID,
@@ -881,7 +1255,7 @@ func TestCaptureSelectionRedactsKeywordSplitAcrossAdjacentOCRLines(t *testing.T)
 	service := NewService(captures, nil, ocrProvider)
 	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: false, RedactKeywords: []string{"国联"}})
 	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 28})
-	stubImageClipboardWriter(t)
+	stubPNGClipboardWriter(t)
 
 	result := service.CaptureSelection(SelectionRequest{
 		SessionID: session.ID,
@@ -910,7 +1284,7 @@ func TestCaptureSelectionRedactsKeywordSplitAcrossAdjacentOCRLines(t *testing.T)
 	}
 }
 
-func TestCaptureSelectionPlainCopyBypassesRedactionPolicy(t *testing.T) {
+func TestCaptureSelectionPlainCopyUsesAutoRedactionPolicy(t *testing.T) {
 	dir := t.TempDir()
 	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
 	ocrProvider := &fakeOCRProvider{
@@ -924,7 +1298,7 @@ func TestCaptureSelectionPlainCopyBypassesRedactionPolicy(t *testing.T) {
 	service := NewService(captures, nil, ocrProvider)
 	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: true, RedactKeywords: []string{"国联"}})
 	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 12})
-	stubImageClipboardWriter(t)
+	stubPNGClipboardWriter(t)
 
 	result := service.CaptureSelection(SelectionRequest{
 		SessionID: session.ID,
@@ -936,18 +1310,59 @@ func TestCaptureSelectionPlainCopyBypassesRedactionPolicy(t *testing.T) {
 	})
 
 	if !result.OK {
-		t.Fatalf("expected plain copy capture, got %#v", result)
+		t.Fatalf("expected auto-redacted plain copy capture, got %#v", result)
 	}
-	if ocrProvider.pathCount() != 0 {
-		t.Fatalf("plain copy should not call OCR, got %d OCR calls", ocrProvider.pathCount())
+	if ocrProvider.pathCount() != 1 {
+		t.Fatalf("plain copy should call OCR for auto redaction, got %d OCR calls", ocrProvider.pathCount())
 	}
 	img := readPNG(t, result.ImagePath)
-	if !sameRGBA(img.At(35, 5), color.RGBA{R: 35, G: 5, B: 120, A: 255}) {
-		t.Fatalf("plain copy should keep original pixels, got %#v", img.At(35, 5))
+	if !sameRGBA(img.At(35, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("plain copy should save redacted pixels when auto redaction is enabled, got %#v", img.At(35, 5))
 	}
 	entry := captures.Entry(result.CaptureID)
-	if containsString(entry.Actions, "redacted") {
-		t.Fatalf("plain copy should not record redacted action, got %#v", entry.Actions)
+	if !containsString(entry.Actions, "redacted") {
+		t.Fatalf("plain copy should record redacted action, got %#v", entry.Actions)
+	}
+}
+
+func TestCaptureSelectionPinUsesAutoRedactionPolicy(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "数字国联整体架构图", Rect: ocr.Rect{X: 0, Y: 0, Width: 90, Height: 10}},
+			},
+		},
+	}
+	pins := &positionedPinRecorder{}
+	service := NewService(captures, pins, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: true, RedactKeywords: []string{"国联"}})
+	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 12})
+
+	result := service.CaptureSelection(SelectionRequest{
+		SessionID: session.ID,
+		X:         0,
+		Y:         0,
+		Width:     90,
+		Height:    12,
+		Action:    "pin",
+	})
+
+	if !result.OK || result.Pin == nil || !result.Pin.OK {
+		t.Fatalf("expected pinned capture, got %#v", result)
+	}
+	if ocrProvider.pathCount() != 1 {
+		t.Fatalf("pin should call OCR for auto redaction, got %d OCR calls", ocrProvider.pathCount())
+	}
+	img := readPNG(t, result.ImagePath)
+	if !sameRGBA(img.At(35, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("pin should save redacted pixels when auto redaction is enabled, got %#v", img.At(35, 5))
+	}
+	entry := captures.Entry(result.CaptureID)
+	if !containsString(entry.Actions, "redacted") {
+		t.Fatalf("pin should record redacted action, got %#v", entry.Actions)
 	}
 }
 
@@ -965,7 +1380,7 @@ func TestPrepareSelectionRedactionWarmsOCRForRedactCopy(t *testing.T) {
 	service := NewService(captures, nil, ocrProvider)
 	service.ApplyScreenshotPolicy(ScreenshotPolicy{AutoRedact: false, RedactKeywords: []string{"国联"}})
 	session := service.stageTestSession(t, capturehistory.ScreenBounds{X: 0, Y: 0, Width: 90, Height: 12})
-	stubImageClipboardWriter(t)
+	stubPNGClipboardWriter(t)
 	request := SelectionRequest{
 		SessionID: session.ID,
 		X:         0,
@@ -1099,6 +1514,46 @@ func stubImageClipboardWriter(t *testing.T) *string {
 		writeImageToClipboard = previousWriter
 	})
 	return &copiedPath
+}
+
+func stubPNGClipboardWriter(t *testing.T) *[]byte {
+	t.Helper()
+	previousWriter := writePNGToClipboard
+	var copied []byte
+	writePNGToClipboard = func(data []byte) error {
+		copied = append([]byte(nil), data...)
+		return nil
+	}
+	t.Cleanup(func() {
+		writePNGToClipboard = previousWriter
+	})
+	return &copied
+}
+
+func stubTextClipboardWriter(t *testing.T) *string {
+	t.Helper()
+	previousWriter := writeTextToClipboard
+	copiedText := ""
+	writeTextToClipboard = func(text string) error {
+		copiedText = text
+		return nil
+	}
+	t.Cleanup(func() {
+		writeTextToClipboard = previousWriter
+	})
+	return &copiedText
+}
+
+func waitCaptureHistoryCount(t *testing.T, captures *capturehistory.Service, expected int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if captures.Status().Count >= expected {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected capture history count to reach %d, got %d", expected, captures.Status().Count)
 }
 
 func containsString(items []string, value string) bool {

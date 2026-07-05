@@ -11,8 +11,11 @@ import type { OCRResult, PinnedImage } from '../../types/ariadne'
 
 const props = defineProps<{
   pinId: string
+  warm?: boolean
 }>()
 
+const activePinId = ref(props.pinId)
+const surfaceRef = ref<HTMLElement | null>(null)
 const image = ref<PinnedImage | null>(null)
 const zoom = ref(1)
 const shadowEnabled = ref(false)
@@ -25,6 +28,7 @@ const menuExpanded = ref(false)
 const ocrSelection = createOCRSelection(ocrResult)
 const ocrLines = ocrSelection.ocrLines
 const selectedOCRLineCount = ocrSelection.selectedOCRLineCount
+const isWarmWindow = computed(() => Boolean(props.warm))
 const imageStyle = computed(() => ({
   transform: `scale(${zoom.value})`,
 }))
@@ -133,9 +137,29 @@ const contextActions = computed(() => {
 
 onMounted(async () => {
   document.documentElement.classList.add('pinned-image-document')
+  if (isWarmWindow.value) {
+    await prepareWarmWindow()
+    return
+  }
   await prepareWindow()
-  image.value = await getPinnedImage(props.pinId)
+  await loadPinnedImage(activePinId.value)
   isLoading.value = false
+  document.addEventListener('keydown', handleKeyDown, true)
+  focusSurface()
+})
+
+onBeforeUnmount(() => {
+  document.documentElement.classList.remove('pinned-image-document')
+  document.removeEventListener('keydown', handleKeyDown, true)
+})
+
+async function loadPinnedImage(pinId: string) {
+  activePinId.value = pinId
+  ocrResult.value = null
+  ocrSelection.clearOCRLineSelection()
+  contextMenu.value = { visible: false, x: 0, y: 0 }
+  menuExpanded.value = false
+  image.value = await getPinnedImage(pinId)
   if (image.value?.windowWidth && image.value.windowHeight) {
     try {
       await Window.SetSize(image.value.windowWidth, image.value.windowHeight)
@@ -143,19 +167,26 @@ onMounted(async () => {
       // Runtime calls are unavailable in browser-only dev mode.
     }
   }
-  window.addEventListener('keydown', handleKeyDown)
-})
-
-onBeforeUnmount(() => {
-  document.documentElement.classList.remove('pinned-image-document')
-  window.removeEventListener('keydown', handleKeyDown)
-})
+}
 
 async function prepareWindow() {
   try {
     await Window.SetFrameless(true)
     await Window.SetAlwaysOnTop(true)
     await Window.SetBackgroundColour(0, 0, 0, 0)
+  } catch {
+    // Runtime calls are unavailable in browser-only dev mode.
+  }
+}
+
+async function prepareWarmWindow() {
+  try {
+    await Window.SetFrameless(true)
+    await Window.SetResizable(false)
+    await Window.SetAlwaysOnTop(false)
+    await Window.SetSize(1, 1)
+    await Window.SetBackgroundColour(0, 0, 0, 0)
+    await Window.Hide()
   } catch {
     // Runtime calls are unavailable in browser-only dev mode.
   }
@@ -255,6 +286,7 @@ function resetZoom() {
 }
 
 function handleSurfacePointerDown(event: PointerEvent) {
+  focusSurface()
   if (contextMenu.value.visible) {
     if (!isContextMenuTarget(event.target)) {
       closeContextMenu()
@@ -271,8 +303,14 @@ function toggleShadow() {
   shadowEnabled.value = !shadowEnabled.value
 }
 
+function focusSurface() {
+  window.setTimeout(() => {
+    surfaceRef.value?.focus({ preventScroll: true })
+  }, 0)
+}
+
 async function closeWindow() {
-  await closePinnedImage(props.pinId)
+  await closePinnedImage(activePinId.value)
   try {
     await Window.Close()
   } catch {
@@ -282,13 +320,17 @@ async function closeWindow() {
 
 function handleKeyDown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
     if (contextMenu.value.visible) {
       closeContextMenu()
       return
     }
     void closeWindow()
+    return
   }
   if (event.key === '0' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault()
     resetZoom()
   }
   if ((event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) && image.value) {
@@ -375,8 +417,16 @@ function clampZoom(value: number) {
 
 <template>
   <main
+    v-if="isWarmWindow"
+    class="pinned-image-surface is-warm"
+    aria-hidden="true"
+  />
+  <main
+    v-else
+    ref="surfaceRef"
     class="pinned-image-surface"
     :class="{ 'has-shadow': shadowEnabled }"
+    tabindex="-1"
     aria-label="贴图窗口"
     @pointerdown="handleSurfacePointerDown"
     @wheel="onWheel"

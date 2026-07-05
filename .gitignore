@@ -4,6 +4,10 @@ dist/
 bin/
 app_archive.zip
 
+# .NET build output
+**/bin/
+**/obj/
+
 # Python-generated files retained for the archived x-tools code.
 __pycache__/
 *.py[oc]

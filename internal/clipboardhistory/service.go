@@ -40,6 +40,14 @@ func WriteImageToSystemClipboard(path string) error {
 	return writeImageToSystemClipboard(path)
 }
 
+func WritePNGToSystemClipboard(data []byte) error {
+	return writePNGToSystemClipboard(data)
+}
+
+func WriteTextToSystemClipboard(text string) error {
+	return writeTextToSystemClipboard(text)
+}
+
 type Entry struct {
 	ID              string    `json:"id"`
 	Type            EntryType `json:"type"`

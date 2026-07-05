@@ -15,10 +15,17 @@ tasks:
     summary: Build Ariadne for Windows.
     cmds:
       - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
+      - wails3 task native:capture-host
       - wails3 generate bindings -clean=false
       - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
       - wails3 task windows:resources
       - go build -ldflags="-H windowsgui" -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" .
+
+  native:capture-host:
+    summary: Publish the WPF screenshot host used by the Windows native capture path.
+    cmds:
+      - powershell -NoProfile -Command "if (-not ([System.IO.Path]::GetFullPath((Join-Path (Get-Location) '{{.BIN_DIR}}\native-capture')).StartsWith([System.IO.Path]::GetFullPath((Get-Location).Path), [System.StringComparison]::OrdinalIgnoreCase))) { throw 'Refusing to clean outside workspace' }; if (Test-Path -LiteralPath '{{.BIN_DIR}}\native-capture') { Remove-Item -LiteralPath '{{.BIN_DIR}}\native-capture' -Recurse -Force }; New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}\native-capture' | Out-Null"
+      - powershell -NoProfile -Command "if (Test-Path 'C:\Users\luwei\.codex\tools\dotnet-sdk-8.0\dotnet.exe') { & 'C:\Users\luwei\.codex\tools\dotnet-sdk-8.0\dotnet.exe' publish native\Ariadne.CaptureHost\Ariadne.CaptureHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -p:DebugSymbols=false -o '{{.BIN_DIR}}\native-capture' } else { dotnet publish native\Ariadne.CaptureHost\Ariadne.CaptureHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -p:DebugSymbols=false -o '{{.BIN_DIR}}\native-capture' }"
 
   windows:resources:
     summary: Generate Windows icon, manifest, and version resources for Ariadne.
@@ -72,5 +79,6 @@ tasks:
     summary: Run Ariadne backend and frontend checks.
     cmds:
       - go test . ./cmd/... ./internal/...
+      - wails3 task native:capture-host
       - wails3 generate bindings -clean=false
       - powershell -NoProfile -Command "Set-Location frontend; pnpm build"

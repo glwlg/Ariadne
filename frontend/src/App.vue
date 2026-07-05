@@ -24,6 +24,7 @@ const routeParams = new URLSearchParams(window.location.search)
 const routeView = routeParams.get('view') ?? ''
 const isLauncherWindow = routeView === 'launcher'
 const isPinnedImageWindow = routeView === 'pinned-image'
+const isPinnedImageWarmWindow = isPinnedImageWindow && routeParams.get('warm') === '1'
 const isCaptureOverlayWindow = routeView === 'capture-overlay'
 const standaloneToolView = isStandaloneToolView(routeView) ? routeView : ''
 const pinId = routeParams.get('pinId') ?? ''
@@ -166,7 +167,7 @@ function shouldRenderToolView(view: AppToolView) {
 </script>
 
 <template>
-  <PinnedImageWindow v-if="isPinnedImageWindow" :pin-id="pinId" />
+  <PinnedImageWindow v-if="isPinnedImageWindow" :pin-id="pinId" :warm="isPinnedImageWarmWindow" />
   <CaptureOverlayWindow v-else-if="isCaptureOverlayWindow" :session-id="captureOverlaySessionId" />
   <AriadneLauncher v-else-if="isLauncherWindow || (!standaloneToolView && appShell.activeView === 'launcher')" />
   <WorkMemoryCenter v-else-if="shouldRenderToolView('work-memory')" />

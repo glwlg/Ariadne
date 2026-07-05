@@ -1,0 +1,87 @@
+{
+  "productName": "Ariadne",
+  "createdAt": 1783133338,
+  "exePath": "P:\\workspace\\glwlg\\app\\Ariadne\\bin\\ariadne.exe",
+  "virtualScreen": {
+    "x": 0,
+    "y": 0,
+    "width": 1920,
+    "height": 1080
+  },
+  "monitors": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "selection": {
+    "x": 160,
+    "y": 140,
+    "width": 260,
+    "height": 180
+  },
+  "hotkeyBefore": {
+    "alt+a": {
+      "available": true
+    },
+    "alt+q": {
+      "available": true
+    }
+  },
+  "startedProcessId": 268608,
+  "mainWindow": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "overlayWindow": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "pinnedWindow": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "pinnedAfterDrag": {
+    "visible": false,
+    "x": 0,
+    "y": 0,
+    "width": 0,
+    "height": 0,
+    "hasCaption": false,
+    "hasThickFrame": false,
+    "isTopmost": false,
+    "isForeground": false
+  },
+  "steps": [
+    {
+      "name": "wait main window",
+      "ok": false,
+      "detail": "process exited before window appeared"
+    }
+  ],
+  "pass": false,
+  "error": "process exited before window appeared"
+}
