@@ -119,16 +119,17 @@ type AIClient interface {
 }
 
 type Service struct {
-	mu        sync.RWMutex
-	captures  CaptureProvider
-	clipboard ClipboardProvider
-	memory    WorkMemoryProvider
-	runner    bridgeRunner
-	aiClient  AIClient
-	aiPolicy  AIOCRPolicy
-	last      Result
-	status    Status
-	now       func() time.Time
+	mu             sync.RWMutex
+	captures       CaptureProvider
+	clipboard      ClipboardProvider
+	memory         WorkMemoryProvider
+	runner         bridgeRunner
+	aiClient       AIClient
+	aiPolicy       AIOCRPolicy
+	pinnedAIPolicy AIOCRPolicy
+	last           Result
+	status         Status
+	now            func() time.Time
 }
 
 func NewService(captures CaptureProvider, clipboard ClipboardProvider, memory WorkMemoryProvider) *Service {
@@ -155,6 +156,12 @@ func (s *Service) ApplyAIOCRPolicy(policy AIOCRPolicy) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.aiPolicy = normalizeAIOCRPolicy(policy)
+}
+
+func (s *Service) ApplyPinnedAIOCRPolicy(policy AIOCRPolicy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pinnedAIPolicy = normalizeAIOCRPolicy(policy)
 }
 
 func (s *Service) Status() Status {
@@ -238,6 +245,44 @@ func (s *Service) RecognizeClipboardImage(clipboardID string) Result {
 	return s.record(result)
 }
 
+func (s *Service) RecognizePinnedCapture(captureID string) Result {
+	captureID = strings.TrimSpace(captureID)
+	if captureID == "" {
+		return s.record(Result{OK: false, Source: "pinned_capture", Error: "缺少截图记录 ID"})
+	}
+	if s.captures == nil {
+		return s.record(Result{OK: false, Source: "pinned_capture", CaptureID: captureID, Error: "截图历史服务不可用"})
+	}
+	entry := s.captures.Entry(captureID)
+	if entry.ID == "" || strings.TrimSpace(entry.ImagePath) == "" {
+		return s.record(Result{OK: false, Source: "pinned_capture", CaptureID: captureID, Error: "未找到截图记录"})
+	}
+	result := s.recognizeImageWithPolicy(entry.ImagePath, "pinned_capture", s.pinnedPolicy())
+	result.CaptureID = entry.ID
+	result.Width = entry.Width
+	result.Height = entry.Height
+	return s.record(result)
+}
+
+func (s *Service) RecognizePinnedClipboardImage(clipboardID string) Result {
+	clipboardID = strings.TrimSpace(clipboardID)
+	if clipboardID == "" {
+		return s.record(Result{OK: false, Source: "pinned_clipboard", Error: "缺少剪贴板记录 ID"})
+	}
+	if s.clipboard == nil {
+		return s.record(Result{OK: false, Source: "pinned_clipboard", ClipboardID: clipboardID, Error: "剪贴板历史服务不可用"})
+	}
+	entry := s.clipboard.Entry(clipboardID)
+	if entry.ID == "" || entry.Type != clipboardhistory.EntryImage || strings.TrimSpace(entry.ImagePath) == "" {
+		return s.record(Result{OK: false, Source: "pinned_clipboard", ClipboardID: clipboardID, Error: "未找到剪贴板图片"})
+	}
+	result := s.recognizeImageWithPolicy(entry.ImagePath, "pinned_clipboard", s.pinnedPolicy())
+	result.ClipboardID = entry.ID
+	result.Width = entry.Width
+	result.Height = entry.Height
+	return s.record(result)
+}
+
 func (s *Service) RecognizeWorkMemory(memoryID string) Result {
 	memoryID = strings.TrimSpace(memoryID)
 	if memoryID == "" {
@@ -274,6 +319,10 @@ func (s *Service) RecognizeImagePath(path string) Result {
 }
 
 func (s *Service) recognizeImage(path string, source string) Result {
+	return s.recognizeImageWithPolicy(path, source, s.defaultPolicy())
+}
+
+func (s *Service) recognizeImageWithPolicy(path string, source string, policy AIOCRPolicy) Result {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return Result{OK: false, Source: source, Error: "缺少图片路径"}
@@ -283,7 +332,7 @@ func (s *Service) recognizeImage(path string, source string) Result {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultOCRTimeout)
 	defer cancel()
-	output, status := s.runConfiguredOCR(ctx, path)
+	output, status := s.runConfiguredOCR(ctx, path, policy)
 	result := Result{
 		OK:           output.OK,
 		Text:         strings.TrimSpace(output.Text),
@@ -315,10 +364,9 @@ func (s *Service) recognizeImage(path string, source string) Result {
 	return result
 }
 
-func (s *Service) runConfiguredOCR(ctx context.Context, imagePath string) (bridgeOutput, Status) {
+func (s *Service) runConfiguredOCR(ctx context.Context, imagePath string, policy AIOCRPolicy) (bridgeOutput, Status) {
 	s.mu.RLock()
 	client := s.aiClient
-	policy := s.aiPolicy
 	runner := s.runner
 	s.mu.RUnlock()
 	if runner == nil {
@@ -364,6 +412,18 @@ func (s *Service) runConfiguredOCR(ctx context.Context, imagePath string) (bridg
 		status.LastError = output.Error
 	}
 	return output, status
+}
+
+func (s *Service) defaultPolicy() AIOCRPolicy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.aiPolicy
+}
+
+func (s *Service) pinnedPolicy() AIOCRPolicy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.pinnedAIPolicy
 }
 
 func (s *Service) runLocalOCRBridge(ctx context.Context, imagePath string) (bridgeOutput, Status) {

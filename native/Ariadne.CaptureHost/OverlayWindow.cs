@@ -72,6 +72,8 @@ internal enum ColorFormat
 
 internal sealed class OverlayWindow : Window
 {
+    private const long MagnifierContentFrameMs = 16;
+
     private static readonly string[] ColorPalette =
     [
         "#dc2626",
@@ -94,6 +96,13 @@ internal sealed class OverlayWindow : Window
     private readonly WpfRectangle _rightMask = Mask();
     private readonly WpfRectangle _bottomMask = Mask();
     private readonly Border _selection = new();
+    private readonly DropShadowEffect _selectionIdleEffect = new()
+    {
+        Color = WpfColor.FromRgb(20, 184, 166),
+        BlurRadius = 10,
+        ShadowDepth = 0,
+        Opacity = 0.75
+    };
     private readonly Border _toolbar = new();
     private readonly Border _selectionSize = new();
     private readonly TextBlock _selectionSizeText = new();
@@ -137,9 +146,17 @@ internal sealed class OverlayWindow : Window
     private int _numberCounter = 1;
     private string _annotationColor = "#dc2626";
     private ColorFormat _colorFormat = ColorFormat.Rgb;
+    private string _lastSelectionSizeText = "";
+    private int _lastSelectionSizeTextLength = -1;
+    private WpfSize _lastSelectionSizeMeasure = WpfSize.Empty;
+    private long _lastMagnifierContentMs;
+    private int _lastMagnifierPhysicalX = int.MinValue;
+    private int _lastMagnifierPhysicalY = int.MinValue;
+    private bool _selectionDragVisualsActive;
     private bool _editMode;
     private bool _completed;
     private bool _ocrBusy;
+    private bool _redactBusy;
 
     public OverlayWindow(ScreenCapture capture, CaptureRequest request)
     {
@@ -204,13 +221,11 @@ internal sealed class OverlayWindow : Window
         _selection.BorderBrush = NativeVisuals.Brush(20, 184, 166);
         _selection.BorderThickness = new Thickness(1.4);
         _selection.Background = NativeVisuals.Brush(22, 255, 255, 255);
-        _selection.Effect = new DropShadowEffect
+        if (_selectionIdleEffect.CanFreeze)
         {
-            Color = WpfColor.FromRgb(20, 184, 166),
-            BlurRadius = 10,
-            ShadowDepth = 0,
-            Opacity = 0.75
-        };
+            _selectionIdleEffect.Freeze();
+        }
+        _selection.Effect = _selectionIdleEffect;
         _selection.Visibility = Visibility.Collapsed;
         _selection.IsHitTestVisible = false;
         _overlay.Children.Add(_selection);
@@ -295,7 +310,9 @@ internal sealed class OverlayWindow : Window
         _overlay.MouseLeftButtonDown += BeginSelection;
         _overlay.MouseMove += MoveSelection;
         _overlay.MouseLeftButtonUp += EndInteraction;
+        _overlay.PreviewMouseRightButtonDown += CancelCaptureWithRightClick;
         _overlay.PreviewMouseWheel += AdjustThicknessWithWheel;
+        PreviewKeyDown += HandlePreviewKeyDown;
         _overlay.KeyDown += HandleKeyDown;
         _overlay.SizeChanged += (_, _) => UpdateSelectionVisuals();
         _overlay.Loaded += (_, _) =>
@@ -306,6 +323,28 @@ internal sealed class OverlayWindow : Window
         };
         root.Children.Add(_overlay);
         return root;
+    }
+
+    private void HandlePreviewKeyDown(object sender, WpfKeyEventArgs eventArgs)
+    {
+        if (eventArgs.Key != Key.Escape)
+        {
+            return;
+        }
+
+        CancelCapture();
+        eventArgs.Handled = true;
+    }
+
+    private void CancelCaptureWithRightClick(object sender, MouseButtonEventArgs eventArgs)
+    {
+        CancelCapture();
+        eventArgs.Handled = true;
+    }
+
+    private void CancelCapture()
+    {
+        Complete(new CaptureResponse { Ok = false, Canceled = true, Message = "已取消截图" });
     }
 
     private UIElement ToolbarContent()
@@ -535,8 +574,10 @@ internal sealed class OverlayWindow : Window
 
         _toolbar.Visibility = Visibility.Collapsed;
         _selection.Visibility = Visibility.Visible;
+        _magnifier.Visibility = Visibility.Collapsed;
+        SetSelectionDragVisuals(true);
         _overlay.CaptureMouse();
-        UpdateSelectionVisuals();
+        UpdateSelectionVisuals(refreshChrome: false, refreshTools: false, redrawAnnotations: false, layoutToolbar: false);
     }
 
     private void MoveSelection(object sender, WpfMouseEventArgs eventArgs)
@@ -544,12 +585,20 @@ internal sealed class OverlayWindow : Window
         if (IsControlSource(eventArgs.OriginalSource as DependencyObject))
         {
             Cursor = Cursors.Arrow;
+            _magnifier.Visibility = Visibility.Collapsed;
             return;
         }
 
         var point = ClampPoint(eventArgs.GetPosition(_overlay));
         _lastPoint = point;
-        UpdateMagnifier(point);
+        if (_mode == OverlayInteractionMode.None)
+        {
+            UpdateMagnifier(point);
+        }
+        else
+        {
+            _magnifier.Visibility = Visibility.Collapsed;
+        }
         switch (_mode)
         {
             case OverlayInteractionMode.None:
@@ -571,7 +620,8 @@ internal sealed class OverlayWindow : Window
                 MoveSelectedAnnotation(point);
                 break;
         }
-        UpdateSelectionVisuals();
+        var redrawAnnotations = _mode is OverlayInteractionMode.DrawingAnnotation or OverlayInteractionMode.MovingAnnotation;
+        UpdateSelectionVisuals(refreshChrome: false, refreshTools: false, redrawAnnotations: redrawAnnotations, layoutToolbar: false);
     }
 
     private void AdjustThicknessWithWheel(object sender, MouseWheelEventArgs eventArgs)
@@ -607,6 +657,7 @@ internal sealed class OverlayWindow : Window
         _mode = OverlayInteractionMode.None;
         _resizeAnchor = ResizeAnchor.None;
         _annotationMoveOrigin = null;
+        SetSelectionDragVisuals(false);
         _overlay.ReleaseMouseCapture();
         UpdateSelectionVisuals();
     }
@@ -730,13 +781,19 @@ internal sealed class OverlayWindow : Window
         }
     }
 
-    private void UpdateSelectionVisuals()
+    private void UpdateSelectionVisuals(bool refreshChrome = true, bool refreshTools = true, bool redrawAnnotations = true, bool layoutToolbar = true)
     {
         var bounds = SelectionDip();
         var totalWidth = Math.Max(ActualWidth, Width);
         var totalHeight = Math.Max(ActualHeight, Height);
-        PositionOverlayChrome();
-        UpdateToolStates();
+        if (refreshChrome)
+        {
+            PositionOverlayChrome();
+        }
+        if (refreshTools)
+        {
+            UpdateToolStates();
+        }
 
         if (bounds.Width < 1 || bounds.Height < 1)
         {
@@ -758,15 +815,34 @@ internal sealed class OverlayWindow : Window
 
         _selection.Visibility = Visibility.Visible;
         SetElement(_selection, bounds.X, bounds.Y, bounds.Width, bounds.Height);
-        SetElement(_annotationLayer, bounds.X, bounds.Y, bounds.Width, bounds.Height);
-        _annotationLayer.Visibility = Visibility.Visible;
-        RedrawAnnotations();
+        if (HasAnnotationVisuals())
+        {
+            SetElement(_annotationLayer, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+            _annotationLayer.Visibility = Visibility.Visible;
+            if (redrawAnnotations)
+            {
+                RedrawAnnotations();
+            }
+        }
+        else
+        {
+            _annotationLayer.Visibility = Visibility.Collapsed;
+            if (_annotationLayer.Children.Count > 0)
+            {
+                _annotationLayer.Children.Clear();
+            }
+        }
         PositionSelectionSize(bounds, totalWidth, totalHeight);
         PositionHandles(bounds);
         SetRect(_topMask, 0, 0, totalWidth, bounds.Y);
         SetRect(_leftMask, 0, bounds.Y, bounds.X, bounds.Height);
         SetRect(_rightMask, bounds.X + bounds.Width, bounds.Y, Math.Max(0, totalWidth - bounds.X - bounds.Width), bounds.Height);
         SetRect(_bottomMask, 0, bounds.Y + bounds.Height, totalWidth, Math.Max(0, totalHeight - bounds.Y - bounds.Height));
+
+        if (!layoutToolbar)
+        {
+            return;
+        }
 
         if ((_mode is OverlayInteractionMode.None or OverlayInteractionMode.DrawingAnnotation) && bounds.Width >= 2 && bounds.Height >= 2)
         {
@@ -814,11 +890,26 @@ internal sealed class OverlayWindow : Window
     private void PositionSelectionSize(Rect bounds, double totalWidth, double totalHeight)
     {
         var physical = SelectionPhysical();
-        _selectionSizeText.Text = $"{physical.Width} x {physical.Height}";
+        var text = $"{physical.Width} x {physical.Height}";
+        if (!string.Equals(_lastSelectionSizeText, text, StringComparison.Ordinal))
+        {
+            _lastSelectionSizeText = text;
+            _selectionSizeText.Text = text;
+            if (_lastSelectionSizeTextLength != text.Length)
+            {
+                _lastSelectionSizeTextLength = text.Length;
+                _selectionSize.Measure(new WpfSize(double.PositiveInfinity, double.PositiveInfinity));
+                _lastSelectionSizeMeasure = _selectionSize.DesiredSize;
+            }
+        }
         _selectionSize.Visibility = Visibility.Visible;
-        _selectionSize.Measure(new WpfSize(double.PositiveInfinity, double.PositiveInfinity));
-        var width = _selectionSize.DesiredSize.Width;
-        var height = _selectionSize.DesiredSize.Height;
+        if (_lastSelectionSizeMeasure.IsEmpty)
+        {
+            _selectionSize.Measure(new WpfSize(double.PositiveInfinity, double.PositiveInfinity));
+            _lastSelectionSizeMeasure = _selectionSize.DesiredSize;
+        }
+        var width = _lastSelectionSizeMeasure.Width;
+        var height = _lastSelectionSizeMeasure.Height;
         var x = Math.Clamp(bounds.Right - width, 8, Math.Max(8, totalWidth - width - 8));
         var y = bounds.Y - height - 7;
         if (y < 8)
@@ -1176,10 +1267,18 @@ internal sealed class OverlayWindow : Window
             Child = _textEditor,
             Effect = NativeVisuals.Shadow(36, 12, 3)
         };
-        _annotationLayer.Children.Add(_textEditorHost);
-        Canvas.SetLeft(_textEditorHost, local.X);
-        Canvas.SetTop(_textEditorHost, local.Y);
+        RedrawAnnotations();
         _textEditor.Focus();
+        Keyboard.Focus(_textEditor);
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_textEditor == null)
+            {
+                return;
+            }
+            _textEditor.Focus();
+            Keyboard.Focus(_textEditor);
+        }), System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void CommitTextAnnotation()
@@ -1307,6 +1406,16 @@ internal sealed class OverlayWindow : Window
     private void RedrawAnnotations()
     {
         var editor = _textEditorHost;
+        if (!HasAnnotationVisuals())
+        {
+            if (_annotationLayer.Children.Count > 0)
+            {
+                _annotationLayer.Children.Clear();
+            }
+            return;
+        }
+
+        EnsureAnnotationLayerVisible();
         _annotationLayer.Children.Clear();
         foreach (var operation in _operations)
         {
@@ -1326,6 +1435,22 @@ internal sealed class OverlayWindow : Window
             Canvas.SetLeft(editor, _textEditorPoint.X);
             Canvas.SetTop(editor, _textEditorPoint.Y);
         }
+    }
+
+    private void EnsureAnnotationLayerVisible()
+    {
+        var bounds = SelectionDip();
+        if (bounds.Width < 1 || bounds.Height < 1)
+        {
+            return;
+        }
+        SetElement(_annotationLayer, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+        _annotationLayer.Visibility = Visibility.Visible;
+    }
+
+    private bool HasAnnotationVisuals()
+    {
+        return _operations.Count > 0 || _draftOperation != null || _selectedOperationIndex >= 0 || _textEditorHost != null;
     }
 
     private void AddOperationVisual(AnnotationOperation operation, bool draft = false)
@@ -1594,10 +1719,16 @@ internal sealed class OverlayWindow : Window
 
     private void Finish(string action)
     {
-        var totalStarted = Environment.TickCount64;
-        if (_ocrBusy)
+        if (action == "redact_copy")
         {
-            ShowPersistentFeedback("OCR 识别中");
+            _ = FinishRedactCopyAsync();
+            return;
+        }
+
+        var totalStarted = Environment.TickCount64;
+        if (_ocrBusy || _redactBusy)
+        {
+            ShowPersistentFeedback(_redactBusy ? "正在打码并复制" : "OCR 识别中");
             return;
         }
 
@@ -1705,6 +1836,131 @@ internal sealed class OverlayWindow : Window
         });
     }
 
+    private async Task FinishRedactCopyAsync()
+    {
+        var totalStarted = Environment.TickCount64;
+        if (_ocrBusy || _redactBusy)
+        {
+            ShowPersistentFeedback(_redactBusy ? "正在打码并复制" : "OCR 识别中");
+            return;
+        }
+
+        CommitTextAnnotation();
+        var physical = SelectionPhysical();
+        var selection = SelectionDip();
+        if (physical.Width < 2 || physical.Height < 2 || selection.Width < 2 || selection.Height < 2)
+        {
+            ShowFeedback("先拖拽选择区域");
+            return;
+        }
+
+        byte[] png;
+        long renderMs;
+        try
+        {
+            var renderStarted = Environment.TickCount64;
+            png = RenderSelectionPng(physical, selection);
+            renderMs = Environment.TickCount64 - renderStarted;
+        }
+        catch (Exception ex)
+        {
+            ShowFeedback("截图失败: " + ex.Message);
+            return;
+        }
+
+        var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ariadne-redact-copy-" + Guid.NewGuid().ToString("N") + ".png");
+        SetRedactBusy(true);
+        try
+        {
+            ShowPersistentFeedback("正在打码并复制");
+            await File.WriteAllBytesAsync(tempPath, png);
+            var redactStarted = Environment.TickCount64;
+            var response = await PinActionClient.SendAsync(_request.CallbackPipeName, new PinActionRequest
+            {
+                Action = "redact_copy",
+                NativePinId = Guid.NewGuid().ToString("N"),
+                ImagePath = tempPath
+            });
+            var clipboardMs = Environment.TickCount64 - redactStarted;
+            if (!response.Ok)
+            {
+                ShowFeedback(string.IsNullOrWhiteSpace(response.Message) ? "打码复制失败" : response.Message);
+                return;
+            }
+            if (!response.ClipboardWritten)
+            {
+                ShowFeedback("打码复制失败: 剪贴板未写入");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(response.PngBase64))
+            {
+                ShowFeedback("打码复制失败: 截图数据无效");
+                return;
+            }
+
+            byte[] redactedPng;
+            try
+            {
+                redactedPng = Convert.FromBase64String(response.PngBase64);
+            }
+            catch (Exception ex)
+            {
+                ShowFeedback("打码复制失败: " + ex.Message);
+                return;
+            }
+
+            var pinX = _capture.Bounds.X + physical.X;
+            var pinY = _capture.Bounds.Y + physical.Y;
+            var pinned = false;
+            var nativePinId = "";
+            if (_request.AutoPin)
+            {
+                try
+                {
+                    nativePinId = Guid.NewGuid().ToString("N");
+                    new PinWindow(redactedPng, pinX, pinY, physical.Width, physical.Height, nativePinId, _request.CallbackPipeName).Show();
+                    pinned = true;
+                }
+                catch (Exception ex)
+                {
+                    ShowFeedback("贴图失败: " + ex.Message);
+                    return;
+                }
+            }
+
+            Complete(new CaptureResponse
+            {
+                Ok = true,
+                Action = "redact_copy",
+                Message = string.IsNullOrWhiteSpace(response.Message) ? "已打码复制" : response.Message,
+                PngBase64 = response.PngBase64,
+                X = pinX,
+                Y = pinY,
+                Width = response.Width > 0 ? response.Width : physical.Width,
+                Height = response.Height > 0 ? response.Height : physical.Height,
+                ClipboardWritten = true,
+                Pinned = pinned,
+                PinPositioned = pinned,
+                PinX = pinX,
+                PinY = pinY,
+                NativePinId = nativePinId,
+                RenderMs = renderMs,
+                ClipboardMs = clipboardMs,
+                TotalMs = Environment.TickCount64 - totalStarted,
+                Operations = ExportOperations(selection, physical)
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowFeedback("打码复制失败: " + ex.Message);
+        }
+        finally
+        {
+            SetRedactBusy(false);
+            TryDeleteFile(tempPath);
+        }
+    }
+
     private static void WriteImageToClipboardWithRetry(byte[] png)
     {
         NativeClipboard.WritePngWithRetry(png);
@@ -1712,9 +1968,9 @@ internal sealed class OverlayWindow : Window
 
     private async Task RecognizeSelectionOcrAsync()
     {
-        if (_ocrBusy)
+        if (_ocrBusy || _redactBusy)
         {
-            ShowPersistentFeedback("OCR 识别中");
+            ShowPersistentFeedback(_redactBusy ? "正在打码并复制" : "OCR 识别中");
             return;
         }
 
@@ -2367,12 +2623,23 @@ internal sealed class OverlayWindow : Window
         }
         var physicalX = LocalToPhysicalX(point.X);
         var physicalY = LocalToPhysicalY(point.Y);
-        var sampleSize = 24;
-        var left = Math.Clamp(physicalX - sampleSize / 2, 0, Math.Max(0, _capture.Source.PixelWidth - sampleSize));
-        var top = Math.Clamp(physicalY - sampleSize / 2, 0, Math.Max(0, _capture.Source.PixelHeight - sampleSize));
-        _magnifierImage.Source = _capture.CropSource(new Int32Rect(left, top, Math.Min(sampleSize, _capture.Source.PixelWidth - left), Math.Min(sampleSize, _capture.Source.PixelHeight - top)));
-        var color = _capture.SamplePixel(physicalX, physicalY);
-        _magnifierText.Text = FormatColor(color, _colorFormat);
+        var now = Environment.TickCount64;
+        var refreshContent = _magnifier.Visibility != Visibility.Visible
+            || now - _lastMagnifierContentMs >= MagnifierContentFrameMs
+            || Math.Abs(physicalX - _lastMagnifierPhysicalX) >= 8
+            || Math.Abs(physicalY - _lastMagnifierPhysicalY) >= 8;
+        if (refreshContent)
+        {
+            var sampleSize = 24;
+            var left = Math.Clamp(physicalX - sampleSize / 2, 0, Math.Max(0, _capture.Source.PixelWidth - sampleSize));
+            var top = Math.Clamp(physicalY - sampleSize / 2, 0, Math.Max(0, _capture.Source.PixelHeight - sampleSize));
+            _magnifierImage.Source = _capture.CropSource(new Int32Rect(left, top, Math.Min(sampleSize, _capture.Source.PixelWidth - left), Math.Min(sampleSize, _capture.Source.PixelHeight - top)));
+            var color = _capture.SamplePixel(physicalX, physicalY);
+            _magnifierText.Text = FormatColor(color, _colorFormat);
+            _lastMagnifierContentMs = now;
+            _lastMagnifierPhysicalX = physicalX;
+            _lastMagnifierPhysicalY = physicalY;
+        }
         _magnifier.Visibility = Visibility.Visible;
 
         var x = point.X + 24;
@@ -2386,6 +2653,17 @@ internal sealed class OverlayWindow : Window
             y = point.Y - 148;
         }
         SetElement(_magnifier, Math.Clamp(x, 12, Math.Max(12, ActualWidth - _magnifier.Width - 12)), Math.Clamp(y, 12, Math.Max(12, ActualHeight - 148)), _magnifier.Width, 148);
+    }
+
+    private void SetSelectionDragVisuals(bool active)
+    {
+        if (_selectionDragVisualsActive == active)
+        {
+            return;
+        }
+
+        _selectionDragVisualsActive = active;
+        _selection.Effect = active ? null : _selectionIdleEffect;
     }
 
     private void CopyPointerColor()
@@ -2441,7 +2719,13 @@ internal sealed class OverlayWindow : Window
     private void SetOcrBusy(bool busy)
     {
         _ocrBusy = busy;
-        ApplyOcrButtonState();
+        UpdateToolStates();
+    }
+
+    private void SetRedactBusy(bool busy)
+    {
+        _redactBusy = busy;
+        UpdateToolStates();
     }
 
     private void ApplyOcrButtonState()
@@ -2451,12 +2735,12 @@ internal sealed class OverlayWindow : Window
             return;
         }
 
-        if (_ocrBusy)
+        if (_ocrBusy || _redactBusy)
         {
             _ocrButton.IsEnabled = false;
             _ocrButton.Background = NativeVisuals.Brush(235, 20, 184, 166);
             _ocrButton.Foreground = NativeVisuals.Brush(255, 255, 255);
-            _ocrButton.ToolTip = "OCR 识别中";
+            _ocrButton.ToolTip = _redactBusy ? "正在打码并复制" : "OCR 识别中";
             _ocrButton.Opacity = 1;
             return;
         }
@@ -2472,22 +2756,25 @@ internal sealed class OverlayWindow : Window
     private void UpdateToolStates()
     {
         var hasSelection = SelectionDip().Width >= 2 && SelectionDip().Height >= 2;
+        var busy = _ocrBusy || _redactBusy;
         foreach (var button in _selectionButtons)
         {
-            button.IsEnabled = hasSelection;
+            button.IsEnabled = hasSelection && !busy;
         }
         foreach (var (button, tool) in _toolButtons)
         {
             var active = tool == _tool && (tool == AnnotationTool.Select || _editMode);
+            button.IsEnabled = hasSelection && !busy;
             button.Background = active ? NativeVisuals.Brush(48, 20, 184, 166) : WpfBrushes.Transparent;
             button.Foreground = active ? NativeVisuals.Brush(15, 118, 110) : NativeVisuals.Brush(39, 39, 42);
         }
         foreach (var button in _operationButtons)
         {
-            button.IsEnabled = hasSelection && (button.ToolTip?.ToString()?.Contains("重做", StringComparison.Ordinal) == true ? _redoOperations.Count > 0 : _operations.Count > 0);
+            button.IsEnabled = hasSelection && !busy && (button.ToolTip?.ToString()?.Contains("重做", StringComparison.Ordinal) == true ? _redoOperations.Count > 0 : _operations.Count > 0);
         }
         foreach (var button in _colorButtons)
         {
+            button.IsEnabled = !busy;
             button.BorderThickness = string.Equals(button.ToolTip?.ToString(), _annotationColor, StringComparison.OrdinalIgnoreCase) ? new Thickness(2) : new Thickness(1);
             button.BorderBrush = string.Equals(button.ToolTip?.ToString(), _annotationColor, StringComparison.OrdinalIgnoreCase) ? NativeVisuals.Brush(15, 118, 110) : NativeVisuals.Brush(190, 212, 212, 216);
         }
@@ -2566,10 +2853,29 @@ internal sealed class OverlayWindow : Window
 
     private static void SetElement(FrameworkElement element, double x, double y, double width, double height)
     {
-        Canvas.SetLeft(element, x);
-        Canvas.SetTop(element, y);
-        element.Width = Math.Max(0, width);
-        element.Height = Math.Max(0, height);
+        var nextWidth = Math.Max(0, width);
+        var nextHeight = Math.Max(0, height);
+        if (!AlmostEqual(Canvas.GetLeft(element), x))
+        {
+            Canvas.SetLeft(element, x);
+        }
+        if (!AlmostEqual(Canvas.GetTop(element), y))
+        {
+            Canvas.SetTop(element, y);
+        }
+        if (!AlmostEqual(element.Width, nextWidth))
+        {
+            element.Width = nextWidth;
+        }
+        if (!AlmostEqual(element.Height, nextHeight))
+        {
+            element.Height = nextHeight;
+        }
+    }
+
+    private static bool AlmostEqual(double current, double next)
+    {
+        return !double.IsNaN(current) && Math.Abs(current - next) < 0.1;
     }
 
     private bool IsControlSource(DependencyObject? source)

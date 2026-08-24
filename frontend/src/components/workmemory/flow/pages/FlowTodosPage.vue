@@ -16,6 +16,7 @@ import {
   Tag,
 } from '@lucide/vue'
 import { computed, reactive, ref, toRefs } from 'vue'
+import AriButton from '../../../ui/AriButton.vue'
 import { useWorkMemoryFlowContext } from '../context'
 import type { WorkMemoryTodoItem, WorkMemoryTodoPriority, WorkMemoryTodoStatus } from '../../../../types/ariadne'
 
@@ -266,14 +267,14 @@ function unixToDate(value?: number) {
             <Search :size="18" />
             <input v-model="query" type="search" spellcheck="false" placeholder="搜索待办" />
           </label>
-          <button type="button" class="flow-todos-button is-primary" @click="openNewTodo()">
+          <AriButton class="flow-todos-button is-primary" variant="primary" @click="openNewTodo()">
             <Plus :size="18" />
             新建
-          </button>
-          <button type="button" class="flow-todos-button" :disabled="memory.isAskingFlow" @click="runFlowReview()">
+          </AriButton>
+          <AriButton class="flow-todos-button" variant="secondary" :disabled="memory.isAskingFlow" @click="runFlowReview()">
             <Sparkles :size="17" />
             从心流整理
-          </button>
+          </AriButton>
         </div>
       </header>
 
@@ -312,18 +313,18 @@ function unixToDate(value?: number) {
             </div>
 
             <div class="flow-todos-focus-actions">
-              <button v-if="focusTodo.status !== 'doing'" type="button" class="flow-action-button is-primary" @click="setStatus(focusTodo, 'doing')">
+              <AriButton v-if="focusTodo.status !== 'doing'" class="flow-action-button is-primary" variant="primary" @click="setStatus(focusTodo, 'doing')">
                 <Play :size="16" />
                 开始处理
-              </button>
-              <button type="button" class="flow-action-button is-success" @click="setStatus(focusTodo, 'done')">
+              </AriButton>
+              <AriButton class="flow-action-button is-success" variant="secondary" @click="setStatus(focusTodo, 'done')">
                 <Check :size="17" />
                 完成
-              </button>
-              <button v-if="focusTodo.status !== 'waiting'" type="button" class="flow-action-button" @click="setStatus(focusTodo, 'waiting')">
+              </AriButton>
+              <AriButton v-if="focusTodo.status !== 'waiting'" class="flow-action-button" variant="secondary" @click="setStatus(focusTodo, 'waiting')">
                 <Clock3 :size="17" />
                 稍后
-              </button>
+              </AriButton>
             </div>
           </section>
 
@@ -338,8 +339,8 @@ function unixToDate(value?: number) {
               <strong>现在没有要跟进的事</strong>
               <p>有新事项时，可以手动添加，也可以让心流从最近工作里整理。</p>
               <div>
-                <button type="button" class="flow-action-button is-primary" @click="openNewTodo()">新建待办</button>
-                <button type="button" class="flow-action-button" :disabled="memory.isAskingFlow" @click="runFlowReview()">从心流整理</button>
+                <AriButton class="flow-action-button is-primary" variant="primary" @click="openNewTodo()">新建待办</AriButton>
+                <AriButton class="flow-action-button" variant="secondary" :disabled="memory.isAskingFlow" @click="runFlowReview()">从心流整理</AriButton>
               </div>
             </div>
           </section>
@@ -388,11 +389,11 @@ function unixToDate(value?: number) {
               </label>
             </div>
             <div class="flow-todo-quick-actions">
-              <button type="button" class="flow-todos-button is-primary" :disabled="!canSave" @click="saveDraft()">
+              <AriButton class="flow-todos-button is-primary" variant="primary" :disabled="!canSave" @click="saveDraft()">
                 <Plus :size="16" />
                 {{ memory.isSavingTodo ? '保存中' : '保存' }}
-              </button>
-              <button type="button" class="flow-todos-button" @click="resetDraft()">清空</button>
+              </AriButton>
+              <AriButton class="flow-todos-button" variant="secondary" @click="resetDraft()">清空</AriButton>
             </div>
           </section>
 

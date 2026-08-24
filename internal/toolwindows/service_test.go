@@ -19,7 +19,7 @@ func TestNormalizeViewAcceptsKnownToolViews(t *testing.T) {
 }
 
 func TestNormalizeViewRejectsLauncherAndUnknownViews(t *testing.T) {
-	for _, view := range []string{"launcher", "pinned-image", "capture-overlay", "dashboard", ""} {
+	for _, view := range []string{"launcher", "pinned-image", "capture-overlay", "process-network", "dashboard", ""} {
 		if normalizeView(view) != "" {
 			t.Fatalf("expected %q to be rejected", view)
 		}
@@ -40,6 +40,9 @@ func TestToolWindowSizingKeepsPaletteSeparateFromToolWindows(t *testing.T) {
 	if minWidth("network-monitor") >= minWidth("work-memory") {
 		t.Fatalf("network monitor should keep a smaller minimum width")
 	}
+	if width, height = toolSize("network-monitor"); width != 1240 || height != 760 {
+		t.Fatalf("unexpected network monitor size: %dx%d", width, height)
+	}
 
 	width, height = toolSize("network-mini")
 	if width != networkMiniWidth || height != networkMiniHeight {
@@ -50,6 +53,17 @@ func TestToolWindowSizingKeepsPaletteSeparateFromToolWindows(t *testing.T) {
 	}
 	if maxWidth("network-mini") != networkMiniWidth || maxHeight("network-mini") != networkMiniHeight {
 		t.Fatalf("network mini should have fixed max size, got %dx%d", maxWidth("network-mini"), maxHeight("network-mini"))
+	}
+}
+
+func TestSettingsAndHostsUseDesignSpecificWindowGeometry(t *testing.T) {
+	settingsWidth, settingsHeight := toolSize("settings")
+	if settingsWidth != 1240 || settingsHeight != 800 || minWidth("settings") != 980 || minHeight("settings") != 680 {
+		t.Fatalf("unexpected settings geometry: %dx%d min %dx%d", settingsWidth, settingsHeight, minWidth("settings"), minHeight("settings"))
+	}
+	hostsWidth, hostsHeight := toolSize("hosts")
+	if hostsWidth != 1360 || hostsHeight != 860 || minWidth("hosts") != 1120 || minHeight("hosts") != 720 {
+		t.Fatalf("unexpected hosts geometry: %dx%d min %dx%d", hostsWidth, hostsHeight, minWidth("hosts"), minHeight("hosts"))
 	}
 }
 

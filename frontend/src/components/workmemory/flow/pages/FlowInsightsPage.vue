@@ -39,12 +39,12 @@ const {
 
 <template>
 <section class="flow-page-panel flow-insights-page" aria-label="心流洞察">
-          <FlowPageHeader eyebrow="INSIGHTS" :title="`自动归纳的线索 · ${flowDateLabel}`" />
+          <FlowPageHeader eyebrow="洞察" :title="`自动归纳的线索 · ${flowDateLabel}`" />
           <AriToolbar class="flow-page-toolbar">
             <span>时间范围 最近 7 天</span>
             <span>进度 {{ insightProgressPercent }}%</span>
-            <button type="button" @click="memory.discoverExperienceReport()">本地归纳</button>
-            <button type="button" @click="memory.discoverExperienceReportAI()">AI 归纳</button>
+            <AriButton size="sm" variant="secondary" @click="memory.discoverExperienceReport()">本地归纳</AriButton>
+            <AriButton size="sm" variant="primary" @click="memory.discoverExperienceReportAI()">AI 归纳</AriButton>
             <AriSearchBox v-model="globalFlowSearch" class="flow-global-search is-compact" compact placeholder="搜索洞察、留痕、建议动作..." @keydown.enter.prevent="runGlobalFlowSearch()" />
           </AriToolbar>
           <div v-if="memory.experienceDiscoveryResult" class="flow-note-strip">
@@ -111,7 +111,7 @@ const {
             <aside class="flow-radar-inspector flow-agent-inspector" aria-label="洞察解释">
               <header class="flow-agent-inspector-head">
                 <div>
-                  <span>Insight Inspector</span>
+                  <span>洞察详情</span>
                   <strong>洞察详情</strong>
                 </div>
                 <small>{{ selectedInsight ? confidenceLabel(selectedInsight.confidence) : '无' }}</small>
@@ -152,10 +152,10 @@ const {
                   建议动作
                 </div>
                 <div class="flow-action-card-grid">
-                  <button type="button" @click="handoffInsightToAgent(selectedInsight)">交给代理</button>
-                  <button type="button" @click="buildAutomationFromInsight(selectedInsight)">生成自动化</button>
-                  <button type="button" @click="buildChecklistFromInsight(selectedInsight)">生成清单</button>
-                  <button type="button" @click="memory.buildDailyDraft()">加入复盘</button>
+                  <AriButton size="sm" variant="primary" @click="handoffInsightToAgent(selectedInsight)">交给代理</AriButton>
+                  <AriButton size="sm" variant="secondary" @click="buildAutomationFromInsight(selectedInsight)">生成自动化</AriButton>
+                  <AriButton size="sm" variant="secondary" @click="buildChecklistFromInsight(selectedInsight)">生成清单</AriButton>
+                  <AriButton size="sm" variant="secondary" @click="memory.buildDailyDraft()">加入复盘</AriButton>
                 </div>
                 <small>隐私边界：只引用本地留痕，外发任务包前需要人工确认。</small>
               </section>

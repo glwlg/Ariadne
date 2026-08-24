@@ -3,9 +3,9 @@ package launcherwindow
 import "github.com/wailsapp/wails/v3/pkg/application"
 
 const (
-	Width           = 860
+	Width           = 1080
 	CollapsedHeight = 96
-	ExpandedHeight  = 468
+	ExpandedHeight  = 640
 )
 
 func Size(expanded bool) (int, int) {

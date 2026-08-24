@@ -14,7 +14,7 @@ func TestReservedRelativePositionUsesExpandedLauncherHeight(t *testing.T) {
 	if !ok {
 		t.Fatal("expected reserved launcher position")
 	}
-	if x != 530 || y != 286 {
+	if x != 420 || y != 200 {
 		t.Fatalf("unexpected reserved position: %d,%d", x, y)
 	}
 }
@@ -41,5 +41,8 @@ func TestSizeKeepsCollapsedAndExpandedWidthsAligned(t *testing.T) {
 	}
 	if collapsedHeight != CollapsedHeight || expandedHeight != ExpandedHeight {
 		t.Fatalf("unexpected launcher heights: collapsed=%d expanded=%d", collapsedHeight, expandedHeight)
+	}
+	if collapsedWidth != 1080 || expandedWidth != 1080 || collapsedHeight != 96 || expandedHeight != 640 {
+		t.Fatalf("unexpected launcher geometry: collapsed=%dx%d expanded=%dx%d", collapsedWidth, collapsedHeight, expandedWidth, expandedHeight)
 	}
 }

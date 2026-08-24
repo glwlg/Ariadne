@@ -1,0 +1,5 @@
+packages:
+  - '.'
+
+allowBuilds:
+  vue-demi: set this to true or false

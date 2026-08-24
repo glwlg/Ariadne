@@ -21,9 +21,9 @@ const classes = computed(() =>
   cn(
     'min-w-0 rounded-[var(--radius-md)] border text-[var(--foreground)]',
     props.padded && 'p-4',
-    props.variant === 'default' && 'border-[var(--border)] bg-[var(--surface)] shadow-sm',
+    props.variant === 'default' && 'border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-soft)]',
     props.variant === 'muted' && 'border-[var(--border)] bg-[var(--surface-muted)]',
-    props.variant === 'panel' && 'border-[var(--border)] bg-[var(--surface-raised)] shadow-[var(--shadow-soft)]',
+    props.variant === 'panel' && 'border-[var(--border)] bg-[var(--surface-raised)] shadow-[var(--shadow-panel)]',
   ),
 )
 </script>

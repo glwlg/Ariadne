@@ -4,7 +4,9 @@ package setupstub
 
 import "fmt"
 
-func installFileSearchService(productName string, exePath string) error {
+func processElevated() bool { return false }
+
+func installFileSearchService(productName string, exePath string, settingsConfig string) error {
 	return nil
 }
 
@@ -12,7 +14,7 @@ func removeFileSearchService(productName string, exePath string) error {
 	return nil
 }
 
-func runFileSearchServiceCommand(productName string, command string, exePath string) (Result, error) {
+func runFileSearchServiceCommand(productName string, command string, exePath string, settingsConfig string) (Result, error) {
 	return Result{}, fmt.Errorf("搜索服务仅支持 Windows")
 }
 

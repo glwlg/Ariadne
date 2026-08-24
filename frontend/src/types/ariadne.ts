@@ -65,6 +65,11 @@ export interface SearchResult {
   subtitle?: string
   detail?: string
   icon: string
+  iconAsset?: {
+    url: string
+    cacheKey: string
+    kind: 'windows-shell'
+  }
   score?: number
   tags?: string[]
   payload?: Record<string, unknown>
@@ -921,6 +926,37 @@ export interface NetworkTrafficSnapshot {
   uploadBytesPerSecond: number
   downloadBytesPerSecond: number
   adapters: NetworkAdapterTraffic[]
+  lastError?: string
+}
+
+export interface ProcessNetworkConnection {
+  localAddress: string
+  remoteAddress: string
+  uploadBytesPerSecond: number
+  downloadBytesPerSecond: number
+  bytesSent: number
+  bytesReceived: number
+}
+
+export interface ProcessNetworkTraffic {
+  pid: number
+  name: string
+  path?: string
+  iconUrl?: string
+  uploadBytesPerSecond: number
+  downloadBytesPerSecond: number
+  bytesSent: number
+  bytesReceived: number
+  connections: ProcessNetworkConnection[]
+}
+
+export interface ProcessNetworkSnapshot {
+  timestampUnix: number
+  processCount: number
+  connectionCount: number
+  uploadBytesPerSecond: number
+  downloadBytesPerSecond: number
+  processes: ProcessNetworkTraffic[]
   lastError?: string
 }
 
@@ -1808,7 +1844,7 @@ export interface ExperienceDecisionResult {
 }
 
 export interface GeneralSettings {
-  theme: 'dark' | 'light' | 'professional-pink' | 'light-graphite' | 'cloud-blue'
+  theme: 'professional-pink' | 'light-graphite' | 'cloud-blue'
   runOnStartup: boolean
   language: string
 }
@@ -1840,6 +1876,10 @@ export interface AISettings {
   ocrProvider: string
   ocrBaseUrl: string
   ocrModel: string
+  pinnedOcrModelEnabled: boolean
+  pinnedOcrProvider: string
+  pinnedOcrBaseUrl: string
+  pinnedOcrModel: string
   embeddingEnabled: boolean
   embeddingProvider: string
   embeddingBaseUrl: string
@@ -1922,6 +1962,8 @@ export interface PluginSettings {
 export interface SearchSettings {
   fileExcludeFolders: string[]
   fileExcludePatterns: string[]
+  fileIncludeExtensions: string[]
+  fileExcludeExtensions: string[]
 }
 
 export interface PluginManifest {

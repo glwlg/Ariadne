@@ -14,7 +14,7 @@ internal static class PinActionClient
         pipeName = pipeName.Trim();
         if (pipeName.Length == 0)
         {
-            return new PinActionResponse { Ok = false, Message = "OCR 服务不可用" };
+            return new PinActionResponse { Ok = false, Message = "后台服务不可用" };
         }
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(70));
@@ -26,7 +26,7 @@ internal static class PinActionClient
         await writer.WriteLineAsync(JsonSerializer.Serialize(request, JsonOptions).AsMemory(), timeout.Token);
         var line = await reader.ReadLineAsync(timeout.Token);
         return string.IsNullOrWhiteSpace(line)
-            ? new PinActionResponse { Ok = false, Message = "OCR 服务无响应" }
-            : JsonSerializer.Deserialize<PinActionResponse>(line, JsonOptions) ?? new PinActionResponse { Ok = false, Message = "OCR 返回无效" };
+            ? new PinActionResponse { Ok = false, Message = "后台服务无响应" }
+            : JsonSerializer.Deserialize<PinActionResponse>(line, JsonOptions) ?? new PinActionResponse { Ok = false, Message = "后台服务返回无效" };
     }
 }

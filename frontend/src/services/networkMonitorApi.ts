@@ -1,4 +1,4 @@
-import type { NetworkAdapterTraffic, NetworkTrafficSnapshot } from '../types/ariadne'
+import type { NetworkAdapterTraffic, NetworkTrafficSnapshot, ProcessNetworkSnapshot, ProcessNetworkTraffic } from '../types/ariadne'
 
 async function tryNetworkMonitorBinding() {
   try {
@@ -19,6 +19,66 @@ export async function getNetworkTrafficSnapshot(): Promise<NetworkTrafficSnapsho
     }
   }
   return fallbackSnapshot()
+}
+
+export async function getProcessNetworkSnapshot(): Promise<ProcessNetworkSnapshot> {
+  const binding = await tryNetworkMonitorBinding()
+  if (!binding?.ProcessSnapshot) {
+    return emptyProcessSnapshot('进程网络统计仅在 Ariadne 桌面端可用')
+  }
+  try {
+    return normalizeProcessSnapshot(await binding.ProcessSnapshot())
+  } catch (error) {
+    return emptyProcessSnapshot(error instanceof Error ? error.message : String(error))
+  }
+}
+
+function normalizeProcessSnapshot(snapshot: ProcessNetworkSnapshot): ProcessNetworkSnapshot {
+  const processes = Array.isArray(snapshot.processes) ? snapshot.processes.map(normalizeProcessTraffic) : []
+  return {
+    timestampUnix: Number(snapshot.timestampUnix ?? Math.floor(Date.now() / 1000)),
+    processCount: Number(snapshot.processCount ?? processes.length),
+    connectionCount: Number(snapshot.connectionCount ?? processes.reduce((total, item) => total + item.connections.length, 0)),
+    uploadBytesPerSecond: Number(snapshot.uploadBytesPerSecond ?? 0),
+    downloadBytesPerSecond: Number(snapshot.downloadBytesPerSecond ?? 0),
+    processes,
+    lastError: snapshot.lastError || '',
+  }
+}
+
+function normalizeProcessTraffic(process: ProcessNetworkTraffic): ProcessNetworkTraffic {
+  return {
+    pid: Number(process.pid ?? 0),
+    name: String(process.name ?? ''),
+    path: String(process.path ?? ''),
+    iconUrl: String(process.iconUrl ?? ''),
+    uploadBytesPerSecond: Number(process.uploadBytesPerSecond ?? 0),
+    downloadBytesPerSecond: Number(process.downloadBytesPerSecond ?? 0),
+    bytesSent: Number(process.bytesSent ?? 0),
+    bytesReceived: Number(process.bytesReceived ?? 0),
+    connections: Array.isArray(process.connections)
+      ? process.connections.map((connection) => ({
+          localAddress: String(connection.localAddress ?? ''),
+          remoteAddress: String(connection.remoteAddress ?? ''),
+          uploadBytesPerSecond: Number(connection.uploadBytesPerSecond ?? 0),
+          downloadBytesPerSecond: Number(connection.downloadBytesPerSecond ?? 0),
+          bytesSent: Number(connection.bytesSent ?? 0),
+          bytesReceived: Number(connection.bytesReceived ?? 0),
+        }))
+      : [],
+  }
+}
+
+function emptyProcessSnapshot(message: string): ProcessNetworkSnapshot {
+  return {
+    timestampUnix: Math.floor(Date.now() / 1000),
+    processCount: 0,
+    connectionCount: 0,
+    uploadBytesPerSecond: 0,
+    downloadBytesPerSecond: 0,
+    processes: [],
+    lastError: message,
+  }
 }
 
 function normalizeSnapshot(snapshot: NetworkTrafficSnapshot): NetworkTrafficSnapshot {

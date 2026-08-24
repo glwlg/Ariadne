@@ -13,10 +13,11 @@ const bodyTypes = [
   { value: 'form', label: 'Form' },
 ]
 const tabs: Array<{ id: APIEditorTab; label: string }> = [
-  { id: 'params', label: 'Params' },
-  { id: 'body', label: 'Body' },
-  { id: 'headers', label: 'Headers' },
-  { id: 'assertions', label: 'Assert' },
+  { id: 'params', label: '参数' },
+  { id: 'headers', label: '请求头' },
+  { id: 'body', label: '正文' },
+  { id: 'variables', label: '变量' },
+  { id: 'assertions', label: '断言' },
 ]
 const paramTypes = [
   { value: 'query', label: 'Query' },
@@ -70,7 +71,7 @@ const assertionOperators = [
 
       <section v-if="apiTesting.editorTab === 'params'" class="api-editor-panel" aria-label="请求参数">
         <div class="api-panel-heading">
-          <span>Query / Path</span>
+          <span>请求参数</span>
           <AriButton size="sm" variant="secondary" @click="apiTesting.addParam()">
             <Plus :size="14" />
             添加参数
@@ -103,7 +104,7 @@ const assertionOperators = [
 
       <section v-else-if="apiTesting.editorTab === 'headers'" class="api-editor-panel" aria-label="请求头">
         <div class="api-panel-heading">
-          <span>Headers</span>
+          <span>请求头</span>
           <AriButton size="sm" variant="secondary" @click="apiTesting.addHeader()">
             <Plus :size="14" />
             添加请求头
@@ -138,7 +139,7 @@ const assertionOperators = [
               <option v-for="type in bodyTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
             </select>
           </label>
-          <span class="system-pill">
+          <span class="api-character-count">
             <FileJson2 :size="13" />
             {{ apiTesting.selectedRequest.body.length }} 字符
           </span>
@@ -153,9 +154,38 @@ const assertionOperators = [
         />
       </section>
 
+      <section v-else-if="apiTesting.editorTab === 'variables'" class="api-editor-panel" aria-label="变量">
+        <div class="api-panel-heading">
+          <span>集合变量</span>
+          <AriButton size="sm" variant="secondary" @click="apiTesting.addCollectionVariable()">
+            <Plus :size="14" />
+            添加变量
+          </AriButton>
+        </div>
+        <div class="api-table">
+          <div class="api-table-head is-request-var-grid">
+            <span>启用</span>
+            <span>名称</span>
+            <span>值</span>
+            <span></span>
+          </div>
+          <div v-for="(variable, index) in apiTesting.draftCollection?.variables ?? []" :key="variable.id" class="api-table-row is-request-var-grid">
+            <label class="api-checkbox">
+              <input type="checkbox" :checked="variable.enabled" @change="apiTesting.updateCollectionVariable(index, { enabled: ($event.target as HTMLInputElement).checked })" />
+            </label>
+            <input class="api-input" :value="variable.name" placeholder="baseUrl" @input="apiTesting.updateCollectionVariable(index, { name: ($event.target as HTMLInputElement).value })" />
+            <input class="api-input" :type="variable.secret ? 'password' : 'text'" :value="variable.value" placeholder="变量值" @input="apiTesting.updateCollectionVariable(index, { value: ($event.target as HTMLInputElement).value })" />
+            <AriButton size="icon" variant="ghost" aria-label="删除变量" @click="apiTesting.removeCollectionVariable(index)">
+              <Trash2 :size="14" />
+            </AriButton>
+          </div>
+          <div v-if="!(apiTesting.draftCollection?.variables.length ?? 0)" class="api-empty-row">暂无集合变量</div>
+        </div>
+      </section>
+
       <section v-else class="api-editor-panel" aria-label="断言">
         <div class="api-panel-heading">
-          <span>Assertions</span>
+          <span>断言</span>
           <AriButton size="sm" variant="secondary" @click="apiTesting.addAssertion()">
             <CheckCircle2 :size="14" />
             添加断言

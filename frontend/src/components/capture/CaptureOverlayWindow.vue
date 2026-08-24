@@ -62,7 +62,7 @@ const resizeHandles: Array<{ anchor: ResizeAnchor; label: string }> = [
   { anchor: 'l', label: '左边调整' },
 ]
 
-const colorPalette = ['#dc2626', '#f97316', '#facc15', '#22c55e', '#14b8a6', '#2563eb', '#7c3aed', '#111827', '#ffffff']
+const colorPalette = ['#dc2626', '#f97316', '#facc15', '#0ea5e9', '#6366f1', '#2563eb', '#7c3aed', '#111827', '#ffffff']
 
 const session = ref<CaptureOverlaySession | null>(null)
 const feedback = ref('')

@@ -11,6 +11,13 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
+ * @returns {$CancellablePromise<string>}
+ */
+export function ConfigPath() {
+    return $Call.ByID(3102250099);
+}
+
+/**
  * @returns {$CancellablePromise<$models.AppSettings>}
  */
 export function GetSettings() {

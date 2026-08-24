@@ -44,6 +44,10 @@ internal sealed class PinActionResponse
     public bool Ok { get; set; }
     public string Message { get; set; } = "";
     public string Text { get; set; } = "";
+    public string PngBase64 { get; set; } = "";
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public bool ClipboardWritten { get; set; }
 }
 
 internal sealed class AnnotationPoint

@@ -19,9 +19,9 @@ const classes = computed(() =>
   cn(
     'rounded-[var(--radius-sm)] border px-3 py-2 text-sm leading-6',
     props.tone === 'neutral' && 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--muted-foreground)]',
-    props.tone === 'info' && 'border-cyan-200 bg-cyan-50 text-cyan-950',
-    props.tone === 'warning' && 'border-amber-200 bg-amber-50 text-amber-950',
-    props.tone === 'danger' && 'border-red-200 bg-red-50 text-red-950',
+    props.tone === 'info' && 'border-[var(--info-border)] bg-[var(--info-soft)] text-[var(--info-foreground)]',
+    props.tone === 'warning' && 'border-[var(--warning-border)] bg-[var(--warning-soft)] text-[var(--warning-foreground)]',
+    props.tone === 'danger' && 'border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger-foreground)]',
   ),
 )
 </script>

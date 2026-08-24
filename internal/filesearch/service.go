@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -78,6 +79,8 @@ type policyAwareIndexBuilder interface {
 	ApplyPolicy(policy FileSearchPolicy)
 }
 
+type PolicyProvider func() FileSearchPolicy
+
 type Service struct {
 	mu              sync.Mutex
 	builder         indexBuilder
@@ -100,6 +103,7 @@ type Service struct {
 	lastElapsedMs   int64
 	lastResultCount int
 	lastUpdatedAt   int64
+	fileIcons       *FileIconStore
 }
 
 type FileIndexStatus struct {
@@ -143,7 +147,7 @@ func NewServiceWithIndexer(builder indexBuilder) *Service {
 		builder = noopIndexBuilder{}
 	}
 	policy := DefaultFileSearchPolicy()
-	service := &Service{builder: builder, policy: policy, filter: newFileSearchFilter(policy)}
+	service := &Service{builder: builder, policy: policy, filter: newFileSearchFilter(policy), fileIcons: NewFileIconStore()}
 	service.applyPolicyToBuilder(policy)
 	return service
 }
@@ -161,6 +165,7 @@ func NewServiceWithIndex(entries []rawResult) *Service {
 		elevated:        true,
 		policy:          policy,
 		filter:          newFileSearchFilter(policy),
+		fileIcons:       NewFileIconStore(),
 	}
 }
 
@@ -168,8 +173,27 @@ func (s *Service) Search(query string) []contracts.SearchResult {
 	return s.SearchContext(context.Background(), query)
 }
 
+func (s *Service) FileIconAssetHandler(next http.Handler) http.Handler {
+	if s == nil || s.fileIcons == nil {
+		return next
+	}
+	return s.fileIcons.AssetHandler(next)
+}
+
+func (s *Service) ResolveFileIcon(path string) *contracts.IconAsset {
+	if s == nil || s.fileIcons == nil {
+		return nil
+	}
+	return s.fileIcons.Resolve(path, false)
+}
+
 func (s *Service) StartIndexing() FileIndexStatus {
-	s.startIndexing()
+	s.startIndexing(true)
+	return s.Status()
+}
+
+func (s *Service) RebuildIndex() FileIndexStatus {
+	s.rebuildIndex()
 	return s.Status()
 }
 
@@ -186,7 +210,7 @@ func (s *Service) SearchContext(ctx context.Context, query string) []contracts.S
 	}
 
 	started := time.Now()
-	s.startIndexing()
+	s.startIndexing(true)
 	index, status := s.currentIndexAndStatus(query)
 	if ctx.Err() != nil {
 		return nil
@@ -225,7 +249,11 @@ func (s *Service) SearchContext(ctx context.Context, query string) []contracts.S
 			continue
 		}
 		seen[key] = true
-		results = append(results, fileToResult(raw, fileScore(raw, query)))
+		result := fileToResult(raw, fileScore(raw, query))
+		if s.fileIcons != nil {
+			result.IconAsset = s.fileIcons.Resolve(fullPath, raw.IsDirectory)
+		}
+		results = append(results, result)
 		if len(results) >= int(defaultMaxResults) {
 			break
 		}
@@ -278,7 +306,7 @@ func (s *Service) Close() {
 	}
 }
 
-func (s *Service) startIndexing() {
+func (s *Service) startIndexing(useCache bool) {
 	s.mu.Lock()
 	if s.indexStarted || s.index != nil {
 		s.mu.Unlock()
@@ -290,7 +318,7 @@ func (s *Service) startIndexing() {
 	builder := s.builder
 	s.mu.Unlock()
 
-	if cachedBuilder, ok := builder.(cachedIndexBuilder); ok {
+	if cachedBuilder, ok := builder.(cachedIndexBuilder); useCache && ok {
 		if result, err := cachedBuilder.CachedIndex(context.Background()); err == nil && (result.Index != nil || len(result.Entries) > 0) {
 			s.mu.Lock()
 			s.applyIndexBuildResultLocked(result, nil)
@@ -317,6 +345,35 @@ func (s *Service) startIndexing() {
 		s.mu.Unlock()
 		s.startChangeWatcher(builder, volumes)
 	}()
+}
+
+func (s *Service) rebuildIndex() {
+	s.mu.Lock()
+	if s.indexing {
+		s.mu.Unlock()
+		return
+	}
+	index := s.index
+	s.index = nil
+	s.indexStarted = false
+	s.indexStartedAt = 0
+	s.indexFinishedAt = 0
+	s.indexErrors = nil
+	s.requiresAdmin = false
+	s.elevated = false
+	s.volumeCount = 0
+	s.indexedCount = 0
+	watchCancel := s.watchCancel
+	s.watchCancel = nil
+	s.watching = false
+	s.mu.Unlock()
+	if watchCancel != nil {
+		watchCancel()
+	}
+	if index != nil {
+		index.Close()
+	}
+	s.startIndexing(false)
 }
 
 func (s *Service) tryLoadCachedIndex(ctx context.Context) bool {

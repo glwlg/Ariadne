@@ -20,12 +20,14 @@ import (
 const (
 	launcherWindowName       = "tool-launcher"
 	networkMiniView          = "network-mini"
+	networkMiniContextMenu   = "network-mini-menu"
 	networkMiniDefaultAnchor = "taskbar-left"
 	networkMiniWidth         = 156
 	networkMiniHeight        = 40
 	networkMiniMargin        = 6
 	networkMiniFillRatio     = 82
 	networkMiniLayerRefresh  = 30 * time.Second
+	networkMiniLayerWatch    = 500 * time.Millisecond
 )
 
 type OpenResult struct {
@@ -114,9 +116,23 @@ func (s *Service) Attach(app *application.App) {
 	s.startNetworkMiniMonitorLocked()
 	restoreNetworkMini := s.networkMiniConfig.Visible
 	s.mu.Unlock()
+	s.registerNetworkMiniContextMenu(app)
 	if restoreNetworkMini {
 		s.restoreVisibleNetworkMiniAfterStartup()
 	}
+}
+
+func (s *Service) registerNetworkMiniContextMenu(app *application.App) {
+	menu := application.NewContextMenu(networkMiniContextMenu)
+	menu.Add("查看进程网络").OnClick(func(*application.Context) {
+		s.Open("network-monitor")
+	})
+	menu.AddSeparator()
+	menu.Add("关闭网速小窗").OnClick(func(*application.Context) {
+		s.CloseNetworkMini()
+	})
+	app.ContextMenu.Add(networkMiniContextMenu, menu)
+	menu.Update()
 }
 
 func (s *Service) SetWindowIcon(icon []byte) {
@@ -330,6 +346,24 @@ func (s *Service) ResetNetworkMiniPlacement() NetworkMiniStatus {
 	return s.NetworkMiniStatus()
 }
 
+func (s *Service) CloseNetworkMini() OpenResult {
+	s.mu.Lock()
+	app := s.app
+	s.networkMiniConfig.Visible = false
+	s.networkMiniHidden = false
+	s.networkMiniError = ""
+	if err := s.saveNetworkMiniConfigLocked(); err != nil {
+		s.networkMiniError = err.Error()
+	}
+	s.mu.Unlock()
+	if app != nil {
+		if window, ok := app.Window.Get("tool-" + networkMiniView); ok {
+			window.Hide()
+		}
+	}
+	return OpenResult{OK: true, Message: "网速小窗已关闭", View: networkMiniView}
+}
+
 func (s *Service) Stop() {
 	s.mu.Lock()
 	stop := s.monitorStop
@@ -493,7 +527,7 @@ func toolTitle(view string) string {
 	case "api-testing":
 		return "Ariadne - API 测试"
 	case "network-monitor":
-		return "Ariadne - 网络监控"
+		return "Ariadne - 进程网络"
 	case networkMiniView:
 		return "Ariadne - 网速小窗"
 	case "settings":
@@ -505,12 +539,16 @@ func toolTitle(view string) string {
 
 func toolSize(view string) (int, int) {
 	switch view {
+	case "settings":
+		return 1240, 800
+	case "hosts":
+		return 1360, 860
 	case "json-compare":
 		return 1180, 760
 	case "api-testing":
 		return 1240, 780
 	case "network-monitor":
-		return 980, 640
+		return 1240, 760
 	case networkMiniView:
 		return networkMiniWidth, networkMiniHeight
 	default:
@@ -525,6 +563,12 @@ func minWidth(view string) int {
 	if view == "network-monitor" {
 		return 760
 	}
+	if view == "settings" {
+		return 980
+	}
+	if view == "hosts" {
+		return 1120
+	}
 	return 900
 }
 
@@ -534,6 +578,12 @@ func minHeight(view string) int {
 	}
 	if view == "network-monitor" {
 		return 520
+	}
+	if view == "settings" {
+		return 680
+	}
+	if view == "hosts" {
+		return 720
 	}
 	return 620
 }
@@ -862,7 +912,7 @@ func (s *Service) startNetworkMiniMonitorLocked() {
 }
 
 func (s *Service) runNetworkMiniMonitor(stop <-chan struct{}) {
-	ticker := time.NewTicker(900 * time.Millisecond)
+	ticker := time.NewTicker(networkMiniLayerWatch)
 	defer ticker.Stop()
 	taskbarEvents := make(chan struct{}, 1)
 	go func() {
@@ -881,6 +931,7 @@ func (s *Service) runNetworkMiniMonitor(stop <-chan struct{}) {
 			s.refreshNetworkMiniTaskbarLayerNow()
 		case <-ticker.C:
 			s.tickNetworkMiniAutoHide()
+			s.refreshNetworkMiniTaskbarLayerNow()
 		}
 	}
 }

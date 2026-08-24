@@ -104,6 +104,231 @@ export class AdapterTraffic {
     }
 }
 
+export class ProcessConnection {
+    /**
+     * Creates a new ProcessConnection instance.
+     * @param {Partial<ProcessConnection>} [$$source = {}] - The source object to create the ProcessConnection.
+     */
+    constructor($$source = {}) {
+        if (!("localAddress" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["localAddress"] = "";
+        }
+        if (!("remoteAddress" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["remoteAddress"] = "";
+        }
+        if (!("uploadBytesPerSecond" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["uploadBytesPerSecond"] = 0;
+        }
+        if (!("downloadBytesPerSecond" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["downloadBytesPerSecond"] = 0;
+        }
+        if (!("bytesSent" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["bytesSent"] = 0;
+        }
+        if (!("bytesReceived" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["bytesReceived"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProcessConnection instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ProcessConnection}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ProcessConnection(/** @type {Partial<ProcessConnection>} */($$parsedSource));
+    }
+}
+
+export class ProcessTraffic {
+    /**
+     * Creates a new ProcessTraffic instance.
+     * @param {Partial<ProcessTraffic>} [$$source = {}] - The source object to create the ProcessTraffic.
+     */
+    constructor($$source = {}) {
+        if (!("pid" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["pid"] = 0;
+        }
+        if (!("name" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["name"] = "";
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["path"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["iconUrl"] = undefined;
+        }
+        if (!("uploadBytesPerSecond" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["uploadBytesPerSecond"] = 0;
+        }
+        if (!("downloadBytesPerSecond" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["downloadBytesPerSecond"] = 0;
+        }
+        if (!("bytesSent" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["bytesSent"] = 0;
+        }
+        if (!("bytesReceived" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["bytesReceived"] = 0;
+        }
+        if (!("connections" in $$source)) {
+            /**
+             * @member
+             * @type {ProcessConnection[]}
+             */
+            this["connections"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProcessTraffic instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ProcessTraffic}
+     */
+    static createFrom($$source = {}) {
+        const $$createField8_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("connections" in $$parsedSource) {
+            $$parsedSource["connections"] = $$createField8_0($$parsedSource["connections"]);
+        }
+        return new ProcessTraffic(/** @type {Partial<ProcessTraffic>} */($$parsedSource));
+    }
+}
+
+export class ProcessTrafficSnapshot {
+    /**
+     * Creates a new ProcessTrafficSnapshot instance.
+     * @param {Partial<ProcessTrafficSnapshot>} [$$source = {}] - The source object to create the ProcessTrafficSnapshot.
+     */
+    constructor($$source = {}) {
+        if (!("timestampUnix" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["timestampUnix"] = 0;
+        }
+        if (!("processCount" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["processCount"] = 0;
+        }
+        if (!("connectionCount" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["connectionCount"] = 0;
+        }
+        if (!("uploadBytesPerSecond" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["uploadBytesPerSecond"] = 0;
+        }
+        if (!("downloadBytesPerSecond" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["downloadBytesPerSecond"] = 0;
+        }
+        if (!("processes" in $$source)) {
+            /**
+             * @member
+             * @type {ProcessTraffic[]}
+             */
+            this["processes"] = [];
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastError"] = undefined;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ProcessTrafficSnapshot instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ProcessTrafficSnapshot}
+     */
+    static createFrom($$source = {}) {
+        const $$createField5_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("processes" in $$parsedSource) {
+            $$parsedSource["processes"] = $$createField5_0($$parsedSource["processes"]);
+        }
+        return new ProcessTrafficSnapshot(/** @type {Partial<ProcessTrafficSnapshot>} */($$parsedSource));
+    }
+}
+
 export class TrafficSnapshot {
     /**
      * Creates a new TrafficSnapshot instance.
@@ -183,7 +408,7 @@ export class TrafficSnapshot {
      * @returns {TrafficSnapshot}
      */
     static createFrom($$source = {}) {
-        const $$createField7_0 = $$createType1;
+        const $$createField7_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("adapters" in $$parsedSource) {
             $$parsedSource["adapters"] = $$createField7_0($$parsedSource["adapters"]);
@@ -193,5 +418,9 @@ export class TrafficSnapshot {
 }
 
 // Private type creation functions
-const $$createType0 = AdapterTraffic.createFrom;
+const $$createType0 = ProcessConnection.createFrom;
 const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = ProcessTraffic.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = AdapterTraffic.createFrom;
+const $$createType5 = $Create.Array($$createType4);

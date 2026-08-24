@@ -3,6 +3,7 @@ package setupstub
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 		"-InstallDir", `C:\Apps\Ariadne`,
 		"--no-start-menu-shortcut",
 		"--no-desktop-shortcut",
-		"--autostart",
+		"--no-autostart",
 		"--launch-after-install",
 		"--no-file-search-service",
 	})
@@ -40,8 +41,8 @@ func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 	if command.CreateDesktopShortcut {
 		t.Fatal("desktop shortcut should be disabled")
 	}
-	if !command.AutoStart {
-		t.Fatal("autostart should be enabled")
+	if command.AutoStart {
+		t.Fatal("autostart should be disabled")
 	}
 	if !command.LaunchAfterInstall {
 		t.Fatal("launch-after-install should be enabled")
@@ -51,10 +52,24 @@ func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 	}
 }
 
+func TestParseCommandOptionsDefaultsToAutostartAndFileSearchService(t *testing.T) {
+	command, err := parseCommandOptions(nil)
+	if err != nil {
+		t.Fatalf("parse command options: %v", err)
+	}
+	if !command.AutoStart {
+		t.Fatal("autostart should be enabled by default")
+	}
+	if !command.InstallFileSearchService {
+		t.Fatal("file search service should be enabled by default")
+	}
+}
+
 func TestParseCommandOptionsAcceptsFileSearchServiceCommand(t *testing.T) {
 	command, err := parseCommandOptions([]string{
 		"--file-search-service-command", "install",
 		"--file-search-service-exe", `C:\Apps\Ariadne\ariadne.exe`,
+		"--settings-config", `C:\Users\luwei\AppData\Roaming\Ariadne\config.json`,
 	})
 	if err != nil {
 		t.Fatalf("parse command options: %v", err)
@@ -64,6 +79,9 @@ func TestParseCommandOptionsAcceptsFileSearchServiceCommand(t *testing.T) {
 	}
 	if command.FileSearchServiceExePath != `C:\Apps\Ariadne\ariadne.exe` {
 		t.Fatalf("service exe = %q", command.FileSearchServiceExePath)
+	}
+	if command.FileSearchSettingsConfig != `C:\Users\luwei\AppData\Roaming\Ariadne\config.json` {
+		t.Fatalf("settings config = %q", command.FileSearchSettingsConfig)
 	}
 }
 
@@ -83,6 +101,33 @@ func TestShouldRetryInstallElevatedForAccessDenied(t *testing.T) {
 	}
 	if shouldRetryInstallElevated(commandOptions{ElevatedInstallRetry: true}, os.ErrPermission) {
 		t.Fatal("elevated retry should not recurse")
+	}
+}
+
+func TestShouldNotRetryInstallElevatedForFileInUse(t *testing.T) {
+	err := errors.New("The process cannot access the file because it is being used by another process")
+	if shouldRetryInstallElevated(commandOptions{}, err) {
+		t.Fatal("file-in-use replacement should not request elevated retry")
+	}
+}
+
+func TestProcessListContainsImage(t *testing.T) {
+	output := "\r\nariadne.exe                 1234 Console                    1     42,000 K\r\n"
+	if !processListContainsImage(output, "ariadne.exe") {
+		t.Fatal("tasklist parser should detect matching process image")
+	}
+	if processListContainsImage("INFO: No tasks are running which match the specified criteria.\r\n", "ariadne.exe") {
+		t.Fatal("tasklist parser should not report a process when tasklist found none")
+	}
+}
+
+func TestProductProcessImageNamesIncludesNativeCaptureHost(t *testing.T) {
+	names := productProcessImageNames("Ariadne")
+	if !contains(names, "ariadne.exe") {
+		t.Fatalf("product process list should include main exe: %#v", names)
+	}
+	if !contains(names, "Ariadne.CaptureHost.exe") {
+		t.Fatalf("product process list should include native capture host: %#v", names)
 	}
 }
 
@@ -192,4 +237,13 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(raw)
+}
+
+func contains(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }

@@ -3,7 +3,7 @@ import { Copy, FileText, Maximize2, Minus, Pin, Plus, ScanLine, X } from '@lucid
 import { Clipboard, Window } from '@wailsio/runtime'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { copyClipboardImage } from '../../services/clipboardApi'
-import { recognizeCaptureOCR, recognizeClipboardImageOCR } from '../../services/ocrApi'
+import { recognizePinnedCaptureOCR, recognizePinnedClipboardImageOCR } from '../../services/ocrApi'
 import { closePinnedImage, getPinnedImage } from '../../services/pinnedImageApi'
 import { createOCRSelection } from '../../lib/ocrSelection'
 import OCRImageOverlay from '../ocr/OCRImageOverlay.vue'
@@ -226,9 +226,9 @@ async function recognizeOCR() {
   try {
     const result =
       current.source === 'capture'
-        ? await recognizeCaptureOCR(current.sourceId)
+        ? await recognizePinnedCaptureOCR(current.sourceId)
         : current.source === 'clipboard'
-          ? await recognizeClipboardImageOCR(current.sourceId)
+          ? await recognizePinnedClipboardImageOCR(current.sourceId)
           : null
     if (!result) {
       showFeedback('当前贴图不支持 OCR')
@@ -236,12 +236,16 @@ async function recognizeOCR() {
     }
     ocrResult.value = result
     ocrSelection.clearOCRLineSelection()
-    showFeedback(result.ok ? (result.text ? 'OCR 已完成' : '未识别到文字') : result.error || 'OCR 不可用')
+    showFeedback(result.ok ? (result.text ? `OCR 已完成 · ${ocrProviderLabel(result.provider)}` : '未识别到文字') : result.error || 'OCR 不可用')
   } catch {
     showFeedback('OCR 识别失败')
   } finally {
     isRecognizingOCR.value = false
   }
+}
+
+function ocrProviderLabel(provider?: string) {
+  return provider === 'rapidocr_onnxruntime' ? '本地 RapidOCR' : provider || 'OCR 服务'
 }
 
 async function copySelectedOCRText() {

@@ -1,0 +1,188 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  letter-spacing: 0;
+}
+
+html.launcher-document,
+html.launcher-document body,
+html.launcher-document #app {
+  min-height: 100%;
+  background: transparent;
+}
+
+html.launcher-document body {
+  overflow: hidden;
+}
+
+html.tool-window-document,
+html.tool-window-document body,
+html.tool-window-document #app {
+  min-height: 100%;
+  background: var(--background);
+}
+
+html.tool-window-document .app-frame {
+  min-height: 100vh;
+  place-items: stretch;
+  padding: 0;
+}
+
+html.tool-window-document .launcher-shell {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+html.launcher-document body,
+html.tool-window-document body {
+  --wails-draggable: drag;
+}
+
+html.capture-overlay-document body,
+html.pinned-image-document body,
+button,
+input,
+select,
+textarea,
+a,
+[role='button'],
+[data-no-drag],
+.action-menu,
+.workspace,
+.palette-results,
+.results-pane,
+.preview-pane,
+.memory-workspace,
+.clipboard-workspace,
+.capture-workspace,
+.hosts-workspace,
+.workflow-workspace,
+.json-compare-workspace,
+.api-testing-workspace,
+.network-workspace,
+.settings-workspace,
+.flow-home,
+.flow-page-panel,
+.flow-answer-card-body,
+.flow-answer-content,
+.flow-answer-copyable,
+.flow-chat-panel,
+.flow-chat-thread,
+.flow-chat-composer,
+.flow-message-bubble,
+.flow-message-text,
+.flow-chat-context-menu,
+.flow-evidence-panel,
+.flow-settings-drawer,
+.flow-detail-drawer,
+.capture-overlay-surface,
+.pinned-image-surface {
+  --wails-draggable: no-drag;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: default;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 0 5px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.app-frame {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+html.window-controls-visible,
+html.window-controls-visible body,
+html.window-controls-visible #app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+html.window-controls-visible .app-frame {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  place-items: stretch;
+  padding: 0;
+}
+
+html.window-controls-visible .launcher-shell {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.035);
+  backdrop-filter: none;
+}
+
+html.window-controls-visible .launcher-header,
+html.window-controls-visible .tool-header {
+  border-bottom-color: var(--border-strong);
+  background: var(--surface);
+}
+
+html.window-controls-visible .settings-workspace {
+  border-top-color: var(--border-strong);
+  background: var(--border-strong);
+}
+
+html.window-controls-visible .settings-rail,
+html.window-controls-visible .settings-content {
+  background: color-mix(in srgb, var(--pane-bg) 82%, var(--background) 18%);
+}
+
+html.window-controls-visible .settings-rail {
+  border-right: 1px solid var(--border-strong);
+}
+
+html.window-controls-visible .settings-summary,
+html.window-controls-visible .settings-panel,
+html.window-controls-visible .settings-page-header {
+  border-color: var(--border-strong);
+}
+
+html.window-controls-visible .status-strip {
+  border-top: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+}
+

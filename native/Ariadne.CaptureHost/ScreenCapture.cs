@@ -7,10 +7,16 @@ namespace Ariadne.CaptureHost;
 
 internal sealed class ScreenCapture : IDisposable
 {
+    private readonly BitmapSource _pixelSource;
+    private readonly byte[] _sampleBuffer;
+    private readonly int _sampleStride;
+
     private ScreenCapture(Int32Rect bounds, BitmapSource source, double scaleX, double scaleY)
     {
         Bounds = bounds;
         Source = source;
+        (_pixelSource, _sampleStride) = PreparePixelSource(source);
+        _sampleBuffer = new byte[_sampleStride];
         ScaleX = scaleX;
         ScaleY = scaleY;
     }
@@ -52,18 +58,10 @@ internal sealed class ScreenCapture : IDisposable
 
     public Color SamplePixel(int physicalX, int physicalY)
     {
-        var x = Math.Clamp(physicalX, 0, Source.PixelWidth - 1);
-        var y = Math.Clamp(physicalY, 0, Source.PixelHeight - 1);
-        BitmapSource source = Source;
-        if (source.Format != PixelFormats.Bgra32)
-        {
-            var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
-            converted.Freeze();
-            source = converted;
-        }
-        var buffer = new byte[4];
-        source.CopyPixels(new Int32Rect(x, y, 1, 1), buffer, 4, 0);
-        return Color.FromRgb(buffer[2], buffer[1], buffer[0]);
+        var x = Math.Clamp(physicalX, 0, _pixelSource.PixelWidth - 1);
+        var y = Math.Clamp(physicalY, 0, _pixelSource.PixelHeight - 1);
+        _pixelSource.CopyPixels(new Int32Rect(x, y, 1, 1), _sampleBuffer, _sampleStride, 0);
+        return Color.FromRgb(_sampleBuffer[2], _sampleBuffer[1], _sampleBuffer[0]);
     }
 
     public void Dispose()
@@ -77,6 +75,18 @@ internal sealed class ScreenCapture : IDisposable
         var width = Math.Clamp(physicalRect.Width, 1, Source.PixelWidth - x);
         var height = Math.Clamp(physicalRect.Height, 1, Source.PixelHeight - y);
         return new Int32Rect(x, y, width, height);
+    }
+
+    private static (BitmapSource Source, int Stride) PreparePixelSource(BitmapSource source)
+    {
+        if (source.Format == PixelFormats.Bgra32 || source.Format == PixelFormats.Bgr32 || source.Format == PixelFormats.Pbgra32)
+        {
+            return (source, 4);
+        }
+
+        var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+        converted.Freeze();
+        return (converted, 4);
     }
 
     private static ScreenCapture Capture(Int32Rect bounds)

@@ -51,6 +51,18 @@ export async function recognizeClipboardImageOCR(clipboardId: string): Promise<O
   return normalizeResult(await binding.RecognizeClipboardImage(clipboardId))
 }
 
+export async function recognizePinnedCaptureOCR(captureId: string): Promise<OCRResult> {
+  const binding = await tryOCRBinding()
+  if (!binding) return unavailableResult('pinned_capture')
+  return normalizeResult(await binding.RecognizePinnedCapture(captureId))
+}
+
+export async function recognizePinnedClipboardImageOCR(clipboardId: string): Promise<OCRResult> {
+  const binding = await tryOCRBinding()
+  if (!binding) return unavailableResult('pinned_clipboard')
+  return normalizeResult(await binding.RecognizePinnedClipboardImage(clipboardId))
+}
+
 export async function recognizeWorkMemoryOCR(memoryId: string): Promise<OCRResult> {
   const binding = await tryOCRBinding()
   if (!binding) return unavailableResult('work_memory')

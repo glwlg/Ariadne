@@ -5,36 +5,46 @@ package setupstub
 import (
 	"ariadne/internal/elevation"
 	"ariadne/internal/filesearch"
+	"ariadne/internal/settings"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
-func installFileSearchService(productName string, exePath string) error {
+func installFileSearchService(productName string, exePath string, settingsConfig string) error {
 	if strings.TrimSpace(exePath) == "" {
 		return fmt.Errorf("缺少 Ariadne 程序路径")
 	}
-	if err := filesearch.InstallWindowsService(productName, exePath); err == nil {
+	settingsConfig = fileSearchSettingsConfigPath(settingsConfig)
+	if err := filesearch.InstallWindowsService(productName, exePath, "--settings-config", settingsConfig); err == nil {
 		return nil
 	}
-	return runElevatedFileSearchServiceCommand("install", exePath)
+	return runElevatedFileSearchServiceCommand("install", exePath, settingsConfig)
+}
+
+func processElevated() bool {
+	token := windows.GetCurrentProcessToken()
+	return token.IsElevated()
 }
 
 func removeFileSearchService(productName string, exePath string) error {
 	if err := filesearch.RemoveWindowsService(); err == nil {
 		return nil
 	}
-	return runElevatedFileSearchServiceCommand("remove", "")
+	return runElevatedFileSearchServiceCommand("remove", "", "")
 }
 
-func runFileSearchServiceCommand(productName string, command string, exePath string) (Result, error) {
+func runFileSearchServiceCommand(productName string, command string, exePath string, settingsConfig string) (Result, error) {
 	switch strings.ToLower(strings.TrimSpace(command)) {
 	case "install":
 		if strings.TrimSpace(exePath) == "" {
 			return Result{}, fmt.Errorf("缺少 Ariadne 程序路径")
 		}
-		if err := filesearch.InstallWindowsService(productName, exePath); err != nil {
+		settingsConfig = fileSearchSettingsConfigPath(settingsConfig)
+		if err := filesearch.InstallWindowsService(productName, exePath, "--settings-config", settingsConfig); err != nil {
 			return Result{}, err
 		}
 		return Result{Action: ActionInstall, InstallDir: filepath.Dir(exePath)}, nil
@@ -48,7 +58,7 @@ func runFileSearchServiceCommand(productName string, command string, exePath str
 	}
 }
 
-func runElevatedFileSearchServiceCommand(command string, exePath string) error {
+func runElevatedFileSearchServiceCommand(command string, exePath string, settingsConfig string) error {
 	setupPath, err := os.Executable()
 	if err != nil || strings.TrimSpace(setupPath) == "" {
 		if err == nil {
@@ -60,10 +70,20 @@ func runElevatedFileSearchServiceCommand(command string, exePath string) error {
 	if strings.TrimSpace(exePath) != "" {
 		args = append(args, "--file-search-service-exe", exePath)
 	}
+	if strings.TrimSpace(settingsConfig) != "" {
+		args = append(args, "--settings-config", settingsConfig)
+	}
 	if err := elevation.RunasWait(setupPath, args); err != nil {
 		return fmt.Errorf("搜索服务配置未完成: %w", err)
 	}
 	return nil
+}
+
+func fileSearchSettingsConfigPath(configPath string) string {
+	if strings.TrimSpace(configPath) != "" {
+		return configPath
+	}
+	return settings.NewService().ConfigPath()
 }
 
 func runElevatedInstallerInstall(command commandOptions) error {
@@ -93,6 +113,8 @@ func elevatedInstallArgs(command commandOptions) []string {
 	}
 	if command.AutoStart {
 		args = append(args, "--autostart")
+	} else {
+		args = append(args, "--no-autostart")
 	}
 	if command.InstallFileSearchService {
 		args = append(args, "--install-file-search-service")
@@ -110,6 +132,9 @@ func elevatedInstallArgs(command commandOptions) []string {
 	}
 	if command.DesktopDir != "" {
 		args = append(args, "-DesktopDir", command.DesktopDir)
+	}
+	if command.FileSearchSettingsConfig != "" {
+		args = append(args, "--settings-config", command.FileSearchSettingsConfig)
 	}
 	return args
 }

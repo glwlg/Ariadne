@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight } from '@lucide/vue'
+import { defaultJsonNodeExpanded } from '../../lib/apiJsonExpansion'
 
 defineOptions({
   name: 'ApiJsonViewer',
@@ -75,7 +76,7 @@ watch(
 )
 
 function defaultExpanded() {
-  return props.depth < 2
+  return defaultJsonNodeExpanded(props.value)
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

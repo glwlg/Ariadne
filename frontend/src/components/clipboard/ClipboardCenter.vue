@@ -75,7 +75,7 @@ function contentLabel(entry: ClipboardHistoryEntry) {
           </div>
           <div class="brand-copy">
             <span>剪贴板历史</span>
-            <small>Local text timeline, pinned reuse, memory-ready evidence</small>
+            <small>本地文本时间线 · 置顶复用</small>
           </div>
           <div class="header-tools">
             <span class="system-pill" :class="clipboard.pinnedCount ? 'is-on' : ''">

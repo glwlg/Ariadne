@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,6 +66,38 @@ func (fullDiskIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error)
 		Volumes:      index.Volumes(),
 		Elevated:     true,
 	}, nil
+}
+
+type sequenceIndexBuilder struct {
+	mu      sync.Mutex
+	builds  int
+	results [][]rawResult
+}
+
+func (b *sequenceIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	index := b.builds
+	if index >= len(b.results) {
+		index = len(b.results) - 1
+	}
+	if index < 0 {
+		index = 0
+	}
+	b.builds++
+	memory := newMemoryIndex(b.results[index], []string{`P:\`})
+	return IndexBuildResult{
+		Index:        memory,
+		IndexedCount: memory.Count(),
+		Volumes:      memory.Volumes(),
+		Elevated:     true,
+	}, nil
+}
+
+func (b *sequenceIndexBuilder) BuildCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.builds
 }
 
 type cachedRefreshIndexBuilder struct {
@@ -251,6 +284,43 @@ func TestSearchFiltersExcludedRegex(t *testing.T) {
 	}
 }
 
+func TestRebuildIndexAppliesUpdatedPolicy(t *testing.T) {
+	builder := &sequenceIndexBuilder{results: [][]rawResult{
+		{
+			{Name: "keep.txt", Path: `P:\workspace\keep.txt`},
+			{Name: "drop.py", Path: `P:\workspace\drop.py`},
+		},
+		{
+			{Name: "keep.txt", Path: `P:\workspace\keep.txt`},
+			{Name: "drop.py", Path: `P:\workspace\drop.py`},
+		},
+	}}
+	service := NewServiceWithIndexer(builder)
+	service.ApplyPolicy(noopFileSearchPolicy())
+	service.StartIndexing()
+	waitForFileIndexStatus(t, service, func(status FileIndexStatus) bool {
+		return !status.Indexing && status.Ready
+	})
+	if len(service.Search("drop.py")) != 1 {
+		t.Fatal("precondition failed: python file should be searchable before extension denylist")
+	}
+
+	policy := noopFileSearchPolicy()
+	policy.ExcludeExtensions = []string{".py"}
+	service.ApplyPolicy(policy)
+	service.RebuildIndex()
+	waitForFileIndexStatus(t, service, func(status FileIndexStatus) bool {
+		return !status.Indexing && status.Ready && builder.BuildCount() >= 2
+	})
+
+	if results := service.Search("drop.py"); len(results) != 0 {
+		t.Fatalf("rebuilt index should not return extension-denied file, got %#v", results)
+	}
+	if results := service.Search("keep.txt"); len(results) != 1 {
+		t.Fatalf("rebuilt index should keep allowed files, got %#v", results)
+	}
+}
+
 func TestInvalidExcludeRegexIsReported(t *testing.T) {
 	service := NewServiceWithIndex([]rawResult{{Name: "README.md", Path: `P:\workspace\README.md`}})
 	service.ApplyPolicy(FileSearchPolicy{ExcludePatterns: []string{"["}})
@@ -301,6 +371,7 @@ func TestFileResultIncludesFilesystemMetadata(t *testing.T) {
 		t.Fatalf("set temp file time: %v", err)
 	}
 	service := NewServiceWithIndex([]rawResult{{Name: "sample.log", Path: filePath}})
+	service.ApplyPolicy(noopFileSearchPolicy())
 
 	results := service.Search("sample.log")
 
@@ -328,6 +399,7 @@ func TestFileResultIncludesFilesystemMetadata(t *testing.T) {
 func TestDirectoryResultUsesFolderMetadata(t *testing.T) {
 	dir := t.TempDir()
 	service := NewServiceWithIndex([]rawResult{{Name: filepath.Base(dir), Path: dir, IsDirectory: true}})
+	service.ApplyPolicy(noopFileSearchPolicy())
 
 	results := service.Search(filepath.Base(dir))
 
@@ -484,4 +556,13 @@ func metaValue(result contracts.SearchResult, label string) string {
 		}
 	}
 	return ""
+}
+
+func noopFileSearchPolicy() FileSearchPolicy {
+	return FileSearchPolicy{
+		ExcludeFolders:    []string{`C:\AriadneNoMatch`},
+		ExcludePatterns:   []string{`a^`},
+		IncludeExtensions: []string{`.log`},
+		ExcludeExtensions: []string{`.ariadne-no-match`},
+	}
 }

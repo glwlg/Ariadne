@@ -68,18 +68,25 @@ type PreviewDescriptor struct {
 	ImageHint string       `json:"imageHint,omitempty"`
 }
 
+type IconAsset struct {
+	URL      string `json:"url"`
+	CacheKey string `json:"cacheKey"`
+	Kind     string `json:"kind"`
+}
+
 type SearchResult struct {
-	ID       string                 `json:"id"`
-	Type     SearchResultType       `json:"type"`
-	Title    string                 `json:"title"`
-	Subtitle string                 `json:"subtitle,omitempty"`
-	Detail   string                 `json:"detail,omitempty"`
-	Icon     string                 `json:"icon"`
-	Score    float64                `json:"score,omitempty"`
-	Tags     []string               `json:"tags,omitempty"`
-	Payload  map[string]interface{} `json:"payload,omitempty"`
-	Preview  PreviewDescriptor      `json:"preview"`
-	Actions  []PreviewAction        `json:"actions"`
+	ID        string                 `json:"id"`
+	Type      SearchResultType       `json:"type"`
+	Title     string                 `json:"title"`
+	Subtitle  string                 `json:"subtitle,omitempty"`
+	Detail    string                 `json:"detail,omitempty"`
+	Icon      string                 `json:"icon"`
+	IconAsset *IconAsset             `json:"iconAsset,omitempty"`
+	Score     float64                `json:"score,omitempty"`
+	Tags      []string               `json:"tags,omitempty"`
+	Payload   map[string]interface{} `json:"payload,omitempty"`
+	Preview   PreviewDescriptor      `json:"preview"`
+	Actions   []PreviewAction        `json:"actions"`
 }
 
 type SearchResponse struct {

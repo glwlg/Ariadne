@@ -229,7 +229,7 @@ void timelineLoadMoreRef
 
 <template>
 <section class="flow-page-panel flow-timeline-page" aria-label="心流时间线">
-          <FlowPageHeader class="flow-timeline-hero" eyebrow="TIMELINE" :title="`时间线 · ${flowDateLabel}`" />
+          <FlowPageHeader class="flow-timeline-hero" eyebrow="时间线" :title="`时间线 · ${flowDateLabel}`" />
           <AriToolbar class="flow-page-toolbar flow-timeline-toolbar">
             <FlowDateSwitcher :label="flowDateButtonLabel" @previous="shiftFlowDate(-1)" @next="shiftFlowDate(1)" @reset="resetFlowDateToday()" />
             <span>时间范围 {{ flowTimeRangeLabel }}</span>
@@ -242,10 +242,10 @@ void timelineLoadMoreRef
               <Clock3 :size="14" />
               {{ memory.status.timeMachineEnabled ? '暂停采集' : '开启采集' }}
             </button>
-            <button v-if="timelineZoomActive" type="button" title="恢复 06:00-22:00" @click="resetTimelineRulerZoom">
+            <AriButton v-if="timelineZoomActive" size="sm" variant="secondary" title="恢复 06:00-22:00" @click="resetTimelineRulerZoom">
               <Clock3 :size="14" />
               恢复全时段
-            </button>
+            </AriButton>
           </AriToolbar>
 
           <div class="flow-timeline-stats">
@@ -456,7 +456,7 @@ void timelineLoadMoreRef
               </div>
               <div v-if="timelineHasMoreDays" ref="timelineLoadMoreRef" class="flow-timeline-load-more">
                 <span>继续加载更早轨迹</span>
-                <button type="button" @click="loadMoreTimelineDays">立即加载</button>
+                <AriButton size="sm" variant="secondary" @click="loadMoreTimelineDays">立即加载</AriButton>
               </div>
               <div
                 v-if="timelineLaneMenu.open"

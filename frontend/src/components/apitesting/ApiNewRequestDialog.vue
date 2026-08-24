@@ -84,7 +84,7 @@ function createRequest() {
     <div class="api-modal-backdrop" @click="emit('close')" />
     <section class="api-new-request-modal">
       <header>
-        <strong>New Request</strong>
+        <strong>新建请求</strong>
         <button type="button" aria-label="关闭" @click="emit('close')">×</button>
       </header>
 
@@ -97,7 +97,7 @@ function createRequest() {
         </div>
 
         <label class="api-field">
-          <span>Request Name</span>
+          <span>请求名称</span>
           <input v-model="draft.name" class="api-input" placeholder="Request Name" @keydown.enter="createRequest" />
         </label>
 
@@ -127,8 +127,8 @@ function createRequest() {
       <footer>
         <button type="button" class="api-new-request-options" :class="{ 'is-active': draft.showOptions }" @click="draft.showOptions = !draft.showOptions">Options</button>
         <div>
-          <AriButton size="sm" variant="ghost" @click="emit('close')">Cancel</AriButton>
-          <AriButton size="sm" variant="primary" :disabled="!canCreate" @click="createRequest">Create</AriButton>
+          <AriButton size="sm" variant="ghost" @click="emit('close')">取消</AriButton>
+          <AriButton size="sm" variant="primary" :disabled="!canCreate" @click="createRequest">创建</AriButton>
         </div>
       </footer>
     </section>

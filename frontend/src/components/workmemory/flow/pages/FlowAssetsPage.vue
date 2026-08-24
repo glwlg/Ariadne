@@ -19,8 +19,8 @@ const {
   X,
   activeAssetFocus,
   assetMissingEvidence,
-  assetReadinessParts,
-  assetReadinessScore,
+  asset就绪度Parts,
+  asset就绪度Score,
   autonomousInboxSummary,
   autonomousKindLabel,
   autonomousRejectReason,
@@ -66,29 +66,29 @@ const {
             </aside>
 
             <section class="flow-agent-package" data-flow-asset="agent" aria-label="代理任务包">
-              <span>AGENT PACKAGE</span>
+              <span>任务包</span>
               <h2>{{ memory.agentTask?.goal || '代理任务包未生成' }}</h2>
               <div class="flow-agent-package-section flow-package-section-numbered">
-                <strong><b>#1</b> 目标 Goal</strong>
+                <strong><b>#1</b> 目标</strong>
                 <p>{{ memory.agentTask?.goal || '从当前记忆、洞察或草稿生成可交给外部 agent 的任务。' }}</p>
               </div>
               <div class="flow-agent-package-section flow-package-section-numbered">
-                <strong><b>#2</b> 背景 Context</strong>
+                <strong><b>#2</b> 背景</strong>
                 <p>{{ memory.agentTask?.context || '生成后会在这里展示上下文、留痕、边界和验收标准。' }}</p>
               </div>
               <div class="flow-agent-package-grid">
                 <section>
-                  <strong><b>#3</b> 留痕 Trace</strong>
+                  <strong><b>#3</b> 留痕</strong>
                   <span v-for="item in memory.agentTask?.evidence || []" :key="item">{{ item }}</span>
                   <small v-if="!memory.agentTask?.evidence.length">等待绑定留痕</small>
                 </section>
                 <section>
-                  <strong><b>#4</b> 边界 Boundaries</strong>
+                  <strong><b>#4</b> 边界</strong>
                   <span v-for="item in memory.agentTask?.boundaries || []" :key="item">{{ item }}</span>
                   <small v-if="!memory.agentTask?.boundaries.length">执行前需要确认权限和范围</small>
                 </section>
                 <section>
-                  <strong><b>#5</b> 验收 Acceptance</strong>
+                  <strong><b>#5</b> 验收</strong>
                   <span v-for="item in memory.agentTask?.acceptance || []" :key="item">{{ item }}</span>
                   <small v-if="!memory.agentTask?.acceptance.length">需要可验证结果</small>
                 </section>
@@ -108,24 +108,24 @@ const {
             <aside class="flow-package-inspector flow-agent-inspector" aria-label="任务包检查">
               <header class="flow-agent-inspector-head">
                 <div>
-                  <span>Agent Inspector</span>
+                  <span>任务检查</span>
                   <strong>就绪度评估</strong>
                 </div>
-                <small>{{ assetReadinessScore }}/100</small>
+                <small>{{ asset就绪度Score }}/100</small>
               </header>
               <section class="flow-quiet-panel">
                 <div class="side-title">
                   <Shield :size="15" />
-                  Readiness
+                  就绪度
                 </div>
-                <div class="flow-readiness-ring" :style="{ '--score': `${assetReadinessScore}%` }">
-                  <strong>{{ assetReadinessScore }}</strong>
+                <div class="flow-readiness-ring" :style="{ '--score': `${asset就绪度Score}%` }">
+                  <strong>{{ asset就绪度Score }}</strong>
                   <small>/100</small>
                 </div>
                 <strong>{{ memory.agentTask ? '可交接，需人工确认' : '等待生成' }}</strong>
                 <p>{{ memory.agentTask?.requiresReview ? '这个任务包包含边界约束，外发前需要你确认。' : '生成后会检查缺失留痕、权限边界和验收标准。' }}</p>
                 <div class="flow-asset-mini-list">
-                  <span v-for="part in assetReadinessParts" :key="part.label" :class="{ 'is-ok': part.ok }">{{ part.label }}</span>
+                  <span v-for="part in asset就绪度Parts" :key="part.label" :class="{ 'is-ok': part.ok }">{{ part.label }}</span>
                 </div>
               </section>
               <section class="flow-quiet-panel">
@@ -159,23 +159,23 @@ const {
                       @keydown.enter.prevent="confirmRejectAutonomousArtifact(artifact)"
                       @keydown.esc.prevent="cancelRejectAutonomousArtifact()"
                     />
-                    <button type="button" @click="confirmRejectAutonomousArtifact(artifact)">
+                    <AriButton size="sm" variant="primary" @click="confirmRejectAutonomousArtifact(artifact)">
                       <Check :size="13" />
                       确认
-                    </button>
-                    <button type="button" @click="cancelRejectAutonomousArtifact()">
+                    </AriButton>
+                    <AriButton size="sm" variant="ghost" @click="cancelRejectAutonomousArtifact()">
                       <X :size="13" />
-                    </button>
+                    </AriButton>
                   </div>
                   <div v-else class="flow-auto-artifact-foot">
-                    <button type="button" @click.stop="copyAutonomousArtifact(artifact)">
+                    <AriButton size="sm" variant="secondary" @click.stop="copyAutonomousArtifact(artifact)">
                       <Copy :size="13" />
                       复制
-                    </button>
-                    <button type="button" @click.stop="beginRejectAutonomousArtifact(artifact)">
+                    </AriButton>
+                    <AriButton size="sm" variant="ghost" @click.stop="beginRejectAutonomousArtifact(artifact)">
                       <Trash2 :size="13" />
                       删除
-                    </button>
+                    </AriButton>
                   </div>
                 </article>
               </section>

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -66,7 +67,7 @@ func main() {
 		os.Exit(workmemorycli.Run(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service") {
-		if err := filesearch.RunWindowsService(os.Args[2:]); err != nil {
+		if err := filesearch.RunWindowsServiceWithPolicyProvider(os.Args[2:], fileSearchPolicyProvider(os.Args[2:])); err != nil {
 			fmt.Fprintf(os.Stderr, "Ariadne file search service: %v\n", err)
 			os.Exit(1)
 		}
@@ -75,7 +76,7 @@ func main() {
 	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service-install") {
 		exePath, err := os.Executable()
 		if err == nil {
-			err = filesearch.InstallWindowsService("Ariadne", exePath)
+			err = filesearch.InstallWindowsService("Ariadne", exePath, "--settings-config", settings.NewService().ConfigPath())
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Ariadne search service install: %v\n", err)
@@ -108,6 +109,12 @@ func main() {
 	jsonCompareService := jsoncompare.NewService()
 	apiTestingService := apitesting.NewService()
 	networkMonitorService := networkmonitor.NewService()
+	networkMonitorService.SetProcessIconResolver(func(path string) string {
+		if icon := fileSearchService.ResolveFileIcon(path); icon != nil {
+			return icon.URL
+		}
+		return ""
+	})
 	qrScanService := qrscan.NewService(captureService)
 	pluginService := plugins.NewService()
 	workflowService := workflows.NewService(pluginService)
@@ -320,7 +327,7 @@ func main() {
 			application.NewService(notificationService),
 		},
 		Assets: application.AssetOptions{
-			Handler: captureoverlay.CaptureOverlayAssetHandler(captureOverlayService, application.AssetFileServerFS(assets)),
+			Handler: captureoverlay.CaptureOverlayAssetHandler(captureOverlayService, fileSearchService.FileIconAssetHandler(application.AssetFileServerFS(assets))),
 		},
 	})
 	workmemory.RegisterChangeObserver(workMemoryService, func(event workmemory.ChangeEvent) {
@@ -432,10 +439,48 @@ func applyRetentionPolicies(
 }
 
 func applyFileSearchRuntime(service *filesearch.Service, config settings.SearchSettings) {
-	service.ApplyPolicy(filesearch.FileSearchPolicy{
-		ExcludeFolders:  config.FileExcludeFolders,
-		ExcludePatterns: config.FileExcludePatterns,
-	})
+	service.ApplyPolicy(fileSearchPolicyFromSettings(config))
+}
+
+func fileSearchPolicyProvider(args []string) filesearch.PolicyProvider {
+	configPath := fileSearchSettingsConfigPath(args)
+	return func() filesearch.FileSearchPolicy {
+		if strings.TrimSpace(configPath) != "" {
+			return fileSearchPolicyFromSettings(settings.NewServiceWithPaths(configPath, "").GetSettings().Search)
+		}
+		return fileSearchPolicyFromSettings(settings.NewService().GetSettings().Search)
+	}
+}
+
+func fileSearchSettingsConfigPath(args []string) string {
+	configPath := ""
+	for index := 0; index < len(args); index++ {
+		arg := strings.TrimSpace(args[index])
+		if strings.EqualFold(arg, "--settings-config") || strings.EqualFold(arg, "-settings-config") {
+			if index+1 < len(args) {
+				configPath = args[index+1]
+			}
+			break
+		}
+		if strings.HasPrefix(strings.ToLower(arg), "--settings-config=") {
+			configPath = strings.TrimSpace(arg[len("--settings-config="):])
+			break
+		}
+	}
+	configPath = strings.TrimSpace(configPath)
+	if strings.EqualFold(filepath.Base(configPath), "ariadne.sqlite") {
+		return filepath.Join(filepath.Dir(configPath), "config.json")
+	}
+	return configPath
+}
+
+func fileSearchPolicyFromSettings(config settings.SearchSettings) filesearch.FileSearchPolicy {
+	return filesearch.FileSearchPolicy{
+		ExcludeFolders:    config.FileExcludeFolders,
+		ExcludePatterns:   config.FileExcludePatterns,
+		IncludeExtensions: config.FileIncludeExtensions,
+		ExcludeExtensions: config.FileExcludeExtensions,
+	}
 }
 
 func applyCaptureOverlayRuntime(service *captureoverlay.Service, config settings.ScreenshotSettings) {
@@ -458,6 +503,13 @@ func applyOCRAIRuntime(service *ocr.Service, config settings.AISettings) {
 		Provider: provider,
 		BaseURL:  ocrAIBaseURL(provider, config),
 		Model:    firstNonEmpty(config.OCRModel, os.Getenv("ARIADNE_OCR_MODEL")),
+	})
+	pinnedProvider := firstNonEmpty(config.PinnedOCRProvider, "openai-compatible")
+	service.ApplyPinnedAIOCRPolicy(ocr.AIOCRPolicy{
+		Enabled:  config.PinnedOCRModelEnabled,
+		Provider: pinnedProvider,
+		BaseURL:  strings.TrimSpace(config.PinnedOCRBaseURL),
+		Model:    strings.TrimSpace(config.PinnedOCRModel),
 	})
 }
 

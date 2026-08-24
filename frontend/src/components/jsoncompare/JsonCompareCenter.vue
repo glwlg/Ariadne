@@ -85,7 +85,7 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
           </div>
           <div class="brand-copy">
             <span>JSON 对比</span>
-            <small>Semantic diff, normalized lines, explicit local feedback</small>
+            <small>语义对比 · 规范化差异 · 本地反馈</small>
           </div>
           <div class="header-tools">
             <span class="system-pill" :class="{ 'is-on': jsonCompare.result?.ok, 'is-danger': jsonCompare.result && !jsonCompare.result.ok }">

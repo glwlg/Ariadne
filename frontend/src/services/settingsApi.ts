@@ -1,9 +1,9 @@
 import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/ariadne'
 
 const fallbackSettings: AppSettings = {
-  version: 17,
+  version: 21,
   general: {
-    theme: 'light',
+    theme: 'cloud-blue',
     runOnStartup: false,
     language: 'zh-CN',
   },
@@ -90,6 +90,10 @@ const fallbackSettings: AppSettings = {
     ocrProvider: 'openai-compatible',
     ocrBaseUrl: '',
     ocrModel: '',
+    pinnedOcrModelEnabled: false,
+    pinnedOcrProvider: 'openai-compatible',
+    pinnedOcrBaseUrl: '',
+    pinnedOcrModel: '',
     embeddingEnabled: false,
     embeddingProvider: 'disabled',
     embeddingBaseUrl: '',
@@ -109,8 +113,67 @@ const fallbackSettings: AppSettings = {
     enabled: {},
   },
   search: {
-    fileExcludeFolders: ['%APPDATA%\\Microsoft\\Windows\\Recent'],
-    fileExcludePatterns: [],
+    fileExcludeFolders: [
+      '%APPDATA%\\Microsoft\\Windows\\Recent',
+      '%APPDATA%',
+      '%TEMP%',
+      '%TMP%',
+      '%LOCALAPPDATA%',
+      '%USERPROFILE%\\AppData\\LocalLow',
+      '%LOCALAPPDATA%\\Temp',
+      '%WINDIR%\\Temp',
+      '%WINDIR%',
+      '%SystemRoot%',
+      '%ProgramFiles%',
+      '%ProgramFiles(x86)%',
+      '%ProgramW6432%',
+      '%ProgramData%',
+    ],
+    fileExcludePatterns: [
+      String.raw`(?i)\.(tmp|temp|part|crdownload|download)$`,
+      String.raw`(?i)(^|[\\/])~\$[^\\/]*$`,
+      String.raw`(?i)(^|[\\/])\$recycle\.bin([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])system volume information([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])(tmp|temp|temp-index|tmp-index)([\\/]|$)`,
+      String.raw`(?i)[\\/]ebwebview([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])\..*\.tmp[-.][^\\/]*$`,
+      String.raw`(?i)[\\/]users[\\/][^\\/]+[\\/]appdata[\\/](local|locallow|roaming)([\\/]|$)`,
+      String.raw`(?i)^[a-z]:[\\/](app|appdata|program files|program files \(x86\)|programdata|devapp)([\\/]|$)`,
+      String.raw`(?i)^[a-z]:[\\/]workspace[\\/]env([\\/]|$)`,
+      String.raw`(?i)^[a-z]:[\\/]users[\\/][^\\/]+[\\/]\.(cache|config|local|m2|gradle|nuget|npm|pnpm|yarn|cargo|rustup|wox|gemini|confirmo|switchhosts|antigravity|antigravity_cockpit|marscode)([\\/]|$)`,
+      String.raw`(?i)[\\/]appdata[\\/](local|locallow|roaming)[\\/].*[\\/](cache|cache2|cachestorage|code cache|gpucache|shadercache|crashpad|dawncache|blob_storage|inetcache|webcache|startupcache|browsermetrics|media cache|service worker|thumbnails)([\\/]|$)`,
+      String.raw`(?i)^[a-z]:[\\/](recovery|\$winreagent|config\.msi|windows\.old|msocache)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])(d3dscache|dxcache|gpucache|grshadercache|shadercache|dawncache)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])(\.m2|\.npm|\.pnpm-store|pnpm-store|npm-cache|pnpm-cache|go-build|pip-cache|ms-playwright|ms-playwright-go|package cache)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])(nuget[\\/]packages|\.cargo|\.rustup)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])(\.venv|venv|envs|virtualenv|__pypackages__)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])(site-packages|dist-packages)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])(jetbrains|trae cn|trae|antigravity|zed|qoder)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])(logs?|log)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])ariadne[\\/](capture_images|capture_thumbnails)([\\/]|$)`,
+      String.raw`(?i)\.(log|journal|db-journal|sqlite-wal|sqlite-shm|db-wal|db-shm|odlgz|statistic|dxcache-shm|dxcache-wal)$`,
+      String.raw`(?i)(^|[\\/])(\$mft|\$logfile|\$bitmap|\$boot|\$badclus|\$secure|\$upcase|\$volume|\$attrdef|pagefile\.sys|hiberfil\.sys|swapfile\.sys|dumpstack\.log\.tmp|thumbs\.db|desktop\.ini)$`,
+      String.raw`(?i)(^|[\\/])(\.git|\.hg|\.svn|node_modules|\.pnpm-store|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache|\.gradle|\.idea|\.vscode|\.cache|\.codex|\.codex-audit|coverage|dist|build|target|out|bin|obj|\.next|\.nuxt|\.vite|\.turbo|\.parcel-cache|\.svelte-kit|\.angular|\.vercel)([\\/]|$)`,
+    ],
+    fileIncludeExtensions: [],
+    fileExcludeExtensions: [
+      '.tmp',
+      '.temp',
+      '.part',
+      '.crdownload',
+      '.download',
+      '.log',
+      '.journal',
+      '.db-journal',
+      '.sqlite-wal',
+      '.sqlite-shm',
+      '.db-wal',
+      '.db-shm',
+      '.odlgz',
+      '.statistic',
+      '.dxcache-shm',
+      '.dxcache-wal',
+    ],
   },
 }
 
@@ -222,6 +285,7 @@ function fallbackStorageStatus(): SettingsStorageStatus {
 
 function normalizeFallback(settings: AppSettings): AppSettings {
   const next = structuredClone(settings)
+  const previousVersion = next.version || 0
   next.version = Math.max(next.version || 0, fallbackSettings.version)
   next.general.theme = normalizeTheme(next.general.theme)
   next.screenshot.quality = clamp(next.screenshot.quality, 1, 100)
@@ -246,17 +310,26 @@ function normalizeFallback(settings: AppSettings): AppSettings {
   if (!next.search) {
     next.search = structuredClone(fallbackSettings.search)
   }
+  if (previousVersion < 20) {
+    next.search.fileExcludeFolders = [...fallbackSettings.search.fileExcludeFolders, ...(next.search.fileExcludeFolders || [])]
+    next.search.fileExcludePatterns = [...fallbackSettings.search.fileExcludePatterns, ...(next.search.fileExcludePatterns || [])]
+  }
+  if (previousVersion < 21) {
+    next.search.fileExcludeExtensions = [...fallbackSettings.search.fileExcludeExtensions, ...(next.search.fileExcludeExtensions || [])]
+  }
   next.search.fileExcludeFolders = cleanList(next.search.fileExcludeFolders)
   next.search.fileExcludePatterns = cleanList(next.search.fileExcludePatterns)
+  next.search.fileIncludeExtensions = cleanExtensionList(next.search.fileIncludeExtensions)
+  next.search.fileExcludeExtensions = cleanExtensionList(next.search.fileExcludeExtensions)
   next.ai.traceMode = ['off', 'local', 'internal'].includes(next.ai.traceMode) ? next.ai.traceMode : 'off'
   return next
 }
 
 function normalizeTheme(theme: string): AppSettings['general']['theme'] {
-  if (theme === 'professional-pink' || theme === 'light-graphite' || theme === 'cloud-blue' || theme === 'dark') {
+  if (theme === 'professional-pink' || theme === 'light-graphite' || theme === 'cloud-blue') {
     return theme
   }
-  return 'light'
+  return 'cloud-blue'
 }
 
 function cleanList(items: string[] = []) {
@@ -270,6 +343,26 @@ function cleanList(items: string[] = []) {
       seen.add(key)
       return true
     })
+}
+
+function cleanExtensionList(items: string[] = []) {
+  const seen = new Set<string>()
+  return items
+    .map((item) => normalizeExtension(item))
+    .filter((item) => {
+      if (!item || seen.has(item)) return false
+      seen.add(item)
+      return true
+    })
+}
+
+function normalizeExtension(value: string) {
+  let item = String(value || '').trim().toLowerCase()
+  if (item.startsWith('*')) item = item.slice(1).trim()
+  if (!item || item === '.') return ''
+  if (!item.startsWith('.')) item = `.${item}`
+  if (item.includes('/') || item.includes('\\') || item.includes(' ')) return ''
+  return item
 }
 
 function cleanAppCaptureProfiles(profiles: AppSettings['workMemory']['appCaptureProfiles'] = []) {

@@ -47,6 +47,10 @@ type AISettings struct {
 	OCRProvider                string `json:"ocrProvider"`
 	OCRBaseURL                 string `json:"ocrBaseUrl"`
 	OCRModel                   string `json:"ocrModel"`
+	PinnedOCRModelEnabled      bool   `json:"pinnedOcrModelEnabled"`
+	PinnedOCRProvider          string `json:"pinnedOcrProvider"`
+	PinnedOCRBaseURL           string `json:"pinnedOcrBaseUrl"`
+	PinnedOCRModel             string `json:"pinnedOcrModel"`
 	EmbeddingEnabled           bool   `json:"embeddingEnabled"`
 	EmbeddingProvider          string `json:"embeddingProvider"`
 	EmbeddingBaseURL           string `json:"embeddingBaseUrl"`
@@ -127,11 +131,13 @@ type PluginSettings struct {
 }
 
 type SearchSettings struct {
-	FileExcludeFolders  []string `json:"fileExcludeFolders"`
-	FileExcludePatterns []string `json:"fileExcludePatterns"`
+	FileExcludeFolders    []string `json:"fileExcludeFolders"`
+	FileExcludePatterns   []string `json:"fileExcludePatterns"`
+	FileIncludeExtensions []string `json:"fileIncludeExtensions"`
+	FileExcludeExtensions []string `json:"fileExcludeExtensions"`
 }
 
-const currentSettingsVersion = 17
+const currentSettingsVersion = 21
 
 type AppSettings struct {
 	Version    int                `json:"version"`
@@ -207,6 +213,12 @@ func (s *Service) GetSettings() AppSettings {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.settings
+}
+
+func (s *Service) ConfigPath() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.configPath
 }
 
 func (s *Service) UpdateSettings(next AppSettings) AppSettings {
@@ -599,7 +611,7 @@ func defaultSettings() AppSettings {
 	return AppSettings{
 		Version: currentSettingsVersion,
 		General: GeneralSettings{
-			Theme:        "light",
+			Theme:        "cloud-blue",
 			RunOnStartup: false,
 			Language:     "zh-CN",
 		},
@@ -704,6 +716,10 @@ func defaultSettings() AppSettings {
 			OCRProvider:                "openai-compatible",
 			OCRBaseURL:                 "",
 			OCRModel:                   "",
+			PinnedOCRModelEnabled:      false,
+			PinnedOCRProvider:          "openai-compatible",
+			PinnedOCRBaseURL:           "",
+			PinnedOCRModel:             "",
 			EmbeddingEnabled:           false,
 			EmbeddingProvider:          "disabled",
 			EmbeddingBaseURL:           "",
@@ -721,13 +737,99 @@ func defaultSettings() AppSettings {
 		},
 		Plugins: PluginSettings{Enabled: map[string]bool{}},
 		Search: SearchSettings{
-			FileExcludeFolders:  []string{defaultRecentFolder()},
-			FileExcludePatterns: []string{},
+			FileExcludeFolders:    defaultSearchExcludeFolders(),
+			FileExcludePatterns:   defaultSearchExcludePatterns(),
+			FileIncludeExtensions: []string{},
+			FileExcludeExtensions: defaultSearchExcludeExtensions(),
 		},
 	}
 }
 
+func defaultSearchExcludeFolders() []string {
+	return cleanList([]string{
+		defaultRecentFolder(),
+		defaultRoamingAppDataFolder(),
+		strings.TrimSpace(os.Getenv("TEMP")),
+		strings.TrimSpace(os.Getenv("TMP")),
+		defaultLocalAppDataFolder(),
+		defaultLocalLowAppDataFolder(),
+		defaultLocalTempFolder(),
+		defaultWindowsTempFolder(),
+		defaultWindowsFolder(),
+		strings.TrimSpace(os.Getenv("ProgramFiles")),
+		strings.TrimSpace(os.Getenv("ProgramFiles(x86)")),
+		strings.TrimSpace(os.Getenv("ProgramW6432")),
+		strings.TrimSpace(os.Getenv("ProgramData")),
+	}, nil)
+}
+
+func defaultSearchExcludePatterns() []string {
+	return []string{
+		`(?i)\.(tmp|temp|part|crdownload|download)$`,
+		`(?i)(^|[\\/])~\$[^\\/]*$`,
+		`(?i)(^|[\\/])\$recycle\.bin([\\/]|$)`,
+		`(?i)(^|[\\/])system volume information([\\/]|$)`,
+		`(?i)(^|[\\/])(tmp|temp|temp-index|tmp-index)([\\/]|$)`,
+		`(?i)[\\/]ebwebview([\\/]|$)`,
+		`(?i)(^|[\\/])\..*\.tmp[-.][^\\/]*$`,
+		`(?i)[\\/]users[\\/][^\\/]+[\\/]appdata[\\/](local|locallow|roaming)([\\/]|$)`,
+		`(?i)^[a-z]:[\\/](app|appdata|program files|program files \(x86\)|programdata|devapp)([\\/]|$)`,
+		`(?i)^[a-z]:[\\/]workspace[\\/]env([\\/]|$)`,
+		`(?i)^[a-z]:[\\/]users[\\/][^\\/]+[\\/]\.(cache|config|local|m2|gradle|nuget|npm|pnpm|yarn|cargo|rustup|wox|gemini|confirmo|switchhosts|antigravity|antigravity_cockpit|marscode)([\\/]|$)`,
+		`(?i)[\\/]appdata[\\/](local|locallow|roaming)[\\/].*[\\/](cache|cache2|cachestorage|code cache|gpucache|shadercache|crashpad|dawncache|blob_storage|inetcache|webcache|startupcache|browsermetrics|media cache|service worker|thumbnails)([\\/]|$)`,
+		`(?i)^[a-z]:[\\/](recovery|\$winreagent|config\.msi|windows\.old|msocache)([\\/]|$)`,
+		`(?i)(^|[\\/])(d3dscache|dxcache|gpucache|grshadercache|shadercache|dawncache)([\\/]|$)`,
+		`(?i)(^|[\\/])(\.m2|\.npm|\.pnpm-store|pnpm-store|npm-cache|pnpm-cache|go-build|pip-cache|ms-playwright|ms-playwright-go|package cache)([\\/]|$)`,
+		`(?i)(^|[\\/])(nuget[\\/]packages|\.cargo|\.rustup)([\\/]|$)`,
+		`(?i)(^|[\\/])(\.venv|venv|envs|virtualenv|__pypackages__)([\\/]|$)`,
+		`(?i)(^|[\\/])(site-packages|dist-packages)([\\/]|$)`,
+		`(?i)(^|[\\/])(jetbrains|trae cn|trae|antigravity|zed|qoder)([\\/]|$)`,
+		`(?i)(^|[\\/])(logs?|log)([\\/]|$)`,
+		`(?i)(^|[\\/])ariadne[\\/](capture_images|capture_thumbnails)([\\/]|$)`,
+		`(?i)\.(log|journal|db-journal|sqlite-wal|sqlite-shm|db-wal|db-shm|odlgz|statistic|dxcache-shm|dxcache-wal)$`,
+		`(?i)(^|[\\/])(\$mft|\$logfile|\$bitmap|\$boot|\$badclus|\$secure|\$upcase|\$volume|\$attrdef|pagefile\.sys|hiberfil\.sys|swapfile\.sys|dumpstack\.log\.tmp|thumbs\.db|desktop\.ini)$`,
+		`(?i)(^|[\\/])(\.git|\.hg|\.svn|node_modules|\.pnpm-store|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache|\.gradle|\.idea|\.vscode|\.cache|\.codex|\.codex-audit|coverage|dist|build|target|out|bin|obj|\.next|\.nuxt|\.vite|\.turbo|\.parcel-cache|\.svelte-kit|\.angular|\.vercel)([\\/]|$)`,
+	}
+}
+
+func defaultSearchExcludeExtensions() []string {
+	return cleanExtensionList([]string{
+		".tmp",
+		".temp",
+		".part",
+		".crdownload",
+		".download",
+		".log",
+		".journal",
+		".db-journal",
+		".sqlite-wal",
+		".sqlite-shm",
+		".db-wal",
+		".db-shm",
+		".odlgz",
+		".statistic",
+		".dxcache-shm",
+		".dxcache-wal",
+	}, nil)
+}
+
 func defaultRecentFolder() string {
+	base := defaultRoamingAppDataFolder()
+	if base == "" {
+		return filepath.Join("Microsoft", "Windows", "Recent")
+	}
+	return filepath.Join(base, "Microsoft", "Windows", "Recent")
+}
+
+func defaultLocalTempFolder() string {
+	base := defaultLocalAppDataFolder()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, "Temp")
+}
+
+func defaultRoamingAppDataFolder() string {
 	base := strings.TrimSpace(os.Getenv("APPDATA"))
 	if base == "" {
 		home, _ := os.UserHomeDir()
@@ -735,10 +837,42 @@ func defaultRecentFolder() string {
 			base = filepath.Join(home, "AppData", "Roaming")
 		}
 	}
+	return base
+}
+
+func defaultLocalAppDataFolder() string {
+	base := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
 	if base == "" {
-		return filepath.Join("Microsoft", "Windows", "Recent")
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			base = filepath.Join(home, "AppData", "Local")
+		}
 	}
-	return filepath.Join(base, "Microsoft", "Windows", "Recent")
+	return base
+}
+
+func defaultLocalLowAppDataFolder() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, "AppData", "LocalLow")
+}
+
+func defaultWindowsTempFolder() string {
+	base := defaultWindowsFolder()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, "Temp")
+}
+
+func defaultWindowsFolder() string {
+	base := strings.TrimSpace(os.Getenv("WINDIR"))
+	if base == "" {
+		base = strings.TrimSpace(os.Getenv("SystemRoot"))
+	}
+	return base
 }
 
 func normalizeSettings(value AppSettings) AppSettings {
@@ -782,6 +916,9 @@ func normalizeSettings(value AppSettings) AppSettings {
 	value.AI.OCRProvider = firstNonEmpty(value.AI.OCRProvider, defaults.AI.OCRProvider)
 	value.AI.OCRBaseURL = strings.TrimSpace(value.AI.OCRBaseURL)
 	value.AI.OCRModel = strings.TrimSpace(value.AI.OCRModel)
+	value.AI.PinnedOCRProvider = firstNonEmpty(value.AI.PinnedOCRProvider, defaults.AI.PinnedOCRProvider)
+	value.AI.PinnedOCRBaseURL = strings.TrimSpace(value.AI.PinnedOCRBaseURL)
+	value.AI.PinnedOCRModel = strings.TrimSpace(value.AI.PinnedOCRModel)
 	value.AI.EmbeddingProvider = firstNonEmpty(value.AI.EmbeddingProvider, defaults.AI.EmbeddingProvider)
 	value.AI.VectorStoreType = firstNonEmpty(value.AI.VectorStoreType, defaults.AI.VectorStoreType)
 	value.AI.VectorCollection = firstNonEmpty(value.AI.VectorCollection, defaults.AI.VectorCollection)
@@ -794,8 +931,17 @@ func normalizeSettings(value AppSettings) AppSettings {
 	if previousVersion < 17 && len(value.Search.FileExcludeFolders) == 0 {
 		value.Search.FileExcludeFolders = defaults.Search.FileExcludeFolders
 	}
+	if previousVersion < 20 {
+		value.Search.FileExcludeFolders = mergeDefaultList(defaults.Search.FileExcludeFolders, value.Search.FileExcludeFolders)
+		value.Search.FileExcludePatterns = mergeDefaultList(defaults.Search.FileExcludePatterns, value.Search.FileExcludePatterns)
+	}
+	if previousVersion < 21 {
+		value.Search.FileExcludeExtensions = mergeDefaultList(defaults.Search.FileExcludeExtensions, value.Search.FileExcludeExtensions)
+	}
 	value.Search.FileExcludeFolders = cleanList(value.Search.FileExcludeFolders, nil)
 	value.Search.FileExcludePatterns = cleanList(value.Search.FileExcludePatterns, nil)
+	value.Search.FileIncludeExtensions = cleanExtensionList(value.Search.FileIncludeExtensions, nil)
+	value.Search.FileExcludeExtensions = cleanExtensionList(value.Search.FileExcludeExtensions, nil)
 	return value
 }
 
@@ -873,8 +1019,8 @@ func normalizeAppProfileKey(value string) string {
 }
 
 func migrateSettings(value AppSettings) AppSettings {
-	if value.Version < currentSettingsVersion && legacyThemeNeedsLightReset(value.General.Theme) {
-		value.General.Theme = "light"
+	if value.Version < currentSettingsVersion && legacyThemeNeedsDefaultReset(value.General.Theme) {
+		value.General.Theme = "cloud-blue"
 	}
 	if value.Version < 8 {
 		defaults := defaultSettings()
@@ -915,7 +1061,7 @@ func migrateSettings(value AppSettings) AppSettings {
 	return value
 }
 
-func legacyThemeNeedsLightReset(theme string) bool {
+func legacyThemeNeedsDefaultReset(theme string) bool {
 	switch strings.ToLower(strings.TrimSpace(theme)) {
 	case "dark", "system":
 		return true
@@ -1220,6 +1366,13 @@ func firstLegacyValue(values map[string]any, keys ...string) any {
 	return nil
 }
 
+func mergeDefaultList(defaults []string, values []string) []string {
+	merged := make([]string, 0, len(defaults)+len(values))
+	merged = append(merged, defaults...)
+	merged = append(merged, values...)
+	return cleanList(merged, nil)
+}
+
 func cleanList(value []string, fallback []string) []string {
 	if len(value) == 0 && len(fallback) > 0 {
 		value = fallback
@@ -1241,6 +1394,39 @@ func cleanList(value []string, fallback []string) []string {
 	return result
 }
 
+func cleanExtensionList(value []string, fallback []string) []string {
+	if len(value) == 0 && len(fallback) > 0 {
+		value = fallback
+	}
+	seen := map[string]bool{}
+	result := []string{}
+	for _, item := range value {
+		extension := normalizeExtension(item)
+		if extension == "" || seen[extension] {
+			continue
+		}
+		seen[extension] = true
+		result = append(result, extension)
+	}
+	return result
+}
+
+func normalizeExtension(value string) string {
+	item := strings.ToLower(strings.TrimSpace(value))
+	item = strings.TrimPrefix(item, "*")
+	item = strings.TrimSpace(item)
+	if item == "" || item == "." {
+		return ""
+	}
+	if !strings.HasPrefix(item, ".") {
+		item = "." + item
+	}
+	if strings.ContainsAny(item, `/\`) || strings.Contains(item, " ") {
+		return ""
+	}
+	return item
+}
+
 func firstNonEmpty(value string, fallback string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1258,18 +1444,14 @@ func infoSize(info os.FileInfo, err error) int64 {
 
 func normalizeTheme(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "light":
-		return "light"
 	case "professional-pink":
 		return "professional-pink"
 	case "light-graphite":
 		return "light-graphite"
 	case "cloud-blue":
 		return "cloud-blue"
-	case "dark":
-		return "dark"
 	default:
-		return "light"
+		return "cloud-blue"
 	}
 }
 

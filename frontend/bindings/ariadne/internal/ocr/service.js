@@ -19,6 +19,14 @@ export function ApplyAIOCRPolicy(policy) {
 }
 
 /**
+ * @param {$models.AIOCRPolicy} policy
+ * @returns {$CancellablePromise<void>}
+ */
+export function ApplyPinnedAIOCRPolicy(policy) {
+    return $Call.ByID(3968532963, policy);
+}
+
+/**
  * @returns {$CancellablePromise<$models.Result>}
  */
 export function LastResult() {
@@ -62,6 +70,26 @@ export function RecognizeCurrentScreen() {
  */
 export function RecognizeImagePath(path) {
     return $Call.ByID(2898189711, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
+ * @param {string} captureID
+ * @returns {$CancellablePromise<$models.Result>}
+ */
+export function RecognizePinnedCapture(captureID) {
+    return $Call.ByID(2544562857, captureID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
+ * @param {string} clipboardID
+ * @returns {$CancellablePromise<$models.Result>}
+ */
+export function RecognizePinnedClipboardImage(clipboardID) {
+    return $Call.ByID(1802634382, clipboardID).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
     }));
 }

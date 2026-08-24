@@ -108,7 +108,7 @@ func watchNetworkMiniTaskbarForeground(stop <-chan struct{}, onTaskbarForeground
 }
 
 func networkMiniTaskbarForegroundWinEventProc(hook uintptr, event uint32, hwnd uintptr, idObject int32, idChild int32, eventThread uint32, eventTime uint32) uintptr {
-	if event == networkMiniEventSystemForeground && hwnd != 0 && isNetworkMiniTaskbarWindow(w32.HWND(hwnd)) {
+	if event == networkMiniEventSystemForeground && hwnd != 0 {
 		if callback, ok := networkMiniTaskbarForegroundHooks.Load(hook); ok {
 			callback.(func())()
 		}
@@ -202,10 +202,7 @@ func setNetworkMiniTaskbarLayer(window application.Window, show bool) {
 		w32.SetWindowLongPtr(hwnd, w32.GWL_EXSTYLE, targetExStyle)
 		flags |= w32.SWP_FRAMECHANGED
 	}
-	taskbar := w32.FindWindowW(w32.MustStringToUTF16Ptr("Shell_TrayWnd"), nil)
-	if taskbar != 0 {
-		w32.SetWindowLongPtr(hwnd, w32.GWLP_HWNDPARENT, uintptr(unsafe.Pointer(taskbar)))
-	}
+	w32.SetWindowLongPtr(hwnd, w32.GWLP_HWNDPARENT, 0)
 	w32.SetWindowPos(
 		hwnd,
 		w32.HWND_TOPMOST,

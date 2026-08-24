@@ -49,7 +49,7 @@ function formatTime(seconds?: number) {
           </div>
           <div class="brand-copy">
             <span>工作流宏</span>
-            <small>Command chains, variables, explicit execution feedback</small>
+            <small>命令链 · 变量传递 · 执行反馈</small>
           </div>
           <div class="header-tools">
             <span class="system-pill" :class="workflows.status?.legacyImported ? 'is-on' : ''">

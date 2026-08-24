@@ -1,17 +1,17 @@
+/** Theme runtime. Visual constitution: docs/plans/2026-07-22-frontend-aesthetic-audit.md */
 import { Window } from '@wailsio/runtime'
 import { getSettings } from '../services/settingsApi'
 
-export type ThemePreference = 'light' | 'professional-pink' | 'light-graphite' | 'cloud-blue' | 'dark'
+export type ThemePreference = 'professional-pink' | 'light-graphite' | 'cloud-blue'
 
 const THEME_STORAGE_KEY = 'ariadne:theme-preference'
 const THEME_EVENT = 'ariadne:theme-changed'
 
-let currentTheme: ThemePreference = 'light'
+let currentTheme: ThemePreference = 'cloud-blue'
 
 export function applyTheme(theme: string | undefined) {
   currentTheme = normalizeTheme(theme)
-  const useDark = currentTheme === 'dark'
-  document.documentElement.classList.toggle('dark', useDark)
+  document.documentElement.classList.remove('dark')
   document.documentElement.dataset.theme = currentTheme
   void syncWindowBackground(currentTheme)
 }
@@ -32,7 +32,7 @@ export async function syncThemeFromSettings() {
     const settings = await getSettings()
     applyTheme(settings.general.theme)
   } catch {
-    applyTheme('light')
+    applyTheme('cloud-blue')
   }
 }
 
@@ -69,10 +69,10 @@ export function installSystemThemeListener() {
 }
 
 function normalizeTheme(theme: string | undefined): ThemePreference {
-  if (theme === 'professional-pink' || theme === 'light-graphite' || theme === 'cloud-blue' || theme === 'dark') {
+  if (theme === 'professional-pink' || theme === 'light-graphite' || theme === 'cloud-blue') {
     return theme
   }
-  return 'light'
+  return 'cloud-blue'
 }
 
 async function syncWindowBackground(theme: ThemePreference) {
@@ -84,16 +84,12 @@ async function syncWindowBackground(theme: ThemePreference) {
       await Window.SetBackgroundColour(0, 0, 0, 0)
       return
     }
-    if (theme === 'dark') {
-      await Window.SetBackgroundColour(9, 9, 11, 255)
-    } else if (theme === 'professional-pink') {
+    if (theme === 'professional-pink') {
       await Window.SetBackgroundColour(251, 247, 249, 255)
     } else if (theme === 'light-graphite') {
       await Window.SetBackgroundColour(246, 247, 249, 255)
-    } else if (theme === 'cloud-blue') {
-      await Window.SetBackgroundColour(246, 250, 255, 255)
     } else {
-      await Window.SetBackgroundColour(244, 244, 245, 255)
+      await Window.SetBackgroundColour(246, 250, 255, 255)
     }
   } catch {
     // Runtime calls are unavailable in browser-only dev mode.

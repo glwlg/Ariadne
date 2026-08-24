@@ -94,6 +94,48 @@ export class ActionResult {
     }
 }
 
+export class IconAsset {
+    /**
+     * Creates a new IconAsset instance.
+     * @param {Partial<IconAsset>} [$$source = {}] - The source object to create the IconAsset.
+     */
+    constructor($$source = {}) {
+        if (!("url" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["url"] = "";
+        }
+        if (!("cacheKey" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["cacheKey"] = "";
+        }
+        if (!("kind" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["kind"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new IconAsset instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {IconAsset}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new IconAsset(/** @type {Partial<IconAsset>} */($$parsedSource));
+    }
+}
+
 export class LabelValue {
     /**
      * Creates a new LabelValue instance.
@@ -426,6 +468,13 @@ export class SearchResult {
         if (/** @type {any} */(false)) {
             /**
              * @member
+             * @type {IconAsset | null | undefined}
+             */
+            this["iconAsset"] = undefined;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
              * @type {number | undefined}
              */
             this["score"] = undefined;
@@ -468,22 +517,26 @@ export class SearchResult {
      * @returns {SearchResult}
      */
     static createFrom($$source = {}) {
-        const $$createField7_0 = $$createType0;
-        const $$createField8_0 = $$createType1;
-        const $$createField9_0 = $$createType8;
+        const $$createField6_0 = $$createType9;
+        const $$createField8_0 = $$createType0;
+        const $$createField9_0 = $$createType1;
         const $$createField10_0 = $$createType10;
+        const $$createField11_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("iconAsset" in $$parsedSource) {
+            $$parsedSource["iconAsset"] = $$createField6_0($$parsedSource["iconAsset"]);
+        }
         if ("tags" in $$parsedSource) {
-            $$parsedSource["tags"] = $$createField7_0($$parsedSource["tags"]);
+            $$parsedSource["tags"] = $$createField8_0($$parsedSource["tags"]);
         }
         if ("payload" in $$parsedSource) {
-            $$parsedSource["payload"] = $$createField8_0($$parsedSource["payload"]);
+            $$parsedSource["payload"] = $$createField9_0($$parsedSource["payload"]);
         }
         if ("preview" in $$parsedSource) {
-            $$parsedSource["preview"] = $$createField9_0($$parsedSource["preview"]);
+            $$parsedSource["preview"] = $$createField10_0($$parsedSource["preview"]);
         }
         if ("actions" in $$parsedSource) {
-            $$parsedSource["actions"] = $$createField10_0($$parsedSource["actions"]);
+            $$parsedSource["actions"] = $$createField11_0($$parsedSource["actions"]);
         }
         return new SearchResult(/** @type {Partial<SearchResult>} */($$parsedSource));
     }
@@ -520,6 +573,8 @@ const $$createType4 = LabelValue.createFrom;
 const $$createType5 = $Create.Array($$createType4);
 const $$createType6 = SearchResult.createFrom;
 const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = PreviewDescriptor.createFrom;
-const $$createType9 = PreviewAction.createFrom;
-const $$createType10 = $Create.Array($$createType9);
+const $$createType8 = IconAsset.createFrom;
+const $$createType9 = $Create.Nullable($$createType8);
+const $$createType10 = PreviewDescriptor.createFrom;
+const $$createType11 = PreviewAction.createFrom;
+const $$createType12 = $Create.Array($$createType11);

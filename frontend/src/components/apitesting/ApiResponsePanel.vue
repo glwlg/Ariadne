@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle2, Clock3, Copy, FileText, ListChecks, XCircle } from '@lucide/vue'
+import { CheckCircle2, Clock3, Copy, FileText, XCircle } from '@lucide/vue'
 import { computed } from 'vue'
 import AriButton from '../ui/AriButton.vue'
 import ApiJsonViewer from './ApiJsonViewer.vue'
@@ -8,9 +8,9 @@ import { useAPITestingStore, type APIResponseTab } from '../../stores/apiTesting
 const apiTesting = useAPITestingStore()
 
 const responseTabs: Array<{ id: APIResponseTab; label: string }> = [
-  { id: 'body', label: 'Response' },
-  { id: 'headers', label: 'Headers' },
-  { id: 'assertions', label: 'Assert' },
+  { id: 'body', label: '响应' },
+  { id: 'headers', label: '响应头' },
+  { id: 'assertions', label: '断言结果' },
 ]
 
 const statusTone = computed(() => {
@@ -24,7 +24,7 @@ const statusTone = computed(() => {
 type ResponseBodyView = { kind: 'json'; value: unknown } | { kind: 'text'; text: string }
 
 const responseBody = computed<ResponseBodyView>(() => {
-  const body = apiTesting.lastResult?.body || apiTesting.lastResult?.error || ''
+  const body = apiTesting.lastResult?.body || ''
   if (apiTesting.lastResult?.streaming) return { kind: 'text', text: body || 'SSE 连接已建立，暂未收到事件' }
   if (!body) return { kind: 'text', text: '没有响应体' }
   try {
@@ -32,6 +32,31 @@ const responseBody = computed<ResponseBodyView>(() => {
   } catch {
     return { kind: 'text', text: body }
   }
+})
+
+type ResponseDiagnostic = { label: string; tone: 'neutral' | 'warning' | 'danger' }
+
+const responseDiagnostics = computed<ResponseDiagnostic[]>(() => {
+  const result = apiTesting.lastResult
+  if (!result) return []
+
+  const diagnostics: ResponseDiagnostic[] = []
+  if (result.contentType?.trim()) diagnostics.push({ label: result.contentType.trim(), tone: 'neutral' })
+  if (result.bodyTruncated) diagnostics.push({ label: '响应已截断', tone: 'warning' })
+  if (result.missingVariables?.length) {
+    diagnostics.push({ label: `缺失变量：${result.missingVariables.join('、')}`, tone: 'warning' })
+  }
+  if (result.error?.trim()) diagnostics.push({ label: `错误：${result.error.trim()}`, tone: 'danger' })
+  if (result.message?.trim() && result.message.trim() !== result.error?.trim()) {
+    diagnostics.push({ label: result.message.trim(), tone: result.ok ? 'neutral' : 'danger' })
+  }
+  return diagnostics
+})
+
+const showRequestUrl = computed(() => {
+  const requestUrl = apiTesting.lastResult?.requestUrl?.trim()
+  const sourceUrl = apiTesting.selectedRequest?.url?.trim()
+  return Boolean(requestUrl && requestUrl !== sourceUrl)
 })
 
 function formatBytes(bytes: number) {
@@ -55,10 +80,17 @@ function formatBytes(bytes: number) {
           <span v-if="apiTesting.lastResult.streaming">SSE</span>
           <span>{{ apiTesting.lastResult.durationMs }} ms</span>
           <span>{{ formatBytes(apiTesting.lastResult.bodySize) }}</span>
+          <span>{{ apiTesting.lastResult.passed }}/{{ apiTesting.lastResult.assertionResults.length }} 断言</span>
         </div>
       </header>
 
-      <div class="api-response-url">{{ apiTesting.lastResult.requestUrl }}</div>
+      <div v-if="showRequestUrl" class="api-response-url" :title="apiTesting.lastResult.requestUrl">{{ apiTesting.lastResult.requestUrl }}</div>
+
+      <div v-if="responseDiagnostics.length" class="api-response-diagnostics" aria-label="响应诊断">
+        <span v-for="diagnostic in responseDiagnostics" :key="`${diagnostic.tone}:${diagnostic.label}`" :class="`is-${diagnostic.tone}`">
+          {{ diagnostic.label }}
+        </span>
+      </div>
 
       <section v-if="apiTesting.responseTab === 'body'" class="api-response-section">
         <div class="api-section-title">
@@ -102,20 +134,6 @@ function formatBytes(bytes: number) {
         </div>
       </section>
 
-      <footer class="api-response-stats">
-        <div>
-          <Clock3 :size="15" />
-          <span>{{ apiTesting.lastResult.durationMs }} ms</span>
-        </div>
-        <div>
-          <FileText :size="15" />
-          <span>{{ formatBytes(apiTesting.lastResult.bodySize) }}</span>
-        </div>
-        <div>
-          <ListChecks :size="15" />
-          <span>{{ apiTesting.lastResult.passed }}/{{ apiTesting.lastResult.assertionResults.length }}</span>
-        </div>
-      </footer>
     </template>
 
     <div v-else-if="apiTesting.isRunning" class="api-empty-panel">

@@ -140,7 +140,7 @@ function privacyLabel(privacy: WorkMemorySelfAssertionPrivacy) {
 
 <template>
   <section class="flow-page-panel flow-me-page" aria-label="我">
-    <FlowPageHeader eyebrow="SELF MODEL" title="我" />
+    <FlowPageHeader eyebrow="我模型" title="我" />
 
     <div class="flow-me-layout">
       <aside class="flow-me-editor side-panel">
@@ -260,7 +260,7 @@ function privacyLabel(privacy: WorkMemorySelfAssertionPrivacy) {
       <aside class="flow-me-inspector flow-agent-inspector">
         <header class="flow-agent-inspector-head">
           <div>
-            <span>Context</span>
+            <span>上下文</span>
             <strong>安全摘要</strong>
           </div>
           <small>本地筛选</small>

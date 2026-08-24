@@ -93,6 +93,28 @@ func TestRecognizeImagePrefersConfiguredAIOCR(t *testing.T) {
 	}
 }
 
+func TestRecognizePinnedCaptureUsesPinnedAIOCRPolicy(t *testing.T) {
+	imagePath := testImage(t)
+	service := NewService(
+		fakeCaptures{entry: capturehistory.Entry{ID: "cap-1", ImagePath: imagePath, Width: 120, Height: 80}},
+		nil,
+		nil,
+	)
+	client := &fakeAIClient{result: AIResult{Provider: "vision:pinned-model", Text: "贴图文字"}}
+	RegisterAIClient(service, client)
+	service.ApplyAIOCRPolicy(AIOCRPolicy{Enabled: true, Provider: "openai-compatible", BaseURL: "http://flow.test/v1", Model: "flow-model"})
+	service.ApplyPinnedAIOCRPolicy(AIOCRPolicy{Enabled: true, Provider: "openai-compatible", BaseURL: "http://pinned.test/v1", Model: "pinned-model"})
+
+	result := service.RecognizePinnedCapture("cap-1")
+
+	if !result.OK || result.Text != "贴图文字" {
+		t.Fatalf("expected pinned OCR result, got %#v", result)
+	}
+	if len(client.jobs) != 1 || client.jobs[0].BaseURL != "http://pinned.test/v1" || client.jobs[0].Model != "pinned-model" {
+		t.Fatalf("expected pinned policy job, got %#v", client.jobs)
+	}
+}
+
 func TestRecognizeImageFallsBackToLocalOCRWhenAIFails(t *testing.T) {
 	imagePath := testImage(t)
 	service := NewService(nil, nil, nil)
@@ -315,9 +337,11 @@ type fakeMemory struct {
 type fakeAIClient struct {
 	result AIResult
 	err    error
+	jobs   []AIOCRJob
 }
 
-func (f *fakeAIClient) RecognizeImageOCR(_ context.Context, _ AIOCRJob) (AIResult, error) {
+func (f *fakeAIClient) RecognizeImageOCR(_ context.Context, job AIOCRJob) (AIResult, error) {
+	f.jobs = append(f.jobs, job)
 	return f.result, f.err
 }
 

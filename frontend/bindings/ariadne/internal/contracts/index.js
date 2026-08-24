@@ -5,6 +5,7 @@
 export {
     ActionFeedback,
     ActionResult,
+    IconAsset,
     LabelValue,
     PreviewAction,
     PreviewActionKind,

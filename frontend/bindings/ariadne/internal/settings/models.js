@@ -68,6 +68,34 @@ export class AISettings {
              */
             this["ocrModel"] = "";
         }
+        if (!("pinnedOcrModelEnabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["pinnedOcrModelEnabled"] = false;
+        }
+        if (!("pinnedOcrProvider" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["pinnedOcrProvider"] = "";
+        }
+        if (!("pinnedOcrBaseUrl" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["pinnedOcrBaseUrl"] = "";
+        }
+        if (!("pinnedOcrModel" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["pinnedOcrModel"] = "";
+        }
         if (!("embeddingEnabled" in $$source)) {
             /**
              * @member
@@ -574,6 +602,20 @@ export class SearchSettings {
              */
             this["fileExcludePatterns"] = [];
         }
+        if (!("fileIncludeExtensions" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["fileIncludeExtensions"] = [];
+        }
+        if (!("fileExcludeExtensions" in $$source)) {
+            /**
+             * @member
+             * @type {string[]}
+             */
+            this["fileExcludeExtensions"] = [];
+        }
 
         Object.assign(this, $$source);
     }
@@ -586,12 +628,20 @@ export class SearchSettings {
     static createFrom($$source = {}) {
         const $$createField0_0 = $$createType7;
         const $$createField1_0 = $$createType7;
+        const $$createField2_0 = $$createType7;
+        const $$createField3_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("fileExcludeFolders" in $$parsedSource) {
             $$parsedSource["fileExcludeFolders"] = $$createField0_0($$parsedSource["fileExcludeFolders"]);
         }
         if ("fileExcludePatterns" in $$parsedSource) {
             $$parsedSource["fileExcludePatterns"] = $$createField1_0($$parsedSource["fileExcludePatterns"]);
+        }
+        if ("fileIncludeExtensions" in $$parsedSource) {
+            $$parsedSource["fileIncludeExtensions"] = $$createField2_0($$parsedSource["fileIncludeExtensions"]);
+        }
+        if ("fileExcludeExtensions" in $$parsedSource) {
+            $$parsedSource["fileExcludeExtensions"] = $$createField3_0($$parsedSource["fileExcludeExtensions"]);
         }
         return new SearchSettings(/** @type {Partial<SearchSettings>} */($$parsedSource));
     }

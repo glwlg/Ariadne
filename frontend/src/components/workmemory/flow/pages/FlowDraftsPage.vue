@@ -29,12 +29,12 @@ const {
 
 <template>
 <section class="flow-page-panel flow-drafts-page" aria-label="心流草稿">
-          <FlowPageHeader eyebrow="DRAFTS" :title="`摘要、复盘和知识草稿 · ${flowDateLabel}`" />
+          <FlowPageHeader eyebrow="草稿" :title="`摘要、复盘和知识草稿 · ${flowDateLabel}`" />
           <AriToolbar class="flow-page-toolbar">
             <span>时间范围 今日工作时段</span>
             <span>自动整理中 · 本地模型</span>
-            <button type="button">列表</button>
-            <button type="button">网格</button>
+            <AriButton size="sm" variant="secondary">列表</AriButton>
+            <AriButton size="sm" variant="secondary">网格</AriButton>
           </AriToolbar>
           <div class="flow-draft-studio">
             <aside class="flow-draft-tabs" aria-label="草稿类型">

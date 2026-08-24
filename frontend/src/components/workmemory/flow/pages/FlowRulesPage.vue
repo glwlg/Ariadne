@@ -39,15 +39,15 @@ const {
 
 <template>
 <section class="flow-page-panel flow-rules-page" aria-label="心流规则">
-          <FlowPageHeader eyebrow="RULES" title="采集边界和索引 · 本地模式" />
+          <FlowPageHeader eyebrow="规则" title="采集边界和索引 · 本地模式" />
           <AriToolbar class="flow-page-toolbar">
             <span>日期 {{ flowDateLabel }}</span>
             <span>范围 今日</span>
             <AriSearchBox v-model="globalFlowSearch" class="flow-global-search is-compact" compact placeholder="搜索规则、进程、窗口关键词..." @keydown.enter.prevent="runGlobalFlowSearch()" />
-            <button type="button">
+            <AriButton size="sm" variant="secondary">
               <Shield :size="14" />
               通知
-            </button>
+            </AriButton>
           </AriToolbar>
           <div class="flow-pipeline-room">
             <aside class="flow-pipeline-side">
@@ -150,7 +150,7 @@ const {
             <aside class="flow-pipeline-inspector flow-agent-inspector">
               <header class="flow-agent-inspector-head">
                 <div>
-                  <span>Rule Inspector</span>
+                  <span>规则检查</span>
                   <strong>影响预览</strong>
                 </div>
                 <small>本地生效</small>

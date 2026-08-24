@@ -385,7 +385,7 @@ function createRequest(payload: { folder: string } & Partial<Omit<APIRequest, 'i
 <template>
   <aside class="api-request-list" aria-label="集合树">
     <header class="api-sidebar-header">
-      <span>Collections</span>
+      <span>集合</span>
       <AriButton size="icon" variant="ghost" aria-label="集合菜单" @click="openMenu($event, { kind: 'global' })">
         <MoreHorizontal :size="15" />
       </AriButton>

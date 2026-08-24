@@ -61,7 +61,7 @@ function formatBytes(bytes: number) {
           </div>
           <div class="brand-copy">
             <span>截图历史</span>
-            <small>Local screen captures, visual recall, pinned evidence</small>
+            <small>本地截图归档 · 视觉回看</small>
           </div>
           <div class="header-tools">
             <span class="system-pill" :class="capture.pinnedCount ? 'is-on' : ''">

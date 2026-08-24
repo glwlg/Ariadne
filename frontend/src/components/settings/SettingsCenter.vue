@@ -231,17 +231,7 @@ onMounted(() => {
 <template>
   <main class="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
     <div class="app-frame">
-      <section class="launcher-shell settings-shell" aria-label="Ariadne settings center">
-        <header class="launcher-header">
-          <div class="brand-mark" aria-hidden="true">
-            <Settings :size="18" />
-          </div>
-          <div class="brand-copy">
-            <span>设置中心</span>
-            <small>Shell, plugins, privacy, memory</small>
-          </div>
-        </header>
-
+      <section class="launcher-shell settings-shell is-design-surface" aria-label="Ariadne settings center">
         <div v-if="settings.isLoading" class="empty-state">
           <Sparkles :size="22" />
           <span>正在读取设置</span>
@@ -251,9 +241,7 @@ onMounted(() => {
           <aside class="settings-rail" aria-label="设置摘要">
             <section class="settings-summary">
               <div class="settings-summary-header">
-                <span class="preview-kicker">ARIADNE CONFIG</span>
                 <h1>设置</h1>
-                <p>按任务管理 Ariadne。日常设置在前，高级维护收在最后。</p>
               </div>
 
               <nav class="settings-nav" aria-label="设置分类">
@@ -265,10 +253,7 @@ onMounted(() => {
                   @click="setSettingsPage(page.id)"
                 >
                   <component :is="page.icon" :size="16" />
-                  <span>
-                    <strong>{{ page.label }}</strong>
-                    <small>{{ page.detail }}</small>
-                  </span>
+                  <strong>{{ page.label }}</strong>
                 </button>
               </nav>
             </section>
@@ -617,9 +602,8 @@ onMounted(() => {
           <section ref="settingsContentRef" class="settings-content" aria-label="设置表单">
             <section class="settings-page-header">
               <div>
-                <span class="preview-kicker">SETTINGS</span>
                 <h2>{{ activeSettingsPageInfo.label }}</h2>
-                <p>{{ activeSettingsPageInfo.detail }}</p>
+                <p>{{ activeSettingsPage === 'general' ? '配置 Ariadne 的基本使用选项。' : activeSettingsPageInfo.detail }}</p>
               </div>
               <span class="settings-page-status" v-if="activeSettingsPage === 'plugins'">
                 {{ settings.enabledPluginCount }} / {{ settings.visiblePluginManifests.length }} 启用
@@ -629,37 +613,49 @@ onMounted(() => {
               </span>
             </section>
 
-            <section v-if="activeSettingsPage === 'general' || activeSettingsPage === 'screenshot'" class="settings-panel settings-grid-panel">
-              <div class="settings-panel-title">
-                <component :is="activeSettingsPage === 'general' ? Settings : Camera" :size="15" />
-                {{ activeSettingsPage === 'general' ? '应用' : '截图' }}
+            <section v-if="activeSettingsPage === 'general'" class="settings-panel settings-preference-panel">
+              <div class="settings-preference-list">
+                <label class="settings-preference-row">
+                  <span class="settings-preference-copy">
+                    <strong>主题</strong>
+                    <small>选择 Ariadne 的界面主题</small>
+                  </span>
+                  <select v-model="settings.settings.general.theme" class="settings-select settings-preference-control">
+                    <option value="professional-pink">专业粉（亮色）</option>
+                    <option value="light-graphite">亮石墨（亮色）</option>
+                    <option value="cloud-blue">云蓝（默认）</option>
+                  </select>
+                </label>
+
+                <label class="settings-preference-row">
+                  <span class="settings-preference-copy">
+                    <strong>语言</strong>
+                    <small>选择 Ariadne 的显示语言</small>
+                  </span>
+                  <select v-model="settings.settings.general.language" class="settings-select settings-preference-control">
+                    <option value="zh-CN">简体中文</option>
+                    <option value="en-US">English</option>
+                  </select>
+                </label>
+
+                <label class="settings-preference-row">
+                  <span class="settings-preference-copy">
+                    <strong>开机启动</strong>
+                    <small>系统启动时自动运行 Ariadne</small>
+                  </span>
+                  <span class="settings-preference-control">
+                    <input v-model="settings.settings.general.runOnStartup" type="checkbox" class="settings-switch-input" />
+                    <span class="settings-switch" />
+                  </span>
+                </label>
               </div>
+            </section>
 
-              <label v-if="activeSettingsPage === 'general'" class="settings-field">
-                <span>主题</span>
-                <select v-model="settings.settings.general.theme" class="settings-select">
-                  <option value="light">Graphite Teal Light（默认）</option>
-                  <option value="professional-pink">专业粉（亮色）</option>
-                  <option value="light-graphite">亮石墨（亮色）</option>
-                  <option value="cloud-blue">云蓝（亮色）</option>
-                  <option value="dark">Graphite Teal Dark（深色模式，手动开启）</option>
-                </select>
-              </label>
-
-              <label v-if="activeSettingsPage === 'general'" class="settings-field">
-                <span>语言</span>
-                <select v-model="settings.settings.general.language" class="settings-select">
-                  <option value="zh-CN">简体中文</option>
-                  <option value="en-US">English</option>
-                </select>
-              </label>
-
-              <label v-if="activeSettingsPage === 'general'" class="settings-toggle">
-                <input v-model="settings.settings.general.runOnStartup" type="checkbox" />
-                <span />
-                <strong>开机启动</strong>
-                <small>使用 Ariadne 独立启动项，以隐藏模式进入托盘。</small>
-              </label>
+            <section v-if="activeSettingsPage === 'screenshot'" class="settings-panel settings-grid-panel">
+              <div class="settings-panel-title">
+                <Camera :size="15" />
+                截图
+              </div>
 
               <label v-if="activeSettingsPage === 'screenshot'" class="settings-toggle">
                 <input v-model="settings.settings.screenshot.autoCopy" type="checkbox" />
@@ -720,6 +716,35 @@ onMounted(() => {
                 <span>截图质量</span>
                 <input v-model.number="settings.settings.screenshot.quality" class="settings-input" type="number" min="1" max="100" />
               </label>
+            </section>
+
+            <section v-if="activeSettingsPage === 'screenshot'" class="settings-panel">
+              <div class="settings-panel-title">
+                <Brain :size="15" />
+                贴图 OCR
+              </div>
+              <div class="settings-toggle-grid">
+                <label class="settings-toggle">
+                  <input v-model="settings.settings.ai.pinnedOcrModelEnabled" type="checkbox" />
+                  <span />
+                  <strong>使用大模型 OCR</strong>
+                  <small>仅用于贴图窗口中的文字识别。</small>
+                </label>
+              </div>
+              <div class="settings-hotkey-grid">
+                <label class="settings-field">
+                  <span>OCR provider</span>
+                  <input v-model="settings.settings.ai.pinnedOcrProvider" class="settings-input" placeholder="openai-compatible / ollama-generate" />
+                </label>
+                <label class="settings-field">
+                  <span>OCR base URL</span>
+                  <input v-model="settings.settings.ai.pinnedOcrBaseUrl" class="settings-input" placeholder="http://127.0.0.1:18000/v1" />
+                </label>
+                <label class="settings-field">
+                  <span>OCR vision model</span>
+                  <input v-model="settings.settings.ai.pinnedOcrModel" class="settings-input" placeholder="ppocrv6-medium-ocr" />
+                </label>
+              </div>
             </section>
 
             <section v-if="activeSettingsPage === 'hotkeys'" class="settings-panel">
@@ -1179,12 +1204,6 @@ onMounted(() => {
                   <small>embedding 默认关闭，关键词检索始终可降级。</small>
                 </label>
                 <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.ocrModelEnabled" type="checkbox" />
-                  <span />
-                  <strong>大模型 OCR</strong>
-                  <small>支持 OpenAI-compatible GPU OCR 或 Ollama /api/generate；失败自动降级本地 RapidOCR。</small>
-                </label>
-                <label class="settings-toggle">
                   <input v-model="settings.settings.ai.agentsSdkEnabled" type="checkbox" />
                   <span />
                   <strong>Agent sidecar</strong>
@@ -1228,18 +1247,6 @@ onMounted(() => {
                 <label class="settings-field">
                   <span>AI model</span>
                   <input v-model="settings.settings.ai.model" class="settings-input" placeholder="model name" />
-                </label>
-                <label class="settings-field">
-                  <span>OCR provider</span>
-                  <input v-model="settings.settings.ai.ocrProvider" class="settings-input" placeholder="openai-compatible / ollama-generate" />
-                </label>
-                <label class="settings-field">
-                  <span>OCR base URL</span>
-                  <input v-model="settings.settings.ai.ocrBaseUrl" class="settings-input" placeholder="http://192.168.1.11:11434/api/generate" />
-                </label>
-                <label class="settings-field">
-                  <span>OCR vision model</span>
-                  <input v-model="settings.settings.ai.ocrModel" class="settings-input" placeholder="glm-ocr:latest" />
                 </label>
                 <label class="settings-field">
                   <span>Embedding provider</span>

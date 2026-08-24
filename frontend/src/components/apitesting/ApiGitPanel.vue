@@ -22,6 +22,7 @@ const statusText = computed(() => {
   if (!status) return apiTesting.draftCollection?.git?.path ? '未读取状态' : '未绑定'
   return status.error || status.message
 })
+const isBound = computed(() => Boolean(apiTesting.draftCollection?.git?.path))
 
 watch(
   () => props.open,
@@ -29,7 +30,7 @@ watch(
     if (!open) return
     repoPath.value = apiTesting.draftCollection?.git?.path || ''
     remote.value = apiTesting.draftCollection?.git?.remote || ''
-    message.value = `Update ${apiTesting.draftCollection?.name || 'API collection'}`
+    message.value = `更新 ${apiTesting.draftCollection?.name || 'API 集合'}`
     if (repoPath.value) void apiTesting.refreshGitStatus()
   },
 )
@@ -75,9 +76,8 @@ function commitPush() {
           <input v-model="remote" class="api-input" placeholder="https://example.com/team/opscore-api.git" />
         </label>
         <div class="api-git-actions">
-          <AriButton size="sm" variant="primary" :disabled="apiTesting.isGitSyncing || !repoPath.trim()" @click="configure">
-            <GitBranch :size="14" />
-            绑定
+          <AriButton v-if="isBound" size="sm" variant="secondary" :disabled="apiTesting.isGitSyncing || !repoPath.trim()" @click="configure">
+            更新绑定
           </AriButton>
           <AriButton size="sm" variant="secondary" :disabled="apiTesting.isGitSyncing || !apiTesting.draftCollection?.git?.path" @click="refresh">
             <RefreshCw :size="14" />
@@ -102,13 +102,17 @@ function commitPush() {
 
         <label class="api-field">
           <span>提交信息</span>
-          <input v-model="message" class="api-input" placeholder="Update API collection" />
+          <input v-model="message" class="api-input" placeholder="更新 API 集合" />
         </label>
       </div>
 
       <footer>
         <AriButton size="sm" variant="ghost" @click="emit('close')">关闭</AriButton>
-        <AriButton size="sm" variant="primary" :disabled="apiTesting.isGitSyncing || !apiTesting.draftCollection?.git?.path" @click="commitPush">
+        <AriButton v-if="!isBound" size="sm" variant="primary" :disabled="apiTesting.isGitSyncing || !repoPath.trim()" @click="configure">
+          <GitBranch :size="14" />
+          绑定
+        </AriButton>
+        <AriButton v-else size="sm" variant="primary" :disabled="apiTesting.isGitSyncing" @click="commitPush">
           <Upload :size="14" />
           提交并推送
         </AriButton>

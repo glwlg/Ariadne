@@ -12,7 +12,7 @@ const CaptureHistoryCenter = defineAsyncComponent(() => import('./components/cap
 const ClipboardCenter = defineAsyncComponent(() => import('./components/clipboard/ClipboardCenter.vue'))
 const HostsCenter = defineAsyncComponent(() => import('./components/hosts/HostsCenter.vue'))
 const JsonCompareCenter = defineAsyncComponent(() => import('./components/jsoncompare/JsonCompareCenter.vue'))
-const NetworkMonitorCenter = defineAsyncComponent(() => import('./components/network/NetworkMonitorCenter.vue'))
+const NetworkMonitorCenter = defineAsyncComponent(() => import('./components/network/ProcessNetworkCenter.vue'))
 const NetworkMiniWindow = defineAsyncComponent(() => import('./components/network/NetworkMiniWindow.vue'))
 const PinnedImageWindow = defineAsyncComponent(() => import('./components/pinned/PinnedImageWindow.vue'))
 const SettingsCenter = defineAsyncComponent(() => import('./components/settings/SettingsCenter.vue'))

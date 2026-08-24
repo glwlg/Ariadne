@@ -24,9 +24,9 @@ const classes = computed(() =>
     props.size === 'md' && 'h-7 px-2.5 text-sm',
     props.tone === 'neutral' && 'border-[var(--border)] bg-[var(--surface-muted)] text-[var(--muted-foreground)]',
     props.tone === 'primary' && 'border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]',
-    props.tone === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-900',
-    props.tone === 'warning' && 'border-amber-200 bg-amber-50 text-amber-900',
-    props.tone === 'danger' && 'border-red-200 bg-red-50 text-red-900',
+    props.tone === 'success' && 'border-[var(--success-border)] bg-[var(--success-soft)] text-[var(--success-foreground)]',
+    props.tone === 'warning' && 'border-[var(--warning-border)] bg-[var(--warning-soft)] text-[var(--warning-foreground)]',
+    props.tone === 'danger' && 'border-[var(--danger-border)] bg-[var(--danger-soft)] text-[var(--danger-foreground)]',
   ),
 )
 </script>

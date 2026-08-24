@@ -102,6 +102,19 @@ export const useHostsStore = defineStore('hosts', () => {
 
   async function fetchRemote(profile = selectedProfile.value) {
     if (!profile || profile.system || profile.type !== 'remote') return
+    if (draft.value?.id === profile.id) {
+      isSaving.value = true
+      try {
+        status.value = await upsertHostsProfile(draft.value)
+        profiles.value = status.value.profiles
+        if (status.value.lastSaveError) {
+          showFeedback(`保存失败: ${shortError(status.value.lastSaveError)}`)
+          return
+        }
+      } finally {
+        isSaving.value = false
+      }
+    }
     status.value = await fetchRemoteHosts(profile.id)
     profiles.value = status.value.profiles
     syncDraft()

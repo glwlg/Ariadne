@@ -18,8 +18,8 @@ func TestDefaultSettingsEnableAutonomousFlowWithoutStartingCapture(t *testing.T)
 	service := NewServiceWithPaths("", "")
 	settings := service.GetSettings()
 
-	if settings.General.Theme != "light" {
-		t.Fatalf("expected light theme, got %q", settings.General.Theme)
+	if settings.General.Theme != "cloud-blue" {
+		t.Fatalf("expected cloud-blue theme, got %q", settings.General.Theme)
 	}
 	if settings.WorkMemory.TimeMachineEnabled {
 		t.Fatal("time machine should not start enabled by default")
@@ -48,14 +48,32 @@ func TestDefaultSettingsEnableAutonomousFlowWithoutStartingCapture(t *testing.T)
 	if !contains(settings.WorkMemory.ExcludeApps, "mstsc.exe") {
 		t.Fatalf("default excluded apps should include remote desktop: %#v", settings.WorkMemory.ExcludeApps)
 	}
-	if len(settings.Search.FileExcludeFolders) != 1 || !strings.HasSuffix(filepath.ToSlash(settings.Search.FileExcludeFolders[0]), "Microsoft/Windows/Recent") {
+	if !containsPathSuffix(settings.Search.FileExcludeFolders, "Microsoft/Windows/Recent") {
 		t.Fatalf("file search should exclude Windows Recent by default: %#v", settings.Search)
+	}
+	if !containsPathSuffix(settings.Search.FileExcludeFolders, "AppData/Local/Temp") && !containsPathSuffix(settings.Search.FileExcludeFolders, "Temp") {
+		t.Fatalf("file search should exclude temp folders by default: %#v", settings.Search)
+	}
+	if !contains(settings.Search.FileExcludePatterns, `(?i)\.(tmp|temp|part|crdownload|download)$`) {
+		t.Fatalf("file search should exclude temporary file extensions by default: %#v", settings.Search)
+	}
+	if !contains(settings.Search.FileExcludePatterns, `(?i)[\\/]ebwebview([\\/]|$)`) {
+		t.Fatalf("file search should exclude WebView runtime state by default: %#v", settings.Search)
+	}
+	if !contains(settings.Search.FileExcludePatterns, `(?i)[\\/]users[\\/][^\\/]+[\\/]appdata[\\/](local|locallow|roaming)([\\/]|$)`) {
+		t.Fatalf("file search should exclude user AppData trees by default: %#v", settings.Search)
+	}
+	if !contains(settings.Search.FileExcludeExtensions, `.tmp`) || !contains(settings.Search.FileExcludeExtensions, `.sqlite-wal`) {
+		t.Fatalf("file search should exclude runtime extensions by default: %#v", settings.Search)
 	}
 	if settings.AI.Enabled || settings.AI.EmbeddingEnabled {
 		t.Fatal("AI and embedding should be opt-in")
 	}
 	if settings.AI.OCRModelEnabled || settings.AI.OCRModel != "" || settings.AI.OCRProvider != "openai-compatible" {
 		t.Fatalf("large-model OCR should be opt-in and keep a safe provider default: %#v", settings.AI)
+	}
+	if settings.AI.PinnedOCRModelEnabled || settings.AI.PinnedOCRModel != "" || settings.AI.PinnedOCRProvider != "openai-compatible" {
+		t.Fatalf("pinned-image OCR should be opt-in and keep a safe provider default: %#v", settings.AI)
 	}
 	if !settings.AI.ExternalAgentEnabled {
 		t.Fatal("external agent task package generation should remain available")
@@ -82,6 +100,8 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	next.WorkMemory.ExcludeURLs = []string{" https://internal.example.com/private ", "HTTPS://INTERNAL.EXAMPLE.COM/PRIVATE", ""}
 	next.Search.FileExcludeFolders = []string{` C:\Temp `, `c:\temp`, ""}
 	next.Search.FileExcludePatterns = []string{` \.tmp$ `, `\.tmp$`, ""}
+	next.Search.FileIncludeExtensions = []string{` PDF `, `*.pdf`, "go"}
+	next.Search.FileExcludeExtensions = []string{` TMP `, `.tmp`, `bad/path`}
 	next.WorkMemory.AppCaptureProfiles = []WorkMemoryAppCaptureProfile{
 		{DisplayName: "微信", ProcessName: " Weixin.exe ", Enabled: true, WindowSwitchDelaySeconds: -1, ActiveIntervalSeconds: 1},
 		{DisplayName: "重复微信", ProcessName: "weixin.EXE", Enabled: true, WindowSwitchDelaySeconds: 30, ActiveIntervalSeconds: 300},
@@ -91,10 +111,13 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	next.AI.OCRProvider = ""
 	next.AI.OCRBaseURL = " http://vision.internal/v1 "
 	next.AI.OCRModel = " vision-model "
+	next.AI.PinnedOCRProvider = ""
+	next.AI.PinnedOCRBaseURL = " http://pinned-vision.internal/v1 "
+	next.AI.PinnedOCRModel = " pinned-vision-model "
 
 	updated := service.UpdateSettings(next)
-	if updated.General.Theme != "light" {
-		t.Fatalf("theme should normalize to light, got %q", updated.General.Theme)
+	if updated.General.Theme != "cloud-blue" {
+		t.Fatalf("removed theme should normalize to cloud-blue, got %q", updated.General.Theme)
 	}
 	if updated.Screenshot.Quality != 100 {
 		t.Fatalf("quality should clamp to 100, got %d", updated.Screenshot.Quality)
@@ -126,6 +149,12 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	if len(updated.Search.FileExcludePatterns) != 1 || updated.Search.FileExcludePatterns[0] != `\.tmp$` {
 		t.Fatalf("search exclude patterns should be trimmed and deduplicated: %#v", updated.Search.FileExcludePatterns)
 	}
+	if len(updated.Search.FileIncludeExtensions) != 2 || updated.Search.FileIncludeExtensions[0] != `.pdf` || updated.Search.FileIncludeExtensions[1] != `.go` {
+		t.Fatalf("search include extensions should be normalized: %#v", updated.Search.FileIncludeExtensions)
+	}
+	if len(updated.Search.FileExcludeExtensions) != 1 || updated.Search.FileExcludeExtensions[0] != `.tmp` {
+		t.Fatalf("search exclude extensions should be normalized: %#v", updated.Search.FileExcludeExtensions)
+	}
 	if len(updated.WorkMemory.AppCaptureProfiles) != 1 {
 		t.Fatalf("app capture profiles should be deduplicated: %#v", updated.WorkMemory.AppCaptureProfiles)
 	}
@@ -142,9 +171,12 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	if updated.AI.OCRProvider != "openai-compatible" || updated.AI.OCRBaseURL != "http://vision.internal/v1" || updated.AI.OCRModel != "vision-model" {
 		t.Fatalf("OCR model settings should normalize independently: %#v", updated.AI)
 	}
+	if updated.AI.PinnedOCRProvider != "openai-compatible" || updated.AI.PinnedOCRBaseURL != "http://pinned-vision.internal/v1" || updated.AI.PinnedOCRModel != "pinned-vision-model" {
+		t.Fatalf("pinned-image OCR settings should normalize independently: %#v", updated.AI)
+	}
 
 	reloaded := NewServiceWithPaths(configPath, "").GetSettings()
-	if reloaded.General.Theme != "light" {
+	if reloaded.General.Theme != "cloud-blue" {
 		t.Fatalf("persisted settings not reloaded: %#v", reloaded.General)
 	}
 	if len(reloaded.Screenshot.RedactKeywords) != 2 || reloaded.Screenshot.RedactKeywords[0] != "手机号" || reloaded.Screenshot.RedactKeywords[1] != "Token" {
@@ -155,6 +187,12 @@ func TestUpdateSettingsNormalizesAndPersists(t *testing.T) {
 	}
 	if len(reloaded.Search.FileExcludePatterns) != 1 || reloaded.Search.FileExcludePatterns[0] != `\.tmp$` {
 		t.Fatalf("persisted search exclude patterns not reloaded: %#v", reloaded.Search.FileExcludePatterns)
+	}
+	if len(reloaded.Search.FileIncludeExtensions) != 2 || reloaded.Search.FileIncludeExtensions[0] != `.pdf` || reloaded.Search.FileIncludeExtensions[1] != `.go` {
+		t.Fatalf("persisted search include extensions not reloaded: %#v", reloaded.Search.FileIncludeExtensions)
+	}
+	if len(reloaded.Search.FileExcludeExtensions) != 1 || reloaded.Search.FileExcludeExtensions[0] != `.tmp` {
+		t.Fatalf("persisted search exclude extensions not reloaded: %#v", reloaded.Search.FileExcludeExtensions)
 	}
 
 	storage := service.StorageStatus()
@@ -180,12 +218,43 @@ func TestLegacySettingsGetDefaultSearchExcludes(t *testing.T) {
 	if loaded.Version != currentSettingsVersion {
 		t.Fatalf("legacy settings should upgrade, got %d", loaded.Version)
 	}
-	if len(loaded.Search.FileExcludeFolders) != 1 || !strings.HasSuffix(filepath.ToSlash(loaded.Search.FileExcludeFolders[0]), "Microsoft/Windows/Recent") {
+	if !containsPathSuffix(loaded.Search.FileExcludeFolders, "Microsoft/Windows/Recent") || !contains(loaded.Search.FileExcludePatterns, `(?i)\.(tmp|temp|part|crdownload|download)$`) {
 		t.Fatalf("legacy settings should receive default search excludes: %#v", loaded.Search)
 	}
 }
 
-func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
+func TestVersion19SettingsMergeExpandedSearchExcludes(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	legacy := defaultSettings()
+	legacy.Version = 19
+	legacy.Search.FileExcludeFolders = []string{`C:\CustomScratch`}
+	legacy.Search.FileExcludePatterns = []string{`(?i)\.scratch$`}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated := NewServiceWithPaths(configPath, "").GetSettings()
+
+	if migrated.Version != currentSettingsVersion {
+		t.Fatalf("settings should upgrade to current version, got %d", migrated.Version)
+	}
+	if !contains(migrated.Search.FileExcludeFolders, `C:\CustomScratch`) || !containsPathSuffix(migrated.Search.FileExcludeFolders, "Microsoft/Windows/Recent") || !containsPathSuffix(migrated.Search.FileExcludeFolders, "AppData/Local") {
+		t.Fatalf("search exclude folder migration should keep custom paths and add defaults: %#v", migrated.Search.FileExcludeFolders)
+	}
+	if !contains(migrated.Search.FileExcludePatterns, `(?i)\.scratch$`) || !contains(migrated.Search.FileExcludePatterns, `(?i)^[a-z]:[\\/]users[\\/][^\\/]+[\\/]\.(cache|config|local|m2|gradle|nuget|npm|pnpm|yarn|cargo|rustup|wox|gemini|confirmo|switchhosts|antigravity|antigravity_cockpit|marscode)([\\/]|$)`) || !contains(migrated.Search.FileExcludePatterns, `(?i)\.(log|journal|db-journal|sqlite-wal|sqlite-shm|db-wal|db-shm|odlgz|statistic|dxcache-shm|dxcache-wal)$`) {
+		t.Fatalf("search exclude pattern migration should keep custom patterns and add defaults: %#v", migrated.Search.FileExcludePatterns)
+	}
+	if !contains(migrated.Search.FileExcludeExtensions, `.tmp`) || !contains(migrated.Search.FileExcludeExtensions, `.sqlite-wal`) {
+		t.Fatalf("search exclude extension migration should add defaults: %#v", migrated.Search.FileExcludeExtensions)
+	}
+}
+
+func TestRemovedGreenThemesMigrateToCloudBlue(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 	legacy := defaultSettings()
@@ -205,8 +274,8 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 	if migrated.Version != currentSettingsVersion {
 		t.Fatalf("legacy settings should upgrade to current version, got %d", migrated.Version)
 	}
-	if migrated.General.Theme != "light" {
-		t.Fatalf("legacy experimental dark should reset to light, got %q", migrated.General.Theme)
+	if migrated.General.Theme != "cloud-blue" {
+		t.Fatalf("legacy dark should reset to cloud-blue, got %q", migrated.General.Theme)
 	}
 	if migrated.WorkMemory.CaptureScope != "active_window" {
 		t.Fatalf("legacy capture scope should migrate to active window, got %q", migrated.WorkMemory.CaptureScope)
@@ -219,7 +288,7 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 	}
 
 	persisted := NewServiceWithPaths(configPath, "").GetSettings()
-	if persisted.Version != currentSettingsVersion || persisted.General.Theme != "light" {
+	if persisted.Version != currentSettingsVersion || persisted.General.Theme != "cloud-blue" {
 		t.Fatalf("migrated settings should be written back, got %#v", persisted.General)
 	}
 
@@ -235,8 +304,8 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadedSystem := NewServiceWithPaths(systemPath, "").GetSettings()
-	if loadedSystem.General.Theme != "light" {
-		t.Fatalf("legacy system theme should reset to light, got %q", loadedSystem.General.Theme)
+	if loadedSystem.General.Theme != "cloud-blue" {
+		t.Fatalf("legacy system theme should reset to cloud-blue, got %q", loadedSystem.General.Theme)
 	}
 
 	currentPath := filepath.Join(dir, "current.json")
@@ -251,15 +320,15 @@ func TestLegacyThemeMigratesToLightWithoutRemovingDarkMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	loadedCurrent := NewServiceWithPaths(currentPath, "").GetSettings()
-	if loadedCurrent.General.Theme != "dark" {
-		t.Fatalf("current dark mode should load as explicit dark, got %q", loadedCurrent.General.Theme)
+	if loadedCurrent.General.Theme != "cloud-blue" {
+		t.Fatalf("removed current dark theme should reset to cloud-blue, got %q", loadedCurrent.General.Theme)
 	}
 
 	current := migrated
 	current.General.Theme = "dark"
 	updated := NewServiceWithPaths("", "").UpdateSettings(current)
-	if updated.General.Theme != "dark" {
-		t.Fatalf("current dark mode should remain available, got %q", updated.General.Theme)
+	if updated.General.Theme != "cloud-blue" {
+		t.Fatalf("removed dark theme should normalize to cloud-blue, got %q", updated.General.Theme)
 	}
 }
 
@@ -277,8 +346,8 @@ func TestAdditionalLightThemesPersist(t *testing.T) {
 
 	settings.General.Theme = "unknown-theme"
 	updated := service.UpdateSettings(settings)
-	if updated.General.Theme != "light" {
-		t.Fatalf("unknown theme should normalize to light, got %q", updated.General.Theme)
+	if updated.General.Theme != "cloud-blue" {
+		t.Fatalf("unknown theme should normalize to cloud-blue, got %q", updated.General.Theme)
 	}
 }
 
@@ -408,7 +477,7 @@ func TestImportLegacyConfigMapsSafeUserPreferences(t *testing.T) {
 	}
 
 	imported := service.ImportLegacyConfig()
-	if imported.General.Theme != "light" || !imported.General.RunOnStartup {
+	if imported.General.Theme != "cloud-blue" || !imported.General.RunOnStartup {
 		t.Fatalf("general settings were not imported: %#v", imported.General)
 	}
 	if imported.Hotkeys.ToggleWindow != "ctrl+space" {
@@ -566,6 +635,15 @@ func (f *fakeCredentialStore) Delete(target string) error {
 func contains(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPathSuffix(items []string, suffix string) bool {
+	for _, item := range items {
+		if strings.HasSuffix(filepath.ToSlash(item), suffix) {
 			return true
 		}
 	}

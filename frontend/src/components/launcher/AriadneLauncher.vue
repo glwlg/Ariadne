@@ -2,9 +2,9 @@
 import {
   AppWindow,
   Brain,
+  CalendarDays,
   Camera,
   Clipboard,
-  Clock3,
   Code2,
   CornerDownLeft,
   Copy,
@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  HardDrive,
   ListChecks,
   MoreHorizontal,
   Pin,
@@ -38,6 +39,7 @@ import type { CommandParam, CommandSchema, PreviewAction, SearchResult, SearchRe
 const launcher = useLauncherStore()
 const searchInput = ref<HTMLInputElement | null>(null)
 const commandParamDrafts = ref<Record<string, string>>({})
+const failedIconAssets = ref<Set<string>>(new Set())
 
 const iconMap = {
   app: AppWindow,
@@ -72,7 +74,6 @@ const selected = computed(() => launcher.selectedResult)
 const preview = computed(() => selected.value?.preview ?? null)
 const primaryActions = computed(() => selected.value?.actions.slice(0, 2) ?? [])
 const extraActions = computed(() => selected.value?.actions.slice(2) ?? [])
-const selectedTags = computed(() => selected.value?.tags?.slice(0, 4) ?? [])
 const pluginCommand = computed(() => commandPayload(selected.value))
 const pluginCommandExamples = computed(() => pluginCommand.value?.schema.examples?.slice(0, 3) ?? [])
 const pluginCommandParams = computed(() => pluginCommand.value?.schema.params ?? [])
@@ -104,6 +105,23 @@ function resultIcon(type: SearchResultType, icon: string) {
 
 function actionIcon(action: PreviewAction) {
   return actionIconMap[action.icon as keyof typeof actionIconMap] ?? MoreHorizontal
+}
+
+function usableIconAsset(result: SearchResult | null) {
+  const asset = result?.iconAsset
+  return asset?.kind === 'windows-shell' && asset.url.startsWith('/ariadne-file-icons/') && !failedIconAssets.value.has(asset.cacheKey)
+    ? asset
+    : null
+}
+
+function markIconAssetFailed(cacheKey: string) {
+  failedIconAssets.value = new Set(failedIconAssets.value).add(cacheKey)
+}
+
+function metaIcon(label: string) {
+  if (label.includes('时间') || label.includes('日期')) return CalendarDays
+  if (label.includes('大小') || label.includes('容量')) return HardDrive
+  return FileText
 }
 
 function commandPayload(result: SearchResult | null) {
@@ -183,21 +201,6 @@ function sourceTone(type: SearchResult['type']) {
   return 'text-[var(--muted)]'
 }
 
-function resultTypeLabel(type: SearchResult['type']) {
-  const labels: Record<SearchResult['type'], string> = {
-    app: '应用',
-    capture: '截图',
-    clipboard: '剪贴板',
-    command: '命令',
-    file: '文件',
-    memory: '记忆',
-    plugin_result: '插件',
-    plugin_trigger: '插件',
-    settings: '设置',
-    workflow: '工作流',
-  }
-  return labels[type] ?? '结果'
-}
 
 function triggerResultAction(result: SearchResult, action?: PreviewAction) {
   if (!action) return
@@ -300,8 +303,8 @@ watch(
         <div v-if="launcher.isExpanded" class="palette-results" aria-label="搜索结果">
           <section class="results-pane">
             <div class="pane-title">
-              <span>结果</span>
-              <small>{{ launcher.resultCountLabel }}</small>
+              <span>搜索结果</span>
+              <small class="result-count-pill">{{ launcher.results.length }}</small>
             </div>
 
             <div
@@ -316,21 +319,19 @@ watch(
               @keydown.enter.stop.prevent="triggerResultAction(result, result.actions[0])"
             >
               <span class="result-icon" :class="sourceTone(result.type)">
-                <component :is="resultIcon(result.type, result.icon)" :size="18" />
+                <img
+                  v-if="usableIconAsset(result)"
+                  class="shell-file-icon"
+                  :src="usableIconAsset(result)!.url"
+                  alt=""
+                  @error="markIconAssetFailed(usableIconAsset(result)!.cacheKey)"
+                />
+                <component v-else :is="resultIcon(result.type, result.icon)" :size="18" />
               </span>
               <span class="result-main">
                 <span class="result-title">{{ result.title }}</span>
                 <span class="result-subtitle">{{ result.subtitle }}</span>
               </span>
-              <button
-                v-if="result.actions[0]"
-                type="button"
-                class="result-primary-action"
-                @click.stop="triggerResultAction(result, result.actions[0])"
-              >
-                {{ result.actions[0].label }}
-              </button>
-              <span v-else class="result-primary-action">打开</span>
             </div>
 
             <div v-if="!launcher.results.length" class="empty-state">
@@ -339,122 +340,142 @@ watch(
             </div>
           </section>
 
-          <aside v-if="selected && preview" class="preview-pane palette-preview" aria-label="结果预览">
-            <header class="preview-header">
-              <div>
-                <span class="preview-kicker">{{ resultTypeLabel(selected.type) }}</span>
-                <h1>{{ preview.title || selected.title }}</h1>
-                <p>{{ preview.subtitle || selected.subtitle }}</p>
-              </div>
-              <span class="result-icon" :class="sourceTone(selected.type)">
-                <component :is="resultIcon(selected.type, selected.icon)" :size="19" />
-              </span>
-            </header>
-
-            <div v-if="preview.kind === 'image'" class="memory-thumb">
-              <Database :size="24" />
-              <span>{{ preview.imageHint || '图片预览' }}</span>
-            </div>
-
-            <pre v-if="preview.text" class="preview-text">{{ preview.text }}</pre>
-
-            <div v-if="pluginCommand" class="command-builder" aria-label="插件命令参数">
-              <div class="command-builder-head">
-                <span>
-                  <ListChecks :size="15" />
-                  <code>{{ pluginCommand.schema.usage }}</code>
-                </span>
-                <AriButton size="sm" :variant="pluginCommandReady ? 'primary' : 'secondary'" @click="applyCurrentCommand">
-                  <CornerDownLeft :size="14" />
-                  {{ pluginCommandReady ? '填入命令' : '填入前缀' }}
-                </AriButton>
-              </div>
-
-              <div v-if="pluginCommandParams.length" class="command-param-list">
-                <label v-for="param in pluginCommandParams" :key="param.name" class="command-param">
-                  <span>
-                    {{ param.label || param.name }}
-                    <em>{{ param.required ? '必填' : '可选' }}</em>
-                  </span>
-                  <input
-                    :value="paramValue(param)"
-                    :data-command-param="param.name"
-                    :placeholder="param.placeholder"
-                    spellcheck="false"
-                    @input="updateParam(param, ($event.target as HTMLInputElement).value)"
-                    @keydown.enter.prevent="applyCurrentCommand"
+          <aside
+            v-if="selected && preview"
+            class="preview-pane palette-preview"
+            :class="{ 'is-file-preview': selected.type === 'file', 'is-command-preview': Boolean(pluginCommand) }"
+            aria-label="结果预览"
+          >
+            <section class="preview-summary" aria-label="结果摘要">
+              <header class="preview-header">
+                <span class="preview-file-icon" :class="sourceTone(selected.type)">
+                  <img
+                    v-if="usableIconAsset(selected)"
+                    class="shell-file-icon is-preview"
+                    :src="usableIconAsset(selected)!.url"
+                    alt=""
+                    @error="markIconAssetFailed(usableIconAsset(selected)!.cacheKey)"
                   />
-                </label>
+                  <component v-else :is="resultIcon(selected.type, selected.icon)" :size="selected.type === 'file' ? 30 : 24" />
+                </span>
+                <div class="preview-heading">
+                  <h1>{{ preview.title || selected.title }}</h1>
+                  <p
+                    v-if="selected.type !== 'file' && (preview.subtitle || selected.subtitle)"
+                    class="preview-sub"
+                  >
+                    {{ preview.subtitle || selected.subtitle }}
+                  </p>
+                  <p v-if="selected.type === 'file' && preview.text" class="preview-path" :title="preview.text">
+                    {{ preview.text }}
+                  </p>
+                </div>
+              </header>
+            </section>
+
+            <section class="preview-details" aria-label="结果属性">
+              <div v-if="preview.kind === 'image'" class="memory-thumb">
+                <Database :size="24" />
+                <span>{{ preview.imageHint || '图片预览' }}</span>
               </div>
 
-              <div class="command-preview" data-command-preview :title="pluginCommandDraft || pluginCommand.keyword">
-                <span>命令</span>
-                <code>{{ pluginCommandDraft || pluginCommand.keyword }}</code>
+              <pre
+                v-if="selected.type !== 'file' && preview.kind !== 'image' && preview.text"
+                class="preview-text"
+              >{{ preview.text }}</pre>
+
+              <div v-if="pluginCommand" class="command-builder" aria-label="插件命令参数">
+                <div class="command-builder-head">
+                  <span>
+                    <ListChecks :size="15" />
+                    <code>{{ pluginCommand.schema.usage }}</code>
+                  </span>
+                  <AriButton size="sm" :variant="pluginCommandReady ? 'primary' : 'secondary'" @click="applyCurrentCommand">
+                    <CornerDownLeft :size="14" />
+                    {{ pluginCommandReady ? '填入命令' : '填入前缀' }}
+                  </AriButton>
+                </div>
+
+                <div v-if="pluginCommandParams.length" class="command-param-list">
+                  <label v-for="param in pluginCommandParams" :key="param.name" class="command-param">
+                    <span>
+                      {{ param.label || param.name }}
+                      <em>{{ param.required ? '必填' : '可选' }}</em>
+                    </span>
+                    <input
+                      :value="paramValue(param)"
+                      :data-command-param="param.name"
+                      :placeholder="param.placeholder"
+                      spellcheck="false"
+                      @input="updateParam(param, ($event.target as HTMLInputElement).value)"
+                      @keydown.enter.prevent="applyCurrentCommand"
+                    />
+                  </label>
+                </div>
+
+                <div class="command-preview" data-command-preview :title="pluginCommandDraft || pluginCommand.keyword">
+                  <span>命令</span>
+                  <code>{{ pluginCommandDraft || pluginCommand.keyword }}</code>
+                </div>
+
+                <div v-if="pluginCommandExamples.length" class="command-examples">
+                  <button
+                    v-for="example in pluginCommandExamples"
+                    :key="example"
+                    type="button"
+                    @click="applyCommandSuggestion(example)"
+                  >
+                    <CornerDownLeft :size="13" />
+                    <code>{{ example }}</code>
+                  </button>
+                </div>
               </div>
 
-              <div v-if="pluginCommandExamples.length" class="command-examples">
-                <button
-                  v-for="example in pluginCommandExamples"
-                  :key="example"
-                  type="button"
-                  @click="applyCommandSuggestion(example)"
-                >
-                  <CornerDownLeft :size="13" />
-                  <code>{{ example }}</code>
-                </button>
+              <div v-if="preview.meta?.length" class="meta-grid palette-meta">
+                <div v-for="item in preview.meta.slice(0, 3)" :key="`${item.label}-${item.value}`" class="meta-item">
+                  <component :is="metaIcon(item.label)" :size="18" aria-hidden="true" />
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
               </div>
-            </div>
 
-            <div v-if="preview.meta?.length" class="meta-grid palette-meta">
-              <div v-for="item in preview.meta.slice(0, 3)" :key="`${item.label}-${item.value}`" class="meta-item">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
+              <div v-if="preview.evidence?.length" class="evidence-list palette-evidence">
+                <div v-for="item in preview.evidence.slice(0, 2)" :key="`${item.label}-${item.value}`" class="evidence-item">
+                  <FileText :size="14" />
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
               </div>
-            </div>
-
-            <div v-if="preview.evidence?.length" class="evidence-list palette-evidence">
-              <div v-for="item in preview.evidence.slice(0, 2)" :key="`${item.label}-${item.value}`" class="evidence-item">
-                <FileText :size="14" />
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-
-            <div v-if="selectedTags.length" class="result-tags palette-tags">
-              <span v-for="tag in selectedTags" :key="tag">{{ tag }}</span>
-            </div>
+            </section>
           </aside>
         </div>
 
-        <footer v-if="launcher.isExpanded || launcher.lastAction" class="status-strip">
-          <span>
-            <Clock3 :size="14" />
-            搜索 {{ launcher.elapsedMs }}ms
-          </span>
-          <span v-if="selected && !launcher.lastAction">
-            Enter {{ selected.actions[0]?.label ?? '打开' }}
-          </span>
-          <span v-if="selected?.subtitle && !launcher.lastAction" class="status-detail">
-            {{ selected.subtitle }}
-          </span>
-          <span v-if="launcher.lastAction" class="inline-feedback" :class="{ 'is-confirmation': launcher.lastAction.requiresConfirmation }">
-            {{ launcher.lastAction.message }}
-          </span>
+        <footer v-if="launcher.isExpanded || launcher.lastAction" class="status-strip palette-status-strip">
+          <div class="palette-status-left">
+            <span>搜索耗时 {{ launcher.elapsedMs }} 毫秒</span>
+            <span v-if="selected && !launcher.lastAction" class="status-sep">|</span>
+            <span v-if="selected && !launcher.lastAction">按 Enter {{ selected.actions[0]?.label ?? '打开' }}</span>
+            <span v-if="launcher.lastAction" class="inline-feedback" :class="{ 'is-confirmation': launcher.lastAction.requiresConfirmation }">
+              {{ launcher.lastAction.message }}
+            </span>
+          </div>
           <div v-if="selected && (!launcher.lastAction || launcher.lastAction.requiresConfirmation)" class="palette-action-row">
+            <template v-for="action in primaryActions.slice(1)" :key="action.id">
+              <AriButton variant="secondary" size="sm" @click="launcher.triggerAction(action)">
+                {{ action.label }}
+              </AriButton>
+            </template>
             <AriButton
-              v-for="action in primaryActions"
-              :key="action.id"
-              :variant="action.kind === 'copy' ? 'primary' : 'secondary'"
+              v-if="primaryActions[0]"
+              variant="primary"
               size="sm"
-              @click="launcher.triggerAction(action)"
+              @click="launcher.triggerAction(primaryActions[0])"
             >
-              <component :is="actionIcon(action)" :size="15" />
-              {{ action.label }}
+              {{ primaryActions[0].label }}
             </AriButton>
-
             <DropdownMenuRoot v-if="extraActions.length">
               <DropdownMenuTrigger as-child>
-                <AriButton size="sm" variant="ghost" aria-label="更多操作" title="更多操作">
+                <AriButton size="sm" variant="secondary" aria-label="更多操作" title="更多操作">
                   <MoreHorizontal :size="15" />
                 </AriButton>
               </DropdownMenuTrigger>

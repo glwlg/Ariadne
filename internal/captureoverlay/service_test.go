@@ -552,6 +552,44 @@ func TestCaptureNativeSelectionRedactCopyRedactsBeforeClipboard(t *testing.T) {
 	}
 }
 
+func TestNativeRedactCopyActionWritesClipboardBeforeReturning(t *testing.T) {
+	dir := t.TempDir()
+	ocrProvider := &fakeOCRProvider{
+		result: ocr.Result{
+			OK: true,
+			Lines: []ocr.Line{
+				{Text: "TOKEN=abcdef", Rect: ocr.Rect{X: 4, Y: 1, Width: 4, Height: 3}},
+			},
+		},
+	}
+	service := NewService(nil, nil, ocrProvider)
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{RedactKeywords: []string{"token"}})
+	copiedPNG := stubPNGClipboardWriter(t)
+	imagePath := filepath.Join(dir, "selection.png")
+	if err := os.WriteFile(imagePath, testOverlayPNG(t, 12, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	response := service.handleNativePinAction(nativecapture.PinActionRequest{
+		Action:    "redact_copy",
+		ImagePath: imagePath,
+	})
+
+	if !response.OK || !response.ClipboardWritten || response.PNGBase64 == "" {
+		t.Fatalf("expected successful native redact copy response, got %#v", response)
+	}
+	if response.Width != 12 || response.Height != 8 {
+		t.Fatalf("expected redacted image dimensions, got %dx%d", response.Width, response.Height)
+	}
+	if len(*copiedPNG) == 0 {
+		t.Fatal("expected callback to write the clipboard before returning")
+	}
+	img := decodePNGBytes(t, *copiedPNG)
+	if !sameRGBA(img.At(5, 2), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("expected clipboard image to be redacted, got %#v", img.At(5, 2))
+	}
+}
+
 func TestCaptureNativeSelectionTrustsNativeClipboardAndPersistsHistoryAsync(t *testing.T) {
 	captures := &blockingCaptureSink{called: make(chan struct{}), release: make(chan struct{})}
 	service := NewService(captures, nil)
@@ -588,6 +626,47 @@ func TestCaptureNativeSelectionTrustsNativeClipboardAndPersistsHistoryAsync(t *t
 	case <-captures.called:
 	case <-time.After(time.Second):
 		t.Fatal("expected native copy history to be persisted asynchronously")
+	}
+	close(captures.release)
+}
+
+func TestCaptureNativeSelectionTrustsNativeRedactCopyClipboard(t *testing.T) {
+	captures := &blockingCaptureSink{called: make(chan struct{}), release: make(chan struct{})}
+	service := NewService(captures, nil)
+	previousWriter := writeImageToClipboard
+	copiedPNG := stubPNGClipboardWriter(t)
+	imageWriterCalled := false
+	writeImageToClipboard = func(path string) error {
+		imageWriterCalled = true
+		return nil
+	}
+	t.Cleanup(func() {
+		writeImageToClipboard = previousWriter
+	})
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:               true,
+		Action:           "redact_copy",
+		Message:          "已打码复制",
+		PNGBase64:        base64.StdEncoding.EncodeToString(testOverlayPNG(t, 12, 8)),
+		Width:            12,
+		Height:           8,
+		ClipboardWritten: true,
+	}, ScreenshotPolicy{RedactKeywords: []string{"token"}})
+
+	if !result.OK || result.CaptureID != "" || !strings.Contains(result.Message, "已打码复制") {
+		t.Fatalf("expected native redact copy clipboard result, got %#v", result)
+	}
+	if len(*copiedPNG) != 0 {
+		t.Fatal("Go clipboard writer must not run after native redact copy reports clipboardWritten")
+	}
+	if imageWriterCalled {
+		t.Fatal("path-based clipboard writer must not run after native redact copy reports clipboardWritten")
+	}
+	select {
+	case <-captures.called:
+	case <-time.After(time.Second):
+		t.Fatal("expected native redact copy history to be persisted asynchronously")
 	}
 	close(captures.release)
 }

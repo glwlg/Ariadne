@@ -1,9 +1,10 @@
 import { Window } from '@wailsio/runtime'
 
 export const launcherGeometry = {
-  width: 860,
+  width: 1080,
   collapsedHeight: 96,
-  expandedHeight: 468,
+  // Sized with the CSS work surface so the two-pane body and footer remain visible.
+  expandedHeight: 640,
 } as const
 
 type LauncherScreen = {
@@ -42,7 +43,7 @@ export function reservedLauncherPosition(screen: LauncherScreen | null | undefin
 
 export async function applyLauncherWindowGeometry(
   expanded: boolean,
-  options: { reservePosition?: boolean; restore?: boolean } = {},
+  options: { restore?: boolean } = {},
 ) {
   const size = launcherWindowSize(expanded)
   try {
@@ -52,12 +53,11 @@ export async function applyLauncherWindowGeometry(
     await Window.SetFrameless(true)
     await Window.SetAlwaysOnTop(false)
     await Window.SetBackgroundColour(0, 0, 0, 0)
+    const screen = await Window.GetScreen()
     await Window.SetSize(size.width, size.height)
-    if (options.reservePosition) {
-      const position = reservedLauncherPosition(await Window.GetScreen())
-      if (position) {
-        await Window.SetRelativePosition(position.x, position.y)
-      }
+    const position = reservedLauncherPosition(screen)
+    if (position) {
+      await Window.SetRelativePosition(position.x, position.y)
     }
   } catch {
     // Runtime calls are unavailable in browser-only dev mode.

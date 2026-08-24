@@ -4,6 +4,7 @@ import { useWorkMemoryFlowContext } from '../context'
 
 const ctx = useWorkMemoryFlowContext()
 const {
+  AriButton,
   ArrowRight,
   Check,
   Copy,
@@ -74,14 +75,14 @@ void flowChatThreadRef
           <section class="flow-cognitive-shell" data-no-drag>
             <aside class="flow-cognitive-rail" aria-label="会话轨道">
               <div class="flow-cognitive-kicker">
-                <span>CHAT HISTORY</span>
+                <span>会话</span>
                 <strong>对话记录</strong>
                 <small>{{ flowConversations.length }} 个会话</small>
               </div>
-              <button type="button" class="flow-new-conversation" @click.stop="startFlowConversation()">
+              <AriButton class="flow-new-conversation" variant="secondary" @click.stop="startFlowConversation()">
                 <Plus :size="15" />
                 新对话
-              </button>
+              </AriButton>
               <section class="flow-action-inbox" aria-label="主动动作">
                 <header>
                   <div>

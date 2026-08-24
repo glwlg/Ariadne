@@ -11,13 +11,31 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
- * @returns {$CancellablePromise<$models.TrafficSnapshot>}
+ * @returns {$CancellablePromise<$models.ProcessTrafficSnapshot>}
  */
-export function Snapshot() {
-    return $Call.ByID(3120614565).then(/** @type {($result: any) => any} */(($result) => {
+export function ProcessSnapshot() {
+    return $Call.ByID(2053504494).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
     }));
 }
 
+/**
+ * @param {any} resolve
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetProcessIconResolver(resolve) {
+    return $Call.ByID(25500119, resolve);
+}
+
+/**
+ * @returns {$CancellablePromise<$models.TrafficSnapshot>}
+ */
+export function Snapshot() {
+    return $Call.ByID(3120614565).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
 // Private type creation functions
-const $$createType0 = $models.TrafficSnapshot.createFrom;
+const $$createType0 = $models.ProcessTrafficSnapshot.createFrom;
+const $$createType1 = $models.TrafficSnapshot.createFrom;

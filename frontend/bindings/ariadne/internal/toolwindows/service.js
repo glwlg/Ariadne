@@ -32,6 +32,15 @@ export function Attach(app) {
 }
 
 /**
+ * @returns {$CancellablePromise<$models.OpenResult>}
+ */
+export function CloseNetworkMini() {
+    return $Call.ByID(3054982853).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {string} view
  * @returns {$CancellablePromise<$models.OpenResult>}
  */

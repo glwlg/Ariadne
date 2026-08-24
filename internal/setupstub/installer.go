@@ -21,6 +21,8 @@ const (
 	ActionUninstall          = "uninstall"
 	ActionUninstallScheduled = "uninstall_scheduled"
 	ActionCancelled          = "cancelled"
+	processStopTimeout       = 10 * time.Second
+	processStopPollInterval  = 200 * time.Millisecond
 )
 
 type Options struct {
@@ -58,6 +60,7 @@ type commandOptions struct {
 	DesktopDir               string
 	FileSearchServiceCommand string
 	FileSearchServiceExePath string
+	FileSearchSettingsConfig string
 }
 
 type installReceipt struct {
@@ -100,7 +103,13 @@ func Run(payload []byte, options Options) (Result, error) {
 		return uninstall(options, command)
 	}
 	if command.FileSearchServiceCommand != "" {
-		return runFileSearchServiceCommand(options.ProductName, command.FileSearchServiceCommand, command.FileSearchServiceExePath)
+		return runFileSearchServiceCommand(options.ProductName, command.FileSearchServiceCommand, command.FileSearchServiceExePath, command.FileSearchSettingsConfig)
+	}
+	if command.InstallFileSearchService && !command.SkipServiceChanges && !command.ElevatedInstallRetry && !processElevated() {
+		if err := runElevatedInstallerInstall(command); err != nil {
+			return Result{}, err
+		}
+		return Result{Action: ActionInstall, InstallDir: command.InstallDir}, nil
 	}
 	if len(payload) == 0 {
 		return Result{}, errors.New("installer payload is empty")
@@ -122,10 +131,16 @@ func Run(payload []byte, options Options) (Result, error) {
 }
 
 func parseCommandOptions(args []string) (commandOptions, error) {
-	command := commandOptions{CreateStartMenuShortcut: true, CreateDesktopShortcut: true}
+	command := commandOptions{
+		CreateStartMenuShortcut:  true,
+		CreateDesktopShortcut:    true,
+		AutoStart:                true,
+		InstallFileSearchService: true,
+	}
 	var ignored bool
 	var noStartMenuShortcut bool
 	var noDesktopShortcut bool
+	var noAutostart bool
 	var noFileSearchService bool
 	flags := flag.NewFlagSet("ariadne-setup", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -154,13 +169,16 @@ func parseCommandOptions(args []string) (commandOptions, error) {
 		flags.BoolVar(&noDesktopShortcut, name, false, "")
 	}
 	for _, name := range []string{"autostart", "AutoStart"} {
-		flags.BoolVar(&command.AutoStart, name, false, "")
+		flags.BoolVar(&command.AutoStart, name, true, "")
+	}
+	for _, name := range []string{"no-autostart", "NoAutoStart"} {
+		flags.BoolVar(&noAutostart, name, false, "")
 	}
 	for _, name := range []string{"launch-after-install", "LaunchAfterInstall"} {
 		flags.BoolVar(&command.LaunchAfterInstall, name, false, "")
 	}
 	for _, name := range []string{"install-file-search-service", "InstallFileSearchService"} {
-		flags.BoolVar(&command.InstallFileSearchService, name, false, "")
+		flags.BoolVar(&command.InstallFileSearchService, name, true, "")
 	}
 	for _, name := range []string{"no-file-search-service", "NoFileSearchService"} {
 		flags.BoolVar(&noFileSearchService, name, false, "")
@@ -189,6 +207,9 @@ func parseCommandOptions(args []string) (commandOptions, error) {
 	for _, name := range []string{"file-search-service-exe", "FileSearchServiceExe"} {
 		flags.StringVar(&command.FileSearchServiceExePath, name, "", "")
 	}
+	for _, name := range []string{"settings-config", "SettingsConfig"} {
+		flags.StringVar(&command.FileSearchSettingsConfig, name, "", "")
+	}
 	for _, name := range []string{"Force", "force", "SkipLegacyCheck", "skip-legacy-check"} {
 		flags.BoolVar(&ignored, name, false, "")
 	}
@@ -203,6 +224,9 @@ func parseCommandOptions(args []string) (commandOptions, error) {
 	}
 	if noDesktopShortcut {
 		command.CreateDesktopShortcut = false
+	}
+	if noAutostart {
+		command.AutoStart = false
 	}
 	if noFileSearchService {
 		command.InstallFileSearchService = false
@@ -223,7 +247,9 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 		}
 	}
 	if !command.SkipProcessStop {
-		stopProcess(strings.ToLower(options.ProductName) + ".exe")
+		if err := stopProductProcesses(options.ProductName); err != nil {
+			return Result{}, err
+		}
 	}
 	if err := rotateExistingInstall(installDir, options.ProductName); err != nil {
 		if shouldRetryInstallElevated(command, err) {
@@ -297,7 +323,7 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 		cleanupAutostart(options.ProductName)
 	}
 	if command.InstallFileSearchService && !command.SkipServiceChanges {
-		if err := installFileSearchService(options.ProductName, exePath); err != nil {
+		if err := installFileSearchService(options.ProductName, exePath, command.FileSearchSettingsConfig); err != nil {
 			return Result{}, err
 		}
 	}
@@ -326,7 +352,9 @@ func uninstall(options Options, command commandOptions) (Result, error) {
 		}
 	}
 	if !command.SkipProcessStop {
-		stopProcess(strings.ToLower(options.ProductName) + ".exe")
+		if err := stopProductProcesses(options.ProductName); err != nil {
+			return Result{}, err
+		}
 	}
 	removeShortcuts(options.ProductName, receipt, command)
 	cleanupAutostart(options.ProductName)
@@ -455,8 +483,6 @@ func shouldRetryInstallElevated(command commandOptions, err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "access is denied") ||
 		strings.Contains(message, "permission denied") ||
-		strings.Contains(message, "being used by another process") ||
-		strings.Contains(message, "另一个程序正在使用") ||
 		strings.Contains(message, "拒绝访问")
 }
 
@@ -649,11 +675,80 @@ func removeUserData(productName string) {
 	}
 }
 
-func stopProcess(imageName string) {
-	cmd := exec.Command("taskkill.exe", "/IM", imageName, "/F")
+func stopProductProcesses(productName string) error {
+	for _, imageName := range productProcessImageNames(productName) {
+		if err := stopProcess(imageName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func productProcessImageNames(productName string) []string {
+	productName = strings.TrimSpace(productName)
+	if productName == "" {
+		productName = "Ariadne"
+	}
+	return []string{
+		strings.ToLower(productName) + ".exe",
+		productName + ".CaptureHost.exe",
+	}
+}
+
+func stopProcess(imageName string) error {
+	imageName = strings.TrimSpace(imageName)
+	if imageName == "" {
+		return nil
+	}
+	cmd := exec.Command("taskkill.exe", "/IM", imageName, "/F", "/T")
 	configureCommand(cmd)
 	_ = cmd.Run()
-	time.Sleep(300 * time.Millisecond)
+	return waitForProcessExit(imageName, processStopTimeout)
+}
+
+func waitForProcessExit(imageName string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		running, err := processImageRunning(imageName)
+		if err == nil && !running {
+			return nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return fmt.Errorf("确认 %s 是否已退出失败: %w", imageName, lastErr)
+			}
+			return fmt.Errorf("%s 仍在运行，请先退出后重试", imageName)
+		}
+		time.Sleep(processStopPollInterval)
+	}
+}
+
+func processImageRunning(imageName string) (bool, error) {
+	cmd := exec.Command("tasklist.exe", "/FI", "IMAGENAME eq "+imageName, "/NH")
+	configureCommand(cmd)
+	raw, err := cmd.Output()
+	if err != nil {
+		return false, err
+	}
+	return processListContainsImage(string(raw), imageName), nil
+}
+
+func processListContainsImage(output string, imageName string) bool {
+	imageName = strings.ToLower(strings.TrimSpace(imageName))
+	if imageName == "" {
+		return false
+	}
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) > 0 && strings.EqualFold(fields[0], imageName) {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(output), imageName)
 }
 
 func launchInstalledApp(exePath string) error {

@@ -78,6 +78,8 @@ export const useSettingsStore = defineStore('settings', () => {
   })
   const searchExcludeFoldersDraft = ref('')
   const searchExcludePatternsDraft = ref('')
+  const searchIncludeExtensionsDraft = ref('')
+  const searchExcludeExtensionsDraft = ref('')
   const screenshotRedactKeywordsDraft = ref('')
   const feedback = ref('')
   const isLoading = ref(false)
@@ -401,6 +403,28 @@ export const useSettingsStore = defineStore('settings', () => {
     return searchExcludePatternsDraft.value
   }
 
+  function setSearchIncludeExtensions(value: string) {
+    if (!settings.value) return
+    searchIncludeExtensionsDraft.value = value
+    ensureSearchSettings()
+    settings.value.search.fileIncludeExtensions = multilineToList(value)
+  }
+
+  function searchIncludeExtensionsText() {
+    return searchIncludeExtensionsDraft.value
+  }
+
+  function setSearchExcludeExtensions(value: string) {
+    if (!settings.value) return
+    searchExcludeExtensionsDraft.value = value
+    ensureSearchSettings()
+    settings.value.search.fileExcludeExtensions = multilineToList(value)
+  }
+
+  function searchExcludeExtensionsText() {
+    return searchExcludeExtensionsDraft.value
+  }
+
   function syncTextDraftsFromSettings() {
     const memory = settings.value?.workMemory
     workMemoryListDrafts.value = {
@@ -414,6 +438,8 @@ export const useSettingsStore = defineStore('settings', () => {
     ensureSearchSettings()
     searchExcludeFoldersDraft.value = settings.value?.search.fileExcludeFolders.join('\n') ?? ''
     searchExcludePatternsDraft.value = settings.value?.search.fileExcludePatterns.join('\n') ?? ''
+    searchIncludeExtensionsDraft.value = settings.value?.search.fileIncludeExtensions.join('\n') ?? ''
+    searchExcludeExtensionsDraft.value = settings.value?.search.fileExcludeExtensions.join('\n') ?? ''
   }
 
   function syncSearchDraftsToSettings() {
@@ -421,6 +447,8 @@ export const useSettingsStore = defineStore('settings', () => {
     ensureSearchSettings()
     settings.value.search.fileExcludeFolders = multilineToList(searchExcludeFoldersDraft.value)
     settings.value.search.fileExcludePatterns = multilineToList(searchExcludePatternsDraft.value)
+    settings.value.search.fileIncludeExtensions = multilineToList(searchIncludeExtensionsDraft.value)
+    settings.value.search.fileExcludeExtensions = multilineToList(searchExcludeExtensionsDraft.value)
   }
 
   function ensureSearchSettings() {
@@ -429,10 +457,14 @@ export const useSettingsStore = defineStore('settings', () => {
       settings.value.search = {
         fileExcludeFolders: [],
         fileExcludePatterns: [],
+        fileIncludeExtensions: [],
+        fileExcludeExtensions: [],
       }
     }
     settings.value.search.fileExcludeFolders ??= []
     settings.value.search.fileExcludePatterns ??= []
+    settings.value.search.fileIncludeExtensions ??= []
+    settings.value.search.fileExcludeExtensions ??= []
   }
 
   function setMemorySource(key: string, enabled: boolean) {
@@ -661,6 +693,8 @@ export const useSettingsStore = defineStore('settings', () => {
     secretInputs,
     searchExcludeFoldersDraft,
     searchExcludePatternsDraft,
+    searchIncludeExtensionsDraft,
+    searchExcludeExtensionsDraft,
     launcherStatus,
     launcherDraft,
     launcherDeleteArmedId,
@@ -703,6 +737,10 @@ export const useSettingsStore = defineStore('settings', () => {
     searchExcludeFoldersText,
     setSearchExcludePatterns,
     searchExcludePatternsText,
+    setSearchIncludeExtensions,
+    searchIncludeExtensionsText,
+    setSearchExcludeExtensions,
+    searchExcludeExtensionsText,
     setMemorySource,
     pluginEnabled,
     setPluginEnabled,

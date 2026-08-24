@@ -160,6 +160,8 @@ func (selection interactiveInstallSelection) args() []string {
 	}
 	if selection.AutoStart {
 		args = append(args, "--autostart")
+	} else {
+		args = append(args, "--no-autostart")
 	}
 	if selection.InstallFileSearchService {
 		args = append(args, "--install-file-search-service")
@@ -285,7 +287,8 @@ func showInstallerWindow(options Options) (interactiveInstallSelection, bool, er
 			InstallDir:               defaultInstallDir(options.ProductName),
 			CreateStartMenuShortcut:  true,
 			CreateDesktopShortcut:    true,
-			InstallFileSearchService: false,
+			InstallFileSearchService: true,
+			AutoStart:                true,
 			LaunchAfterInstall:       true,
 		},
 		cancelled:      true,
@@ -467,7 +470,7 @@ func (window *installerWindow) renderAgreementPage() {
 		"",
 		"1. Ariadne 是本地优先的 Windows 桌面效率工具。应用数据默认保存在当前用户目录。",
 		"2. 截图、剪贴板、工作记忆、OCR、AI 和导出能力受应用内隐私设置与用户确认控制。",
-		"3. 文件索引服务用于维护本机文件搜索索引；桌面应用仍以当前用户权限运行。",
+		"3. 后台服务用于文件索引和进程网络统计；桌面应用仍以当前用户权限运行。",
 		"4. 使用外部 AI、远程接口或第三方服务时，请确认相关账号、数据和网络策略符合你的使用场景。",
 		"5. 除已明确授权内容外，复制、分发或二次开发请先取得维护者许可。",
 		"6. 继续安装表示你理解并接受以上条款。",
@@ -478,7 +481,7 @@ func (window *installerWindow) renderAgreementPage() {
 
 func (window *installerWindow) renderOptionsPage() {
 	window.addText("安装选项", 254, 42, 430, 38, window.titleFont, colorText, window.whiteBrush)
-	window.addText("选择安装位置、搜索服务和启动方式。", 256, 92, 430, 28, window.defaultFont, colorMuted, window.whiteBrush)
+	window.addText("选择安装位置、后台服务和启动方式。", 256, 92, 430, 28, window.defaultFont, colorMuted, window.whiteBrush)
 
 	window.addText("安装位置", 256, 140, 120, 22, window.headingFont, colorText, window.whiteBrush)
 	window.pathEdit = window.addEdit(256, 168, 346, 30, window.draft.InstallDir, installerESAutoHScroll, installerIDPath)
@@ -488,8 +491,8 @@ func (window *installerWindow) renderOptionsPage() {
 	window.startMenu = window.addCheckbox(258, 256, 300, 24, "创建开始菜单入口", window.draft.CreateStartMenuShortcut, installerIDStartMenu)
 	window.desktop = window.addCheckbox(258, 286, 300, 24, "创建桌面快捷方式", window.draft.CreateDesktopShortcut, installerIDDesktop)
 
-	window.addText("搜索服务", 256, 326, 120, 22, window.headingFont, colorText, window.whiteBrush)
-	window.indexSvc = window.addCheckbox(258, 356, 390, 24, "安装文件索引服务", window.draft.InstallFileSearchService, installerIDIndexSvc)
+	window.addText("后台服务", 256, 326, 120, 22, window.headingFont, colorText, window.whiteBrush)
+	window.indexSvc = window.addCheckbox(258, 356, 390, 24, "安装后台服务（文件索引、进程网络）", window.draft.InstallFileSearchService, installerIDIndexSvc)
 
 	window.addText("启动方式", 256, 396, 120, 22, window.headingFont, colorText, window.whiteBrush)
 	window.autostart = window.addCheckbox(258, 426, 190, 24, "随 Windows 启动", window.draft.AutoStart, installerIDAutostart)
@@ -507,7 +510,7 @@ func (window *installerWindow) renderReadyPage() {
 	window.addText("将创建", 256, 246, 120, 22, window.headingFont, colorText, window.whiteBrush)
 	window.addText(optionLabel(window.draft.CreateStartMenuShortcut, "开始菜单入口"), 260, 282, 390, 22, window.defaultFont, colorText, window.whiteBrush)
 	window.addText(optionLabel(window.draft.CreateDesktopShortcut, "桌面快捷方式"), 260, 312, 390, 22, window.defaultFont, colorText, window.whiteBrush)
-	window.addText(optionLabel(window.draft.InstallFileSearchService, "文件索引服务"), 260, 342, 390, 22, window.defaultFont, colorText, window.whiteBrush)
+	window.addText(optionLabel(window.draft.InstallFileSearchService, "后台服务（文件索引、进程网络）"), 260, 342, 390, 22, window.defaultFont, colorText, window.whiteBrush)
 	window.addText(optionLabel(window.draft.AutoStart, "随 Windows 启动"), 260, 372, 390, 22, window.defaultFont, colorText, window.whiteBrush)
 	window.addText(optionLabel(window.draft.LaunchAfterInstall, "安装完成后启动"), 260, 402, 390, 22, window.defaultFont, colorText, window.whiteBrush)
 }

@@ -18,6 +18,16 @@ const excludedPatternText = computed({
   set: (value: string) => settings.setSearchExcludePatterns(value),
 })
 
+const includedExtensionText = computed({
+  get: () => settings.searchIncludeExtensionsText(),
+  set: (value: string) => settings.setSearchIncludeExtensions(value),
+})
+
+const excludedExtensionText = computed({
+  get: () => settings.searchExcludeExtensionsText(),
+  set: (value: string) => settings.setSearchExcludeExtensions(value),
+})
+
 const searchServiceMissing = computed(() => {
   const status = fileSearch.value
   return Boolean(status && !status.serviceInstalled && !status.serviceRunning)
@@ -77,6 +87,8 @@ const fileSearchNotice = computed(() => {
 
 const excludedFolderCount = computed(() => settings.settings?.search?.fileExcludeFolders?.length ?? 0)
 const excludedPatternCount = computed(() => settings.settings?.search?.fileExcludePatterns?.length ?? 0)
+const includedExtensionCount = computed(() => settings.settings?.search?.fileIncludeExtensions?.length ?? 0)
+const excludedExtensionCount = computed(() => settings.settings?.search?.fileExcludeExtensions?.length ?? 0)
 
 function formatMs(value?: number) {
   if (!value) return '0ms'
@@ -184,7 +196,37 @@ function isSearchServiceStateMessage(value: string) {
         <strong>{{ excludedPatternCount }} 条</strong>
         <small>按完整路径匹配</small>
       </div>
+      <div class="settings-status-card">
+        <span>扩展名白名单</span>
+        <strong>{{ includedExtensionCount }} 个</strong>
+        <small>命中后保留文件</small>
+      </div>
+      <div class="settings-status-card">
+        <span>扩展名黑名单</span>
+        <strong>{{ excludedExtensionCount }} 个</strong>
+        <small>白名单优先</small>
+      </div>
     </div>
+    <label class="settings-field">
+      <span>扩展名白名单</span>
+      <textarea
+        v-model="includedExtensionText"
+        class="settings-textarea"
+        rows="4"
+        spellcheck="false"
+        placeholder="每行一个扩展名，例如 .pdf"
+      ></textarea>
+    </label>
+    <label class="settings-field">
+      <span>扩展名黑名单</span>
+      <textarea
+        v-model="excludedExtensionText"
+        class="settings-textarea"
+        rows="4"
+        spellcheck="false"
+        placeholder="每行一个扩展名，例如 .tmp"
+      ></textarea>
+    </label>
     <label class="settings-field">
       <span>排除文件夹</span>
       <textarea
@@ -206,7 +248,7 @@ function isSearchServiceStateMessage(value: string) {
       ></textarea>
     </label>
     <p class="settings-note">
-      默认排除 Windows 最近使用目录。保存后立即生效；后台刷新完成后会重写索引文件。
+      扩展名白名单优先于黑名单、文件夹和正则。保存后立即生效；后台刷新完成后会重写索引文件。
     </p>
     <p v-if="fileSearch?.policyErrors?.length" class="settings-note is-danger">
       <AlertTriangle :size="14" />
@@ -215,7 +257,7 @@ function isSearchServiceStateMessage(value: string) {
     <div class="settings-inline-actions">
       <AriButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.saveSearchSettings()">
         <Save :size="14" />
-        {{ settings.isSaving ? '保存中' : '保存排除规则' }}
+        {{ settings.isSaving ? '保存中' : '保存索引规则' }}
       </AriButton>
     </div>
   </section>

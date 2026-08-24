@@ -9,5 +9,8 @@ export {
 
 export {
     AdapterTraffic,
+    ProcessConnection,
+    ProcessTraffic,
+    ProcessTrafficSnapshot,
     TrafficSnapshot
 } from "./models.js";

@@ -89,9 +89,13 @@ type PinActionRequest struct {
 }
 
 type PinActionResponse struct {
-	OK      bool   `json:"ok"`
-	Message string `json:"message"`
-	Text    string `json:"text,omitempty"`
+	OK               bool   `json:"ok"`
+	Message          string `json:"message"`
+	Text             string `json:"text,omitempty"`
+	PNGBase64        string `json:"pngBase64,omitempty"`
+	Width            int    `json:"width,omitempty"`
+	Height           int    `json:"height,omitempty"`
+	ClipboardWritten bool   `json:"clipboardWritten,omitempty"`
 }
 
 type PinActionHandler func(PinActionRequest) PinActionResponse
