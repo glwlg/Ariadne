@@ -45,7 +45,7 @@ struct SearchPolicy {
 fn search_policy() -> SearchPolicy {
     let settings = crate::settings::load_search_exclusions();
     SearchPolicy {
-        apply_defaults: true,
+        apply_defaults: false,
         include_extensions: settings
             .include_extensions
             .into_iter()
@@ -82,6 +82,9 @@ fn normalize_path(value: &str) -> String {
         .replace('/', "\\")
         .trim_end_matches('\\')
         .to_ascii_lowercase()
+}
+fn normalize_index_path(value: &str) -> String {
+    value.trim().replace('/', "\\").to_ascii_lowercase()
 }
 fn normalize_extension(value: &str) -> String {
     let value = value.trim().trim_start_matches('*').to_ascii_lowercase();
@@ -189,15 +192,16 @@ fn index_results_with_policy(
     let mut candidates = Vec::with_capacity(max_candidates.min(4096));
     let mut worst_score = 0.;
     let mut seen = HashSet::new();
-    let mut line = String::new();
+    let mut line = Vec::new();
     loop {
         line.clear();
-        let Ok(read) = reader.read_line(&mut line) else {
+        let Ok(read) = reader.read_until(b'\n', &mut line) else {
             break;
         };
         if read == 0 {
             break;
         }
+        let line = String::from_utf8_lossy(&line);
         let line = line.trim_end_matches(['\r', '\n']);
         let mut fields = line.splitn(3, '\t');
         let indexed_name = fields.next().unwrap_or_default().trim();
@@ -212,12 +216,12 @@ fn index_results_with_policy(
             continue;
         }
         let lower_name = indexed_name.to_lowercase();
-        let lower_path = normalize_path(raw_path);
+        let lower_path = normalize_index_path(raw_path);
         let matches = if path_like {
             if wildcard {
                 wildcard_matches(&lower_path, &normalize_glob(&normalized))
             } else {
-                lower_path.contains(&normalize_path(&normalized))
+                lower_path.contains(&normalize_index_path(&normalized))
             }
         } else if wildcard {
             wildcard_matches(&lower_name, &normalize_glob(&match_query))
@@ -314,23 +318,44 @@ struct IndexedCandidate {
     score: f64,
 }
 
-fn load_file_index() -> Option<Arc<[u8]>> {
-    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, Arc<[u8]>>>> = OnceLock::new();
-    let path = file_index_path()?;
-    let key = path_key(&path);
-    let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    if let Ok(guard) = cache.lock() {
-        if let Some(bytes) = guard.get(&key) {
-            return Some(bytes.clone());
-        }
-    }
-    let bytes: Arc<[u8]> = Arc::from(fs::read(&path).ok()?.into_boxed_slice());
-    if let Ok(mut guard) = cache.lock() {
-        guard.insert(key, bytes.clone());
-    }
-    Some(bytes)
+#[derive(Clone)]
+struct CachedIndex {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    bytes: Arc<[u8]>,
 }
 
+fn load_file_index() -> Option<Arc<[u8]>> {
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, CachedIndex>>> = OnceLock::new();
+    let path = file_index_path()?;
+    let metadata = fs::metadata(&path).ok()?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        return None;
+    }
+    let key = path_key(&path);
+    let modified = metadata.modified().ok();
+    let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let mut guard = cache.lock().ok()?;
+    if let Some(cached) = guard.get(&key)
+        && cached.len == metadata.len()
+        && cached.modified == modified
+    {
+        return Some(cached.bytes.clone());
+    }
+    let bytes: Arc<[u8]> = Arc::from(fs::read(&path).ok()?.into_boxed_slice());
+    if bytes.is_empty() {
+        return None;
+    }
+    guard.insert(
+        key,
+        CachedIndex {
+            len: metadata.len(),
+            modified,
+            bytes: bytes.clone(),
+        },
+    );
+    Some(bytes)
+}
 fn file_index_path() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     for variable in ["ARIADNE_FILE_INDEX", "ARIADNE_FILE_INDEX_PATH"] {
@@ -380,7 +405,7 @@ fn expand_path_variables(value: &str) -> String {
 
 fn query_basename(query: &str) -> String {
     query
-        .rsplit(['\\', '/'])
+        .rsplit(|character| character == '\\' || character == '/')
         .next()
         .unwrap_or(query)
         .trim()
@@ -388,9 +413,8 @@ fn query_basename(query: &str) -> String {
 }
 
 fn is_path_like_query(query: &str) -> bool {
-    query.contains(['\\', '/', ':'])
+    query.contains('\\') || query.contains('/') || query.contains(':')
 }
-
 fn normalize_glob(value: &str) -> String {
     value.replace('\\', "/").to_ascii_lowercase()
 }
@@ -917,7 +941,7 @@ fn result_path(result: &SearchResult) -> Option<&Path> {
 }
 
 fn path_is_excluded(path: &Path, is_dir: bool, policy: &SearchPolicy) -> bool {
-    let normalized = normalize_path(&path.to_string_lossy());
+    let normalized = normalize_index_path(&path.to_string_lossy());
     if !is_dir && listed_extension(&normalized, &policy.include_extensions) {
         return false;
     }
@@ -941,16 +965,20 @@ fn path_is_excluded(path: &Path, is_dir: bool, policy: &SearchPolicy) -> bool {
     }) {
         return true;
     }
+    if policy
+        .exclude_patterns
+        .iter()
+        .any(|pattern| pattern_matches(&normalized, pattern))
+    {
+        return true;
+    }
     if is_dir {
         return false;
     }
     if listed_extension(&normalized, &policy.exclude_extensions) {
         return true;
     }
-    policy
-        .exclude_patterns
-        .iter()
-        .any(|pattern| pattern_matches(&normalized, pattern))
+    false
 }
 
 fn listed_extension(path: &str, extensions: &[String]) -> bool {
@@ -985,7 +1013,12 @@ fn pattern_matches(path: &str, pattern: &str) -> bool {
                 .any(|extension| path.ends_with(&extension));
         }
         let suffix = suffix.trim_end_matches('$');
-        if !suffix.is_empty() && !suffix.contains(['[', ']', '(', ')']) {
+        if !suffix.is_empty()
+            && !suffix.contains('[')
+            && !suffix.contains(']')
+            && !suffix.contains('(')
+            && !suffix.contains(')')
+        {
             return path.ends_with(&format!(".{suffix}"));
         }
     }
@@ -1135,7 +1168,12 @@ fn pseudo_uuid() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, fs, path::PathBuf};
+    use std::{
+        collections::HashSet,
+        fs,
+        path::PathBuf,
+        sync::{Mutex, MutexGuard, OnceLock},
+    };
 
     use super::{
         SearchAction, SearchPolicy, base64_encode, filesystem_results_in,
@@ -1143,6 +1181,11 @@ mod tests {
         pattern_matches, pseudo_uuid, push_search_root, search_results, url_encode,
         workspace_results_in,
     };
+
+    fn index_test_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[test]
     fn command_results_are_real_operations() {
@@ -1232,6 +1275,7 @@ mod tests {
             "needle.txt\t0\tC:\\Docs\\needle.txt\nneedle.txt.bak\t0\tC:\\Docs\\needle.txt.bak\nxneedle.txt\t0\tC:\\Docs\\xneedle.txt\nneedle.txt.log\t0\tC:\\Docs\\needle.txt.log\nneedle.txt.tmp\t0\tC:\\Docs\\needle.txt.tmp\n",
         )
         .unwrap();
+        let _guard = index_test_lock();
         unsafe { std::env::set_var("ARIADNE_FILE_INDEX", &index) };
         let policy = SearchPolicy {
             exclude_extensions: vec![".log".into()],
@@ -1251,6 +1295,35 @@ mod tests {
         assert!(results.iter().all(|result| {
             matches!(result.action, SearchAction::OpenPath(ref path) if path.display().to_string().ends_with(result.title.as_str()))
         }));
+    }
+
+    #[test]
+    fn indexed_tsv_keeps_chinese_calendar_after_invalid_utf8() {
+        let root = std::env::temp_dir().join(format!("ariadne-search-calendar-{}", pseudo_uuid()));
+        fs::create_dir_all(&root).unwrap();
+        let index = root.join("file-index.tsv");
+        let mut fixture = vec![0xff, b'\t', b'0', b'\t'];
+        fixture.extend_from_slice(b"C:\\Bad\\broken.bin\n");
+        fixture.extend_from_slice(
+            "工作日历.xlsx\t0\tC:\\Users\\luwei\\Documents\\工作日历.xlsx\n".as_bytes(),
+        );
+        fs::write(&index, fixture).unwrap();
+        let _guard = index_test_lock();
+        unsafe { std::env::set_var("ARIADNE_FILE_INDEX", &index) };
+        let mut seen = HashSet::new();
+        let results =
+            index_results_with_policy("工作日历", &mut seen, 10, &SearchPolicy::default());
+        unsafe { std::env::remove_var("ARIADNE_FILE_INDEX") };
+        fs::remove_dir_all(root).unwrap();
+
+        let result = results
+            .iter()
+            .find(|result| result.title == "工作日历.xlsx")
+            .expect("Chinese calendar row should remain searchable after malformed UTF-8");
+        assert_eq!(result.detail, r"C:\Users\luwei\Documents\工作日历.xlsx");
+        assert!(
+            matches!(result.action, SearchAction::OpenPath(ref path) if path.display().to_string() == result.detail)
+        );
     }
 
     #[test]

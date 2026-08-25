@@ -1,4 +1,9 @@
-use std::{fs, path::PathBuf, process::Command};
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    sync::{Mutex, OnceLock},
+};
 
 use gpui::{
     ClipboardItem, Context, Entity, MouseButton, MouseDownEvent, SharedString, Window, div,
@@ -8,6 +13,7 @@ use gpui_component::{
     input::{Input, InputState},
     scroll::ScrollableElement as _,
 };
+use rusqlite::{Connection, OpenFlags};
 use serde_json::json;
 
 use crate::{capture::launch_screenshot, theme};
@@ -24,12 +30,80 @@ enum SettingsTab {
     Advanced,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SearchExclusions {
     pub exclude_folders: Vec<String>,
     pub exclude_patterns: Vec<String>,
     pub include_extensions: Vec<String>,
     pub exclude_extensions: Vec<String>,
+}
+
+impl Default for SearchExclusions {
+    fn default() -> Self {
+        Self {
+            exclude_folders: vec![
+                r"%APPDATA%\Microsoft\Windows\Recent".into(),
+                r"%APPDATA%".into(),
+                r"%TEMP%".into(),
+                r"%TMP%".into(),
+                r"%LOCALAPPDATA%".into(),
+                r"%USERPROFILE%\AppData\LocalLow".into(),
+                r"%LOCALAPPDATA%\Temp".into(),
+                r"%WINDIR%\Temp".into(),
+                r"%WINDIR%".into(),
+                r"%SystemRoot%".into(),
+                r"%ProgramFiles%".into(),
+                r"%ProgramFiles(x86)%".into(),
+                r"%ProgramW6432%".into(),
+                r"%ProgramData%".into(),
+            ],
+            exclude_patterns: vec![
+                r"(?i)\.(tmp|temp|part|crdownload|download)$".into(),
+                r"(?i)(^|[\\/])~\$[^\\/]*$".into(),
+                r"(?i)(^|[\\/])\$recycle\.bin([\\/]|$)".into(),
+                r"(?i)(^|[\\/])system volume information([\\/]|$)".into(),
+                r"(?i)(^|[\\/])(tmp|temp|temp-index|tmp-index)([\\/]|$)".into(),
+                r"(?i)[\\/]ebwebview([\\/]|$)".into(),
+                r"(?i)(^|[\\/])\..*\.tmp[-.][^\\/]*$".into(),
+                r"(?i)[\\/]users[\\/][^\\/]+[\\/]appdata[\\/](local|locallow|roaming)([\\/]|$)".into(),
+                r"(?i)^[a-z]:[\\/](app|appdata|program files|program files \(x86\)|programdata|devapp)([\\/]|$)".into(),
+                r"(?i)^[a-z]:[\\/]workspace[\\/]env([\\/]|$)".into(),
+                r"(?i)^[a-z]:[\\/]users[\\/][^\\/]+[\\/]\.(cache|config|local|m2|gradle|nuget|npm|pnpm|yarn|cargo|rustup|wox|gemini|confirmo|switchhosts|antigravity|antigravity_cockpit|marscode)([\\/]|$)".into(),
+                r"(?i)[\\/]appdata[\\/](local|locallow|roaming)[\\/].*[\\/](cache|cache2|cachestorage|code cache|gpucache|shadercache|crashpad|dawncache|blob_storage|inetcache|webcache|startupcache|browsermetrics|media cache|service worker|thumbnails)([\\/]|$)".into(),
+                r"(?i)^[a-z]:[\\/](recovery|\$winreagent|config\.msi|windows\.old|msocache)([\\/]|$)".into(),
+                r"(?i)(^|[\\/])(d3dscache|dxcache|gpucache|grshadercache|shadercache|dawncache)([\\/]|$)".into(),
+                r"(?i)(^|[\\/])(\.m2|\.npm|\.pnpm-store|pnpm-store|npm-cache|pnpm-cache|go-build|pip-cache|ms-playwright|ms-playwright-go|package cache)([\\/]|$)".into(),
+                r"(?i)(^|[\\/])(nuget[\\/]packages|\.cargo|\.rustup)([\\/]|$)".into(),
+                r"(?i)(^|[\\/])(\.venv|venv|envs|virtualenv|__pypackages__)([\\/]|$)".into(),
+                r"(?i)(^|[\\/])(site-packages|dist-packages)([\\/]|$)".into(),
+                r"(?i)(^|[\\/])(jetbrains|trae cn|trae|antigravity|zed|qoder)([\\/]|$)".into(),
+                r"(?i)(^|[\\/])(logs?|log)([\\/]|$)".into(),
+                r"(?i)(^|[\\/])ariadne[\\/](capture_images|capture_thumbnails)([\\/]|$)".into(),
+                r"(?i)\.(log|journal|db-journal|sqlite-wal|sqlite-shm|db-wal|db-shm|odlgz|statistic|dxcache-shm|dxcache-wal)$".into(),
+                r"(?i)(^|[\\/])(\$mft|\$logfile|\$bitmap|\$boot|\$badclus|\$secure|\$upcase|\$volume|\$attrdef|pagefile\.sys|hiberfil\.sys|swapfile\.sys|dumpstack\.log\.tmp|thumbs\.db|desktop\.ini)$".into(),
+                r"(?i)(^|[\\/])(\.git|\.hg|\.svn|node_modules|\.pnpm-store|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache|\.gradle|\.idea|\.vscode|\.cache|\.codex|\.codex-audit|coverage|dist|build|target|out|bin|obj|\.next|\.nuxt|\.vite|\.turbo|\.parcel-cache|\.svelte-kit|\.angular|\.vercel)([\\/]|$)".into(),
+            ],
+            include_extensions: Vec::new(),
+            exclude_extensions: vec![
+                ".tmp".into(),
+                ".temp".into(),
+                ".part".into(),
+                ".crdownload".into(),
+                ".download".into(),
+                ".log".into(),
+                ".journal".into(),
+                ".db-journal".into(),
+                ".sqlite-wal".into(),
+                ".sqlite-shm".into(),
+                ".db-wal".into(),
+                ".db-shm".into(),
+                ".odlgz".into(),
+                ".statistic".into(),
+                ".dxcache-shm".into(),
+                ".dxcache-wal".into(),
+            ],
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1061,6 +1135,10 @@ fn legacy_config_path() -> PathBuf {
     app_data_base().join("x-tools").join("config.json")
 }
 
+fn original_sqlite_path() -> PathBuf {
+    app_data_base().join("Ariadne").join("ariadne.sqlite")
+}
+
 fn read_json(path: PathBuf) -> Option<serde_json::Value> {
     let raw = fs::read_to_string(path).ok()?;
     serde_json::from_str(&raw).ok()
@@ -1205,12 +1283,8 @@ fn apply_config(settings: &mut SettingsValues, value: &serde_json::Value) {
         settings.screenshot_hotkey = screenshot_hotkey;
     }
     let search = search_exclusions(value);
-    if !search.exclude_folders.is_empty()
-        || !search.exclude_patterns.is_empty()
-        || !search.include_extensions.is_empty()
-        || !search.exclude_extensions.is_empty()
-    {
-        settings.search = search;
+    if !search_is_empty(&search) {
+        merge_search_exclusions(&mut settings.search, &search);
     }
 }
 
@@ -1252,10 +1326,58 @@ fn merge_search_exclusions(target: &mut SearchExclusions, source: &SearchExclusi
     );
 }
 
+fn read_sqlite_search_exclusions(path: PathBuf) -> Option<SearchExclusions> {
+    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    read_sqlite_search_exclusions_from(&connection)
+}
+
+fn read_sqlite_search_exclusions_from(connection: &Connection) -> Option<SearchExclusions> {
+    let mut search = SearchExclusions {
+        exclude_folders: Vec::new(),
+        exclude_patterns: Vec::new(),
+        include_extensions: Vec::new(),
+        exclude_extensions: Vec::new(),
+    };
+    let mut statement = connection
+        .prepare(
+            "SELECT path, value \
+             FROM settings2_string_lists \
+             WHERE scope IN ('config', 'any') \
+               AND path IN (\
+                 'search.fileExcludeFolders',\
+                 'search.fileExcludePatterns',\
+                 'search.fileIncludeExtensions',\
+                 'search.fileExcludeExtensions'\
+               ) \
+             ORDER BY path, position",
+        )
+        .ok()?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .ok()?;
+    for (path, value) in rows.flatten() {
+        match path.as_str() {
+            "search.fileExcludeFolders" => search.exclude_folders.push(value),
+            "search.fileExcludePatterns" => search.exclude_patterns.push(value),
+            "search.fileIncludeExtensions" => search.include_extensions.push(value),
+            "search.fileExcludeExtensions" => search.exclude_extensions.push(value),
+            _ => {}
+        }
+    }
+    search.exclude_folders = clean_list(search.exclude_folders.iter().map(String::as_str));
+    search.exclude_patterns = clean_list(search.exclude_patterns.iter().map(String::as_str));
+    search.include_extensions = clean_list(search.include_extensions.iter().map(String::as_str));
+    search.exclude_extensions = clean_list(search.exclude_extensions.iter().map(String::as_str));
+    Some(search)
+}
+
 fn load_settings() -> SettingsValues {
     let mut settings = SettingsValues::default();
     if let Some(value) = read_json(settings_path()) {
         apply_config(&mut settings, &value);
+        let raw_search = search_exclusions(&value);
         let current_search = settings.search.clone();
         let mut merged = current_search.clone();
         for path in [original_config_path(), legacy_config_path()] {
@@ -1265,7 +1387,14 @@ fn load_settings() -> SettingsValues {
             let source_search = search_exclusions(&source);
             merge_search_exclusions(&mut merged, &source_search);
         }
-        if merged != current_search {
+        if let Some(source_search) = read_sqlite_search_exclusions(original_sqlite_path()) {
+            merge_search_exclusions(&mut merged, &source_search);
+        }
+        let defaults_missing = raw_search.exclude_folders.len() < merged.exclude_folders.len()
+            || raw_search.exclude_patterns.len() < merged.exclude_patterns.len()
+            || raw_search.include_extensions.len() < merged.include_extensions.len()
+            || raw_search.exclude_extensions.len() < merged.exclude_extensions.len();
+        if merged != current_search || defaults_missing {
             settings.search = merged;
             let _ = save_settings(
                 settings.run_on_startup,
@@ -1288,6 +1417,12 @@ fn load_settings() -> SettingsValues {
         }
         let source_search = search_exclusions(&value);
         merge_search_exclusions(&mut migrated, &source_search);
+    }
+    if let Some(source_search) = read_sqlite_search_exclusions(original_sqlite_path()) {
+        if !search_is_empty(&source_search) {
+            merge_search_exclusions(&mut migrated, &source_search);
+            imported = true;
+        }
     }
     if imported {
         if !search_is_empty(&migrated) {
@@ -1324,15 +1459,39 @@ fn save_settings(
             "fileExcludeExtensions": search.exclude_extensions,
         },
     });
-    fs::write(
+    let result = fs::write(
         path,
         serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?,
     )
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string());
+    if result.is_ok() {
+        clear_search_cache();
+    }
+    result
+}
+
+fn search_cache() -> &'static Mutex<Option<SearchExclusions>> {
+    static CACHE: OnceLock<Mutex<Option<SearchExclusions>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn clear_search_cache() {
+    if let Ok(mut cache) = search_cache().lock() {
+        *cache = None;
+    }
 }
 
 pub(crate) fn load_search_exclusions() -> SearchExclusions {
-    load_settings().search
+    if let Ok(cache) = search_cache().lock() {
+        if let Some(search) = cache.clone() {
+            return search;
+        }
+    }
+    let search = load_settings().search;
+    if let Ok(mut cache) = search_cache().lock() {
+        *cache = Some(search.clone());
+    }
+    search
 }
 
 pub(crate) fn configured_global_hotkey() -> String {
@@ -1345,7 +1504,8 @@ pub(crate) fn configured_screenshot_hotkey() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{SettingsValues, apply_config, parse_list};
+    use super::{SettingsValues, apply_config, parse_list, read_sqlite_search_exclusions_from};
+    use rusqlite::Connection;
     use serde_json::json;
 
     #[test]
@@ -1368,13 +1528,78 @@ mod tests {
         assert!(settings.run_on_startup);
         assert_eq!(settings.global_hotkey, "Alt+W");
         assert_eq!(settings.screenshot_hotkey, "Alt+A");
-        assert_eq!(
-            settings.search.exclude_folders,
-            vec!["C:/Cache".to_owned(), "C:/Private".to_owned()]
+        assert!(
+            settings
+                .search
+                .exclude_folders
+                .iter()
+                .any(|item| item == "C:/Cache")
         );
-        assert_eq!(settings.search.exclude_patterns, vec!["*.tmp".to_owned()]);
+        assert!(
+            settings
+                .search
+                .exclude_folders
+                .iter()
+                .any(|item| item == "C:/Private")
+        );
+        assert!(
+            settings
+                .search
+                .exclude_patterns
+                .iter()
+                .any(|item| item == "*.tmp")
+        );
         assert_eq!(settings.search.include_extensions, vec![".md".to_owned()]);
-        assert_eq!(settings.search.exclude_extensions, vec![".log".to_owned()]);
+        assert!(
+            settings
+                .search
+                .exclude_extensions
+                .iter()
+                .any(|item| item == ".log")
+        );
+        assert!(
+            settings
+                .search
+                .exclude_extensions
+                .iter()
+                .any(|item| item == ".tmp")
+        );
         assert_eq!(parse_list("a, b\nc"), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn default_search_policy_matches_frontend_shape() {
+        let search = SettingsValues::default().search;
+        assert_eq!(search.exclude_folders.len(), 14);
+        assert_eq!(search.exclude_patterns.len(), 24);
+        assert!(search.include_extensions.is_empty());
+        assert_eq!(search.exclude_extensions.len(), 16);
+        assert!(search.exclude_extensions.iter().any(|item| item == ".log"));
+    }
+
+    #[test]
+    fn sqlite_search_settings_are_migrated() {
+        let connection = Connection::open_in_memory().expect("open sqlite");
+        connection
+            .execute_batch(
+                r#"CREATE TABLE settings2_string_lists(
+                    scope TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    value TEXT NOT NULL,
+                    PRIMARY KEY(scope, path, position)
+                );
+                INSERT INTO settings2_string_lists VALUES
+                    ('config', 'search.fileExcludeExtensions', 0, '.bak'),
+                    ('config', 'search.fileExcludeExtensions', 1, '.BAK'),
+                    ('config', 'search.fileExcludeFolders', 0, ' P:/workspace '),
+                    ('config', 'search.fileExcludePatterns', 0, '(?i)\\.tmp$'),
+                    ('other', 'search.fileExcludeFolders', 0, 'ignored');"#,
+            )
+            .expect("seed sqlite");
+        let search = read_sqlite_search_exclusions_from(&connection).expect("read sqlite");
+        assert_eq!(search.exclude_extensions, vec![".bak"]);
+        assert_eq!(search.exclude_folders, vec!["P:/workspace"]);
+        assert_eq!(search.exclude_patterns, vec![r"(?i)\\.tmp$"]);
     }
 }

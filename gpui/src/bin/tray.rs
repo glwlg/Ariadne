@@ -11,7 +11,7 @@ mod windows_tray {
     };
 
     use windows_sys::Win32::{
-        Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM},
         System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
         UI::{
             Shell::{
@@ -19,18 +19,23 @@ mod windows_tray {
                 NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
             },
             WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-                IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTSIZE, LR_LOADFROMFILE, LoadIconW,
-                LoadImageW, PeekMessageW, PostQuitMessage, PostThreadMessageW, RegisterClassW,
+                AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
+                DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, IDI_APPLICATION,
+                IMAGE_ICON, LR_DEFAULTSIZE, LR_LOADFROMFILE, LoadIconW, LoadImageW, MF_STRING,
+                PeekMessageW, PostMessageW, PostQuitMessage, PostThreadMessageW, RegisterClassW,
                 RegisterWindowMessageW, SW_HIDE, SW_SHOW, SetForegroundWindow, ShowWindow,
-                TranslateMessage, UnregisterClassW, WM_APP, WM_CLOSE, WM_DESTROY, WM_LBUTTONUP,
-                WM_QUIT, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW,
+                TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
+                UnregisterClassW, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
+                WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_QUIT, WM_RBUTTONUP, WNDCLASSW,
+                WS_EX_TOOLWINDOW,
             },
         },
     };
 
     const TRAY_ID: u32 = 1;
     const TRAY_CALLBACK: u32 = WM_APP + 1;
+    const COMMAND_SHOW: usize = 1;
+    const COMMAND_EXIT: usize = 2;
 
     static LAUNCHER_HWND: AtomicIsize = AtomicIsize::new(0);
 
@@ -126,6 +131,37 @@ mod windows_tray {
             false
         }
     }
+    fn show_tray_menu(hwnd: HWND) {
+        unsafe {
+            let menu = CreatePopupMenu();
+            if menu.is_null() {
+                return;
+            }
+
+            let show_label = "显示 Ariadne\0".encode_utf16().collect::<Vec<_>>();
+            let exit_label = "退出 Ariadne\0".encode_utf16().collect::<Vec<_>>();
+            if AppendMenuW(menu, MF_STRING, COMMAND_SHOW, show_label.as_ptr()) != 0
+                && AppendMenuW(menu, MF_STRING, COMMAND_EXIT, exit_label.as_ptr()) != 0
+            {
+                let mut point: POINT = std::mem::zeroed();
+                if GetCursorPos(&mut point) != 0 {
+                    SetForegroundWindow(hwnd);
+                    TrackPopupMenu(
+                        menu,
+                        TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON,
+                        point.x,
+                        point.y,
+                        0,
+                        hwnd,
+                        null(),
+                    );
+                    let _ = PostMessageW(hwnd, WM_NULL, 0, 0);
+                }
+            }
+            DestroyMenu(menu);
+        }
+    }
+
     fn run(ready_tx: SyncSender<Result<u32, ()>>) {
         unsafe {
             let thread_id = GetCurrentThreadId();
@@ -223,10 +259,32 @@ mod windows_tray {
         lparam: LPARAM,
     ) -> LRESULT {
         match message {
-            WM_LBUTTONUP | WM_RBUTTONUP => {
-                show_launcher();
-                0
-            }
+            TRAY_CALLBACK => match lparam as u32 {
+                WM_LBUTTONUP | WM_LBUTTONDBLCLK => {
+                    show_launcher();
+                    0
+                }
+                WM_RBUTTONUP | WM_CONTEXTMENU => {
+                    show_tray_menu(hwnd);
+                    0
+                }
+                _ => 0,
+            },
+            WM_COMMAND => match (wparam as usize) & 0xFFFF {
+                COMMAND_SHOW => {
+                    show_launcher();
+                    0
+                }
+                COMMAND_EXIT => unsafe {
+                    let launcher = LAUNCHER_HWND.load(Ordering::Acquire) as HWND;
+                    if !launcher.is_null() {
+                        let _ = PostMessageW(launcher, WM_CLOSE, 0, 0);
+                    }
+                    DestroyWindow(hwnd);
+                    0
+                },
+                _ => 0,
+            },
             WM_CLOSE => unsafe {
                 DestroyWindow(hwnd);
                 0
