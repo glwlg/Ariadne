@@ -72,10 +72,13 @@ func (d *Dispatcher) SendCandidate(action workmemory.FlowCandidateAction) error 
 		return err
 	}
 	return d.notifications.SendNotificationWithActions(notifications.NotificationOptions{
-		ID:         "flow-candidate-" + action.ID,
-		Title:      firstNonEmpty(action.Title, "Ariadne 主动动作"),
-		Body:       notificationBody(action),
-		CategoryID: categoryID,
+		ID:                "flow-candidate-" + action.ID,
+		Title:             firstNonEmpty(action.Title, "Ariadne 主动动作"),
+		Body:              notificationBody(action),
+		CategoryID:        categoryID,
+		Sound:             &notifications.NotificationSound{Silent: true},
+		ThreadID:          "ariadne:flow:" + firstNonEmpty(sanitizeCategoryToken(action.ActionType), "candidate"),
+		InterruptionLevel: notifications.InterruptionLevelPassive,
 		Data: map[string]interface{}{
 			notificationDataCandidateID: action.ID,
 			notificationDataActionType:  action.ActionType,

@@ -52,6 +52,15 @@ func TestDispatcherSendsFollowUpNotificationWithActions(t *testing.T) {
 	if fake.sent[0].Data[notificationDataCandidateID] != action.ID {
 		t.Fatalf("expected candidate id in notification data, got %#v", fake.sent[0].Data)
 	}
+	if fake.sent[0].ThreadID != "ariadne:flow:follow_up_candidate" {
+		t.Fatalf("expected related flow notifications to be grouped, got %q", fake.sent[0].ThreadID)
+	}
+	if fake.sent[0].InterruptionLevel != notifications.InterruptionLevelPassive {
+		t.Fatalf("expected flow suggestion to be passive, got %q", fake.sent[0].InterruptionLevel)
+	}
+	if fake.sent[0].Sound == nil || !fake.sent[0].Sound.Silent {
+		t.Fatalf("expected passive flow suggestion to be silent, got %#v", fake.sent[0].Sound)
+	}
 }
 
 func TestDispatcherNotificationAddExecutesCandidate(t *testing.T) {
