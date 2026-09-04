@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -19,6 +20,80 @@ type HotkeySpec struct {
 	Modifiers uint32
 	KeyCode   uint32
 	KeyName   string
+}
+
+type shortcutRegistry interface {
+	Register(accelerator string, callback func()) error
+	Unregister(accelerator string) error
+	IsRegistered(accelerator string) bool
+}
+
+type ManagedHotkeyRegistration struct {
+	mu          sync.Mutex
+	registry    shortcutRegistry
+	accelerator string
+	stopped     bool
+}
+
+func RegisterManagedGlobalHotkey(registry shortcutRegistry, spec HotkeySpec, callback func()) (*ManagedHotkeyRegistration, error) {
+	if registry == nil {
+		return nil, fmt.Errorf("global shortcut manager is unavailable")
+	}
+	if callback == nil {
+		return nil, fmt.Errorf("global hotkey callback is nil")
+	}
+	accelerator := spec.WailsAccelerator()
+	if err := registry.Register(accelerator, callback); err != nil {
+		return nil, err
+	}
+	return &ManagedHotkeyRegistration{registry: registry, accelerator: accelerator}, nil
+}
+
+func (r *ManagedHotkeyRegistration) Stop() error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.stopped {
+		return nil
+	}
+	if !r.registry.IsRegistered(r.accelerator) {
+		r.stopped = true
+		return nil
+	}
+	if err := r.registry.Unregister(r.accelerator); err != nil {
+		return err
+	}
+	r.stopped = true
+	return nil
+}
+
+func (r *ManagedHotkeyRegistration) IsRegistered() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return !r.stopped && r.registry.IsRegistered(r.accelerator)
+}
+
+func (s HotkeySpec) WailsAccelerator() string {
+	parts := make([]string, 0, 5)
+	if s.Modifiers&modControl != 0 {
+		parts = append(parts, "Ctrl")
+	}
+	if s.Modifiers&modAlt != 0 {
+		parts = append(parts, "Alt")
+	}
+	if s.Modifiers&modShift != 0 {
+		parts = append(parts, "Shift")
+	}
+	if s.Modifiers&modWin != 0 {
+		parts = append(parts, "Super")
+	}
+	parts = append(parts, s.KeyName)
+	return strings.Join(parts, "+")
 }
 
 func ParseHotkey(value string) (HotkeySpec, error) {
