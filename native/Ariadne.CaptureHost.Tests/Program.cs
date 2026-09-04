@@ -19,7 +19,24 @@ internal static class Program
             File.WriteAllText(path, "unknown");
             AssertEqual(ColorFormat.Rgb, ColorFormatPreferences.Load(path), "invalid preference defaults to RGB");
 
-            Console.WriteLine("Color format preference tests passed.");
+            AssertEqual(
+                ColorPickerShortcutAction.ToggleFormat,
+                ColorPickerShortcutResolver.Resolve(isShiftKey: true, isCKey: false, controlDown: false, isRepeat: false),
+                "initial Shift keydown toggles the color format");
+            AssertEqual(
+                ColorPickerShortcutAction.Consume,
+                ColorPickerShortcutResolver.Resolve(isShiftKey: true, isCKey: false, controlDown: false, isRepeat: true),
+                "repeated Shift keydown does not toggle again");
+            AssertEqual(
+                ColorPickerShortcutAction.CopyColor,
+                ColorPickerShortcutResolver.Resolve(isShiftKey: false, isCKey: true, controlDown: false, isRepeat: false),
+                "C still copies after a Shift event");
+            AssertEqual(
+                ColorPickerShortcutAction.None,
+                ColorPickerShortcutResolver.Resolve(isShiftKey: false, isCKey: true, controlDown: true, isRepeat: false),
+                "Ctrl+C is not consumed by the color picker");
+
+            Console.WriteLine("Color picker shortcut and preference tests passed.");
         }
         finally
         {
@@ -31,6 +48,14 @@ internal static class Program
     }
 
     private static void AssertEqual(ColorFormat expected, ColorFormat actual, string behavior)
+    {
+        if (expected != actual)
+        {
+            throw new InvalidOperationException($"{behavior}: expected {expected}, got {actual}");
+        }
+    }
+
+    private static void AssertEqual(ColorPickerShortcutAction expected, ColorPickerShortcutAction actual, string behavior)
     {
         if (expected != actual)
         {

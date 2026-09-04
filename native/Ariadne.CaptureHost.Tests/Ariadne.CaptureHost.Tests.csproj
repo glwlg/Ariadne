@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\Ariadne.CaptureHost\ColorPickerShortcutResolver.cs" Link="ColorPickerShortcutResolver.cs" />
     <Compile Include="..\Ariadne.CaptureHost\ColorFormatPreferences.cs" Link="ColorFormatPreferences.cs" />
   </ItemGroup>
 </Project>

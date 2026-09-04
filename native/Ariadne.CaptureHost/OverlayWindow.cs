@@ -150,7 +150,6 @@ internal sealed class OverlayWindow : Window
     private bool _completed;
     private bool _ocrBusy;
     private bool _redactBusy;
-    private bool _pendingColorFormatToggle;
 
     public OverlayWindow(ScreenCapture capture, CaptureRequest request)
     {
@@ -308,7 +307,6 @@ internal sealed class OverlayWindow : Window
         _overlay.PreviewMouseWheel += AdjustThicknessWithWheel;
         PreviewKeyDown += HandlePreviewKeyDown;
         _overlay.KeyDown += HandleKeyDown;
-        _overlay.KeyUp += HandleKeyUp;
         _overlay.SizeChanged += (_, _) => UpdateSelectionVisuals();
         _overlay.Loaded += (_, _) =>
         {
@@ -677,18 +675,27 @@ internal sealed class OverlayWindow : Window
             eventArgs.Handled = true;
             return;
         }
-        if (eventArgs.Key is Key.LeftShift or Key.RightShift)
+        var colorShortcut = ColorPickerShortcutResolver.Resolve(
+            isShiftKey: eventArgs.Key is Key.LeftShift or Key.RightShift,
+            isCKey: eventArgs.Key == Key.C,
+            controlDown: control,
+            isRepeat: eventArgs.IsRepeat);
+        if (colorShortcut == ColorPickerShortcutAction.ToggleFormat)
         {
-            if (!eventArgs.IsRepeat)
-            {
-                _pendingColorFormatToggle = true;
-            }
+            ToggleColorFormat();
             eventArgs.Handled = true;
             return;
         }
-        if (shift)
+        if (colorShortcut == ColorPickerShortcutAction.CopyColor)
         {
-            _pendingColorFormatToggle = false;
+            CopyPointerColor();
+            eventArgs.Handled = true;
+            return;
+        }
+        if (colorShortcut == ColorPickerShortcutAction.Consume)
+        {
+            eventArgs.Handled = true;
+            return;
         }
         if (control && shift && eventArgs.Key == Key.Z)
         {
@@ -711,12 +718,6 @@ internal sealed class OverlayWindow : Window
         if (control && eventArgs.Key == Key.S)
         {
             Finish("save_as");
-            eventArgs.Handled = true;
-            return;
-        }
-        if (eventArgs.Key == Key.C && !control)
-        {
-            CopyPointerColor();
             eventArgs.Handled = true;
             return;
         }
@@ -782,25 +783,12 @@ internal sealed class OverlayWindow : Window
         }
     }
 
-    private void HandleKeyUp(object sender, WpfKeyEventArgs eventArgs)
+    private void ToggleColorFormat()
     {
-        if (eventArgs.Key is not (Key.LeftShift or Key.RightShift))
-        {
-            return;
-        }
-
-        var shouldToggle = _pendingColorFormatToggle;
-        _pendingColorFormatToggle = false;
-        if (!shouldToggle)
-        {
-            return;
-        }
-
         var nextFormat = ColorFormatPreferences.Current == ColorFormat.Rgb ? ColorFormat.Hex : ColorFormat.Rgb;
         var saved = ColorFormatPreferences.TrySetCurrent(nextFormat);
         RefreshPointerColorText();
         ShowFeedback("取色格式: " + (nextFormat == ColorFormat.Rgb ? "RGB" : "HEX") + (saved ? "" : "（未保存）"));
-        eventArgs.Handled = true;
     }
 
     private void UpdateSelectionVisuals(bool refreshChrome = true, bool refreshTools = true, bool redrawAnnotations = true, bool layoutToolbar = true)
