@@ -33,7 +33,7 @@ export async function getProcessNetworkSnapshot(): Promise<ProcessNetworkSnapsho
   }
 }
 
-function normalizeProcessSnapshot(snapshot: ProcessNetworkSnapshot): ProcessNetworkSnapshot {
+export function normalizeProcessSnapshot(snapshot: ProcessNetworkSnapshot): ProcessNetworkSnapshot {
   const processes = Array.isArray(snapshot.processes) ? snapshot.processes.map(normalizeProcessTraffic) : []
   return {
     timestampUnix: Number(snapshot.timestampUnix ?? Math.floor(Date.now() / 1000)),
@@ -81,7 +81,7 @@ function emptyProcessSnapshot(message: string): ProcessNetworkSnapshot {
   }
 }
 
-function normalizeSnapshot(snapshot: NetworkTrafficSnapshot): NetworkTrafficSnapshot {
+export function normalizeSnapshot(snapshot: NetworkTrafficSnapshot): NetworkTrafficSnapshot {
   const adapters = Array.isArray(snapshot.adapters) ? snapshot.adapters.map(normalizeAdapter) : []
   return {
     timestampUnix: Number(snapshot.timestampUnix ?? Math.floor(Date.now() / 1000)),

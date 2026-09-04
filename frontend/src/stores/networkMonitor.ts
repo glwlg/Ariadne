@@ -1,6 +1,12 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getNetworkTrafficSnapshot, getProcessNetworkSnapshot } from '../services/networkMonitorApi'
+import {
+  getNetworkTrafficSnapshot,
+  getProcessNetworkSnapshot,
+  normalizeProcessSnapshot,
+  normalizeSnapshot,
+} from '../services/networkMonitorApi'
+import { connectNetworkTelemetry } from '../services/networkTelemetry'
 import type { NetworkTrafficSnapshot, ProcessNetworkSnapshot } from '../types/ariadne'
 
 export const useNetworkMonitorStore = defineStore('network-monitor', () => {
@@ -9,8 +15,8 @@ export const useNetworkMonitorStore = defineStore('network-monitor', () => {
   const feedback = ref('')
   const isLoading = ref(false)
   const isPolling = ref(false)
-  let timer: number | null = null
-  let processTimer: number | null = null
+  let stopTrafficStream: (() => void) | null = null
+  let stopProcessStream: (() => void) | null = null
 
   const adapters = computed(() => snapshot.value?.adapters ?? [])
   const primaryAdapter = computed(() => adapters.value.find((item) => item.operational) ?? adapters.value[0] ?? null)
@@ -35,32 +41,50 @@ export const useNetworkMonitorStore = defineStore('network-monitor', () => {
   }
 
   function startPolling() {
-    if (timer !== null) return
+    if (stopTrafficStream !== null) return
     isPolling.value = true
-    void refresh()
-    timer = window.setInterval(() => {
-      void refresh()
-    }, 1000)
+    stopTrafficStream = connectNetworkTelemetry('traffic', (frame) => {
+      if (!frame.traffic) return
+      snapshot.value = normalizeSnapshot(frame.traffic)
+      if (snapshot.value.lastError) {
+        showFeedback(snapshot.value.lastError)
+      }
+    }, (message) => {
+      showFeedback(message)
+      if (snapshot.value === null) {
+        void refresh()
+      }
+    })
   }
 
   function stopPolling() {
-    if (timer !== null) {
-      window.clearInterval(timer)
-      timer = null
+    if (stopTrafficStream !== null) {
+      stopTrafficStream()
+      stopTrafficStream = null
     }
     isPolling.value = false
   }
 
   function startProcessPolling() {
-    if (processTimer !== null) return
-    void refreshProcesses()
-    processTimer = window.setInterval(() => void refreshProcesses(), 1000)
+    if (stopProcessStream !== null) return
+    stopProcessStream = connectNetworkTelemetry('processes', (frame) => {
+      if (!frame.processes) return
+      processSnapshot.value = normalizeProcessSnapshot(frame.processes)
+      if (processSnapshot.value.lastError) {
+        showFeedback(processSnapshot.value.lastError)
+      }
+    }, (message) => {
+      showFeedback(message)
+      if (processSnapshot.value === null) {
+        void refreshProcesses()
+      }
+    })
   }
 
   function stopProcessPolling() {
-    if (processTimer === null) return
-    window.clearInterval(processTimer)
-    processTimer = null
+    if (stopProcessStream === null) return
+    stopProcessStream()
+    stopProcessStream = null
   }
 
   function showFeedback(message: string) {

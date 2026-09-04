@@ -13,7 +13,8 @@
     "test:hosts-content-stats": "node scripts/test-hosts-content-stats.mjs",
     "test:hosts-editor-behavior": "node scripts/test-hosts-editor-behavior.mjs",
     "test:api-json-expansion": "node scripts/test-api-json-expansion.mjs",
-    "test:process-network-sort": "node scripts/test-process-network-sort.ts"
+    "test:process-network-sort": "node scripts/test-process-network-sort.ts",
+    "test:network-telemetry": "node scripts/test-network-telemetry.ts"
   },
   "dependencies": {
     "@lucide/vue": "^1.18.0",

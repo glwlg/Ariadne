@@ -330,6 +330,9 @@ func main() {
 			Handler: captureoverlay.CaptureOverlayAssetHandler(captureOverlayService, fileSearchService.FileIconAssetHandler(application.AssetFileServerFS(assets))),
 		},
 	})
+	app.HandleStream(networkmonitor.TelemetryStreamName, func(connection *application.StreamConn) {
+		networkmonitor.HandleTelemetryStream(networkMonitorService, connection)
+	})
 	workmemory.RegisterChangeObserver(workMemoryService, func(event workmemory.ChangeEvent) {
 		app.Event.Emit("ariadne:work-memory-changed", event)
 		flowNotificationDispatcher.HandleWorkMemoryEvent(event)
