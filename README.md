@@ -106,11 +106,15 @@ dist\release\ariadne-dev-windows-x64.zip
 | 命令 | 用途 |
 | --- | --- |
 | `wails3 task windows:build` | 构建 Windows 可执行文件。 |
+| `wails3 task windows:mcp-build` | 构建仅供隔离测试使用、启用 Wails MCP 的开发 EXE。 |
+| `wails3 task windows:mcp-dev` | 在回环地址和随机端口运行 MCP 开发构建。 |
 | `wails3 task windows:package` | 构建用户级 Windows 安装器和 zip 发布包。 |
 | `wails3 task windows:msix` | 生成未签名 MSIX 布局。 |
 | `wails3 task windows:search-perf` | 运行搜索性能基准。 |
 | `wails3 task windows:perf` | 运行桌面性能探针。 |
 | `wails3 task windows:autostart-smoke` | 验证自启动注册路径。 |
+
+MCP 开发构建输出为 `bin\ariadne-mcp.exe`，不会被 Windows 发布任务打包。它允许测试客户端控制 Wails WebView 窗口，因此只能在隔离测试桌面运行；正式的 `bin\ariadne.exe` 不包含 `mcp` build tag。
 
 ## 项目结构
 

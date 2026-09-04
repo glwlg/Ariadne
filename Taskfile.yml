@@ -21,6 +21,22 @@ tasks:
       - wails3 task windows:resources
       - go build -ldflags="-H windowsgui" -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" .
 
+  windows:mcp-build:
+    summary: Build a development-only Ariadne executable with the Wails MCP server.
+    cmds:
+      - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
+      - wails3 task native:capture-host
+      - wails3 generate bindings -clean=false
+      - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
+      - wails3 task windows:resources
+      - go build -tags=mcp -ldflags="-H windowsgui" -o "{{.BIN_DIR}}/{{.APP_NAME}}-mcp.exe" .
+
+  windows:mcp-dev:
+    summary: Run the development-only MCP build on loopback with a random available port.
+    cmds:
+      - wails3 task windows:mcp-build
+      - powershell -NoProfile -Command "$env:WAILS_MCP_HOST='127.0.0.1'; $env:WAILS_MCP_PORT='0'; & '{{.BIN_DIR}}\{{.APP_NAME}}-mcp.exe'"
+
   native:capture-host:
     summary: Publish the WPF screenshot host used by the Windows native capture path.
     cmds:
