@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../src/components/capture/CaptureOverlayWindow.vue', import.meta.url), 'utf8')
-const styles = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
+const styles = [
+  '../src/style.css',
+  '../src/styles/surfaces-settings-api-network-overlays.css',
+].map((path) => readFileSync(new URL(path, import.meta.url), 'utf8')).join('\n')
 
 function functionBody(name) {
   const signatureIndex = source.indexOf(`function ${name}(`)
