@@ -30,5 +30,3 @@ frontend/dist/
 
 # Pre-replacement Ariadne generated leftovers
 experiments/ariadne/
-!gpui/src/bin/
-!gpui/src/bin/*.rs
