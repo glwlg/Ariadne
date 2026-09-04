@@ -520,6 +520,9 @@ func (s *Service) captureNativeSelection(response nativecapture.Response, policy
 	if action == "ocr" && strings.TrimSpace(response.PNGBase64) == "" {
 		return CaptureResult{OK: true, Message: firstNonEmpty(response.Message, "OCR 文本已复制")}
 	}
+	if action == "color" && response.ClipboardWritten {
+		return CaptureResult{OK: true, Message: firstNonEmpty(response.Message, "颜色已复制")}
+	}
 
 	pngBytes, err := base64.StdEncoding.DecodeString(response.PNGBase64)
 	if err != nil || len(pngBytes) == 0 {
@@ -1841,6 +1844,8 @@ func normalizeAction(action string) string {
 		return "qr"
 	case "ocr":
 		return "ocr"
+	case "color":
+		return "color"
 	case "save_as":
 		return "save_as"
 	default:

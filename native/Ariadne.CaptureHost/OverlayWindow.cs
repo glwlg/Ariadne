@@ -64,12 +64,6 @@ internal enum AnnotationTool
     Select
 }
 
-internal enum ColorFormat
-{
-    Rgb,
-    Hex
-}
-
 internal sealed class OverlayWindow : Window
 {
     private const long MagnifierContentFrameMs = 16;
@@ -80,7 +74,7 @@ internal sealed class OverlayWindow : Window
         "#f97316",
         "#facc15",
         "#22c55e",
-        "#14b8a6",
+        "#1f2933",
         "#2563eb",
         "#7c3aed",
         "#111827",
@@ -98,7 +92,7 @@ internal sealed class OverlayWindow : Window
     private readonly Border _selection = new();
     private readonly DropShadowEffect _selectionIdleEffect = new()
     {
-        Color = WpfColor.FromRgb(20, 184, 166),
+        Color = WpfColor.FromRgb(31, 41, 51),
         BlurRadius = 10,
         ShadowDepth = 0,
         Opacity = 0.75
@@ -145,7 +139,6 @@ internal sealed class OverlayWindow : Window
     private int _thickness = 3;
     private int _numberCounter = 1;
     private string _annotationColor = "#dc2626";
-    private ColorFormat _colorFormat = ColorFormat.Rgb;
     private string _lastSelectionSizeText = "";
     private int _lastSelectionSizeTextLength = -1;
     private WpfSize _lastSelectionSizeMeasure = WpfSize.Empty;
@@ -157,6 +150,7 @@ internal sealed class OverlayWindow : Window
     private bool _completed;
     private bool _ocrBusy;
     private bool _redactBusy;
+    private bool _pendingColorFormatToggle;
 
     public OverlayWindow(ScreenCapture capture, CaptureRequest request)
     {
@@ -218,7 +212,7 @@ internal sealed class OverlayWindow : Window
         _overlay.Children.Add(_rightMask);
         _overlay.Children.Add(_bottomMask);
 
-        _selection.BorderBrush = NativeVisuals.Brush(20, 184, 166);
+        _selection.BorderBrush = NativeVisuals.Brush(31, 41, 51);
         _selection.BorderThickness = new Thickness(1.4);
         _selection.Background = NativeVisuals.Brush(22, 255, 255, 255);
         if (_selectionIdleEffect.CanFreeze)
@@ -243,7 +237,7 @@ internal sealed class OverlayWindow : Window
         _selectionSize.Effect = NativeVisuals.Shadow(38, 18, 5);
         _selectionSize.Visibility = Visibility.Collapsed;
         _selectionSize.IsHitTestVisible = false;
-        _selectionSizeText.Foreground = NativeVisuals.Brush(17, 94, 89);
+        _selectionSizeText.Foreground = NativeVisuals.Brush(31, 41, 51);
         _selectionSizeText.FontFamily = new FontFamily("Consolas, Cascadia Mono, Segoe UI");
         _selectionSizeText.FontSize = 11;
         _selectionSizeText.FontWeight = FontWeights.SemiBold;
@@ -286,7 +280,7 @@ internal sealed class OverlayWindow : Window
         _hint.IsHitTestVisible = false;
         _hint.Child = new TextBlock
         {
-            Text = "拖拽选择区域  Enter 复制  Shift+Enter 打码  P 贴图  Q 扫码  R/A/L 标注  B/H/M 画笔  T/N/E 文字  C 取色",
+            Text = "拖拽选择区域  Enter 复制  Shift+Enter 打码  P 贴图  Q 扫码  R/A/L 标注  B/H/M 画笔  T/N/E 文字  C 取色并退出  Shift 切换 RGB/HEX",
             Foreground = NativeVisuals.Brush(63, 63, 70),
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap
@@ -314,6 +308,7 @@ internal sealed class OverlayWindow : Window
         _overlay.PreviewMouseWheel += AdjustThicknessWithWheel;
         PreviewKeyDown += HandlePreviewKeyDown;
         _overlay.KeyDown += HandleKeyDown;
+        _overlay.KeyUp += HandleKeyUp;
         _overlay.SizeChanged += (_, _) => UpdateSelectionVisuals();
         _overlay.Loaded += (_, _) =>
         {
@@ -396,7 +391,7 @@ internal sealed class OverlayWindow : Window
         _thicknessText = new TextBlock
         {
             Text = _thickness.ToString(CultureInfo.InvariantCulture),
-            Foreground = NativeVisuals.Brush(17, 94, 89),
+            Foreground = NativeVisuals.Brush(31, 41, 51),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             Width = 22,
@@ -518,7 +513,7 @@ internal sealed class OverlayWindow : Window
                     Width = 96,
                     Height = 96,
                     CornerRadius = new CornerRadius(48),
-                    BorderBrush = NativeVisuals.Brush(20, 184, 166),
+                    BorderBrush = NativeVisuals.Brush(31, 41, 51),
                     BorderThickness = new Thickness(1),
                     ClipToBounds = true,
                     Child = _magnifierImage
@@ -682,12 +677,18 @@ internal sealed class OverlayWindow : Window
             eventArgs.Handled = true;
             return;
         }
-        if ((eventArgs.Key is Key.LeftShift or Key.RightShift) && !eventArgs.IsRepeat)
+        if (eventArgs.Key is Key.LeftShift or Key.RightShift)
         {
-            _colorFormat = _colorFormat == ColorFormat.Rgb ? ColorFormat.Hex : ColorFormat.Rgb;
-            ShowFeedback("取色格式: " + (_colorFormat == ColorFormat.Rgb ? "RGB" : "HEX"));
+            if (!eventArgs.IsRepeat)
+            {
+                _pendingColorFormatToggle = true;
+            }
             eventArgs.Handled = true;
             return;
+        }
+        if (shift)
+        {
+            _pendingColorFormatToggle = false;
         }
         if (control && shift && eventArgs.Key == Key.Z)
         {
@@ -710,6 +711,12 @@ internal sealed class OverlayWindow : Window
         if (control && eventArgs.Key == Key.S)
         {
             Finish("save_as");
+            eventArgs.Handled = true;
+            return;
+        }
+        if (eventArgs.Key == Key.C && !control)
+        {
+            CopyPointerColor();
             eventArgs.Handled = true;
             return;
         }
@@ -738,12 +745,6 @@ internal sealed class OverlayWindow : Window
         if (eventArgs.Key == Key.Q)
         {
             Finish("qr");
-            eventArgs.Handled = true;
-            return;
-        }
-        if (eventArgs.Key == Key.C && !control)
-        {
-            CopyPointerColor();
             eventArgs.Handled = true;
             return;
         }
@@ -779,6 +780,27 @@ internal sealed class OverlayWindow : Window
             ActivateTool(tool.Value);
             eventArgs.Handled = true;
         }
+    }
+
+    private void HandleKeyUp(object sender, WpfKeyEventArgs eventArgs)
+    {
+        if (eventArgs.Key is not (Key.LeftShift or Key.RightShift))
+        {
+            return;
+        }
+
+        var shouldToggle = _pendingColorFormatToggle;
+        _pendingColorFormatToggle = false;
+        if (!shouldToggle)
+        {
+            return;
+        }
+
+        var nextFormat = ColorFormatPreferences.Current == ColorFormat.Rgb ? ColorFormat.Hex : ColorFormat.Rgb;
+        var saved = ColorFormatPreferences.TrySetCurrent(nextFormat);
+        RefreshPointerColorText();
+        ShowFeedback("取色格式: " + (nextFormat == ColorFormat.Rgb ? "RGB" : "HEX") + (saved ? "" : "（未保存）"));
+        eventArgs.Handled = true;
     }
 
     private void UpdateSelectionVisuals(bool refreshChrome = true, bool refreshTools = true, bool redrawAnnotations = true, bool layoutToolbar = true)
@@ -956,7 +978,7 @@ internal sealed class OverlayWindow : Window
                 Height = 9,
                 CornerRadius = new CornerRadius(4.5),
                 Background = NativeVisuals.Brush(250, 250, 250, 250),
-                BorderBrush = NativeVisuals.Brush(220, 20, 184, 166),
+                BorderBrush = NativeVisuals.Brush(220, 31, 41, 51),
                 BorderThickness = new Thickness(1),
                 Visibility = Visibility.Collapsed,
                 IsHitTestVisible = false,
@@ -1244,7 +1266,7 @@ internal sealed class OverlayWindow : Window
             FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI"),
             Foreground = new SolidColorBrush(ColorFromHex(_annotationColor)),
             Background = NativeVisuals.Brush(245, 255, 255, 255),
-            BorderBrush = NativeVisuals.Brush(20, 184, 166),
+            BorderBrush = NativeVisuals.Brush(31, 41, 51),
             BorderThickness = new Thickness(1),
             Padding = new Thickness(6)
         };
@@ -1593,7 +1615,7 @@ internal sealed class OverlayWindow : Window
         }
         var preview = new Polyline
         {
-            Stroke = NativeVisuals.Brush(180, 20, 184, 166),
+            Stroke = NativeVisuals.Brush(180, 31, 41, 51),
             StrokeThickness = Math.Max(8, stroke * 4),
             StrokeLineJoin = PenLineJoin.Round,
             StrokeStartLineCap = PenLineCap.Round,
@@ -1678,7 +1700,7 @@ internal sealed class OverlayWindow : Window
             Width = localRect.Width,
             Height = localRect.Height,
             Opacity = opacity,
-            BorderBrush = showBorder ? NativeVisuals.Brush(184, 20, 184, 166) : WpfBrushes.Transparent,
+            BorderBrush = showBorder ? NativeVisuals.Brush(184, 31, 41, 51) : WpfBrushes.Transparent,
             BorderThickness = showBorder ? new Thickness(1) : new Thickness(0),
             ClipToBounds = true,
             Clip = clip,
@@ -1706,7 +1728,7 @@ internal sealed class OverlayWindow : Window
         {
             Width = Math.Max(1, rect.Width),
             Height = Math.Max(1, rect.Height),
-            Stroke = NativeVisuals.Brush(15, 118, 110),
+            Stroke = NativeVisuals.Brush(31, 41, 51),
             StrokeThickness = 1,
             StrokeDashArray = [4, 3],
             Fill = WpfBrushes.Transparent,
@@ -2635,7 +2657,7 @@ internal sealed class OverlayWindow : Window
             var top = Math.Clamp(physicalY - sampleSize / 2, 0, Math.Max(0, _capture.Source.PixelHeight - sampleSize));
             _magnifierImage.Source = _capture.CropSource(new Int32Rect(left, top, Math.Min(sampleSize, _capture.Source.PixelWidth - left), Math.Min(sampleSize, _capture.Source.PixelHeight - top)));
             var color = _capture.SamplePixel(physicalX, physicalY);
-            _magnifierText.Text = FormatColor(color, _colorFormat);
+            _magnifierText.Text = FormatColor(color, ColorFormatPreferences.Current);
             _lastMagnifierContentMs = now;
             _lastMagnifierPhysicalX = physicalX;
             _lastMagnifierPhysicalY = physicalY;
@@ -2669,9 +2691,32 @@ internal sealed class OverlayWindow : Window
     private void CopyPointerColor()
     {
         var color = _capture.SamplePixel(LocalToPhysicalX(_lastPoint.X), LocalToPhysicalY(_lastPoint.Y));
-        var text = FormatColor(color, _colorFormat);
-        Clipboard.SetText(text);
-        ShowFeedback("颜色已复制: " + text);
+        var text = FormatColor(color, ColorFormatPreferences.Current);
+        try
+        {
+            NativeClipboard.WriteTextWithRetry(text);
+            Complete(new CaptureResponse
+            {
+                Ok = true,
+                Action = "color",
+                Message = "颜色已复制: " + text,
+                ClipboardWritten = true
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowFeedback("复制失败: " + ex.Message);
+        }
+    }
+
+    private void RefreshPointerColorText()
+    {
+        if (_magnifier.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+        var color = _capture.SamplePixel(LocalToPhysicalX(_lastPoint.X), LocalToPhysicalY(_lastPoint.Y));
+        _magnifierText.Text = FormatColor(color, ColorFormatPreferences.Current);
     }
 
     private void SetThickness(int value, bool showFeedback)
@@ -2738,7 +2783,7 @@ internal sealed class OverlayWindow : Window
         if (_ocrBusy || _redactBusy)
         {
             _ocrButton.IsEnabled = false;
-            _ocrButton.Background = NativeVisuals.Brush(235, 20, 184, 166);
+            _ocrButton.Background = NativeVisuals.Brush(235, 31, 41, 51);
             _ocrButton.Foreground = NativeVisuals.Brush(255, 255, 255);
             _ocrButton.ToolTip = _redactBusy ? "正在打码并复制" : "OCR 识别中";
             _ocrButton.Opacity = 1;
@@ -2765,8 +2810,8 @@ internal sealed class OverlayWindow : Window
         {
             var active = tool == _tool && (tool == AnnotationTool.Select || _editMode);
             button.IsEnabled = hasSelection && !busy;
-            button.Background = active ? NativeVisuals.Brush(48, 20, 184, 166) : WpfBrushes.Transparent;
-            button.Foreground = active ? NativeVisuals.Brush(15, 118, 110) : NativeVisuals.Brush(39, 39, 42);
+            button.Background = active ? NativeVisuals.Brush(48, 31, 41, 51) : WpfBrushes.Transparent;
+            button.Foreground = active ? NativeVisuals.Brush(31, 41, 51) : NativeVisuals.Brush(39, 39, 42);
         }
         foreach (var button in _operationButtons)
         {
@@ -2776,7 +2821,7 @@ internal sealed class OverlayWindow : Window
         {
             button.IsEnabled = !busy;
             button.BorderThickness = string.Equals(button.ToolTip?.ToString(), _annotationColor, StringComparison.OrdinalIgnoreCase) ? new Thickness(2) : new Thickness(1);
-            button.BorderBrush = string.Equals(button.ToolTip?.ToString(), _annotationColor, StringComparison.OrdinalIgnoreCase) ? NativeVisuals.Brush(15, 118, 110) : NativeVisuals.Brush(190, 212, 212, 216);
+            button.BorderBrush = string.Equals(button.ToolTip?.ToString(), _annotationColor, StringComparison.OrdinalIgnoreCase) ? NativeVisuals.Brush(31, 41, 51) : NativeVisuals.Brush(190, 212, 212, 216);
         }
         ApplyOcrButtonState();
     }

@@ -31,6 +31,15 @@ internal static partial class NativeMethods
         }
     }
 
+    public static POINT CursorPos()
+    {
+        if (GetCursorPos(out var point))
+        {
+            return point;
+        }
+        return new POINT { X = 80, Y = 80 };
+    }
+
     public static void PlaceWindowInPhysicalPixels(System.Windows.Window window, int x, int y, int width, int height)
     {
         var hwnd = new WindowInteropHelper(window).Handle;
@@ -164,6 +173,10 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetCursorPos(out POINT point);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

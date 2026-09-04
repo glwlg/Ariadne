@@ -1,5 +1,6 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -13,6 +14,25 @@ internal static class NativeClipboard
     private const short Planes = 1;
     private const short BitsPerPixel = 32;
     private const int BiRgb = 0;
+
+    public static void WriteTextWithRetry(string text)
+    {
+        Exception? lastError = null;
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            try
+            {
+                Clipboard.SetText(text);
+                return;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+                Thread.Sleep(15 + attempt * 10);
+            }
+        }
+        throw new InvalidOperationException(lastError?.Message ?? "剪贴板不可用", lastError);
+    }
 
     public static void WritePngWithRetry(byte[] png)
     {

@@ -92,6 +92,11 @@ internal sealed class HostServer : IDisposable
             _ = _dispatcher.BeginInvoke(() => WpfApplication.Current.Shutdown());
             return new CaptureResponse { Ok = true, Message = "closing" };
         }
+        if (string.Equals(request.Command, "pin", StringComparison.OrdinalIgnoreCase))
+        {
+            var pinOperation = _dispatcher.InvokeAsync(CaptureCoordinator.PinClipboard);
+            return await pinOperation.Task;
+        }
         if (!string.Equals(request.Command, "capture", StringComparison.OrdinalIgnoreCase))
         {
             return new CaptureResponse { Ok = false, Message = "unsupported command" };

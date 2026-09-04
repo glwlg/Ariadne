@@ -49,7 +49,7 @@ internal static class NativeVisuals
             MinWidth = size,
             Padding = new Thickness(0),
             BorderThickness = new Thickness(0),
-            Background = primary ? Brush(235, 20, 184, 166) : Brushes.Transparent,
+            Background = primary ? Brush(235, 31, 41, 51) : Brushes.Transparent,
             Foreground = primary ? Brush(255, 255, 255) : Brush(39, 39, 42),
             ToolTip = tooltip,
             Cursor = Cursors.Arrow,
@@ -282,13 +282,13 @@ internal static class NativeVisuals
         template.VisualTree = border;
 
         var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-        hover.Setters.Add(new Setter(Control.BackgroundProperty, Brush(34, 20, 184, 166)));
-        hover.Setters.Add(new Setter(Control.ForegroundProperty, Brush(17, 94, 89)));
+        hover.Setters.Add(new Setter(Control.BackgroundProperty, Brush(34, 31, 41, 51)));
+        hover.Setters.Add(new Setter(Control.ForegroundProperty, Brush(31, 41, 51)));
         template.Triggers.Add(hover);
 
         var pressed = new Trigger { Property = ButtonBase.IsPressedProperty, Value = true };
-        pressed.Setters.Add(new Setter(Control.BackgroundProperty, Brush(58, 20, 184, 166)));
-        pressed.Setters.Add(new Setter(Control.ForegroundProperty, Brush(15, 118, 110)));
+        pressed.Setters.Add(new Setter(Control.BackgroundProperty, Brush(58, 31, 41, 51)));
+        pressed.Setters.Add(new Setter(Control.ForegroundProperty, Brush(31, 41, 51)));
         template.Triggers.Add(pressed);
 
         return template;

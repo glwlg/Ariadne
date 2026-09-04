@@ -890,6 +890,24 @@ func TestCaptureNativeSelectionOcrDoesNotRequirePNGOrHistory(t *testing.T) {
 	}
 }
 
+func TestCaptureNativeSelectionColorDoesNotRequirePNGOrHistory(t *testing.T) {
+	service := NewService(panicCaptureSink{}, &positionedPinRecorder{})
+
+	result := service.captureNativeSelection(nativecapture.Response{
+		OK:               true,
+		Action:           "color",
+		Message:          "颜色已复制: #1F2933",
+		ClipboardWritten: true,
+	}, ScreenshotPolicy{AutoCopy: true, AutoSave: true, AutoPin: true})
+
+	if !result.OK || result.Message != "颜色已复制: #1F2933" {
+		t.Fatalf("expected copied color result, got %#v", result)
+	}
+	if result.CaptureID != "" || result.ImagePath != "" || result.Pin != nil {
+		t.Fatalf("color action should not create image artifacts, got %#v", result)
+	}
+}
+
 func TestOverlaySessionsReuseVirtualPNGForSingleDisplay(t *testing.T) {
 	service := NewService(nil, nil)
 	virtual := capturehistory.ScreenBounds{X: 0, Y: 0, Width: 1280, Height: 720}
