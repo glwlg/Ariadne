@@ -15,6 +15,7 @@ import (
 	"ariadne/internal/apitesting"
 	"ariadne/internal/applog"
 	"ariadne/internal/apps"
+	"ariadne/internal/appupdate"
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/captureoverlay"
 	"ariadne/internal/checklists"
@@ -57,6 +58,8 @@ var appIcon []byte
 
 //go:embed assets/logo.png
 var trayIcon []byte
+
+var appVersion = "dev"
 
 func main() {
 	if _, err := handleRestartReplacementArgs(os.Args[1:], os.Getpid(), waitForRestartReplacementProcess); err != nil {
@@ -330,6 +333,17 @@ func main() {
 			Handler: captureoverlay.CaptureOverlayAssetHandler(captureOverlayService, fileSearchService.FileIconAssetHandler(application.AssetFileServerFS(assets))),
 		},
 	})
+	appUpdateService, err := appupdate.Configure(app.Updater, appVersion, func() error {
+		checkpoint := releaseService.CreateRollbackCheckpoint(release.BackupRequest{Reason: "pre_app_update:" + appVersion})
+		if !checkpoint.OK {
+			return fmt.Errorf("%s", checkpoint.Message)
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("configure updater: %v", err)
+	}
+	app.RegisterService(application.NewService(appUpdateService))
 	app.HandleStream(networkmonitor.TelemetryStreamName, func(connection *application.StreamConn) {
 		networkmonitor.HandleTelemetryStream(networkMonitorService, connection)
 	})

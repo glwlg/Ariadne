@@ -7,6 +7,12 @@ import (
 	"ariadne/internal/settings"
 )
 
+func TestDefaultAppVersionIsDevelopment(t *testing.T) {
+	if appVersion != "dev" {
+		t.Fatalf("default app version = %q, want dev", appVersion)
+	}
+}
+
 func TestFileSearchPolicyProviderReadsSettingsConfigScope(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")

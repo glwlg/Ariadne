@@ -46,6 +46,17 @@ func TestWindowsResourceTaskEmitsGoLinkableSyso(t *testing.T) {
 	assertContains(t, taskfile, "--out ariadne_resource.syso --no-suffix")
 }
 
+func TestWindowsBuildInjectsReleaseVersionIntoApplication(t *testing.T) {
+	taskfile := readFile(t, filepath.Join("..", "..", "Taskfile.yml"))
+	assertContains(t, taskfile, "APP_VERSION: '{{.ARIADNE_VERSION | default \"dev\"}}'")
+	assertContains(t, taskfile, "-X main.appVersion={{.APP_VERSION}}")
+}
+
+func TestSetupStubPassesUpdateDirectoryToInteractiveInstaller(t *testing.T) {
+	source := setupMainSource(Options{ProductName: "Ariadne", Version: "1.2.3"})
+	assertContains(t, source, "UpdateDir: parsed.UpdateDir")
+}
+
 func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	base := t.TempDir()
 	exePath := filepath.Join(base, "bin", "ariadne.exe")
@@ -61,6 +72,7 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 		IconPath:  iconPath,
 		OutputDir: outputDir,
 		CreatedAt: time.Unix(1710000000, 0),
+		KeepZip:   true,
 	})
 	if err != nil {
 		t.Fatalf("build package: %v", err)
@@ -123,6 +135,61 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 		if entries[name] {
 			t.Fatalf("zip should not contain %s", name)
 		}
+	}
+}
+
+func TestBuildDefaultsToSetupOnlyAndWritesUpdaterChecksum(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	iconPath := filepath.Join(base, "assets", "logo.ico")
+	outputDir := filepath.Join(base, "dist", "release")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, iconPath, "fake icon")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
+
+	result, err := Build(Options{
+		Version:   "1.2.3",
+		ExePath:   exePath,
+		IconPath:  iconPath,
+		OutputDir: outputDir,
+		CreatedAt: time.Unix(1710000000, 0),
+	})
+	if err != nil {
+		t.Fatalf("build setup-only package: %v", err)
+	}
+	manifest := result.Manifest
+	if manifest.ZipPath != "" {
+		t.Fatalf("setup-only package should not expose a zip path: %#v", manifest)
+	}
+	zipPath := filepath.Join(outputDir, "ariadne-1.2.3-windows-x64.zip")
+	if _, err := os.Stat(zipPath); !os.IsNotExist(err) {
+		t.Fatalf("setup-only package should remove temporary zip, stat err=%v", err)
+	}
+	if manifest.SetupFile == nil || manifest.ChecksumPath == "" {
+		t.Fatalf("setup-only package should expose setup checksum metadata: %#v", manifest)
+	}
+	wantChecksum := manifest.SetupFile.SHA256 + "  " + filepath.Base(manifest.SetupPath) + "\n"
+	if got := readFile(t, manifest.ChecksumPath); got != wantChecksum {
+		t.Fatalf("unexpected updater checksum file: got %q want %q", got, wantChecksum)
+	}
+}
+
+func TestBuildRejectsNonSemanticReleaseVersion(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	iconPath := filepath.Join(base, "assets", "logo.ico")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, iconPath, "fake icon")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
+
+	_, err := Build(Options{
+		Version:   "20260904-color-fix",
+		ExePath:   exePath,
+		IconPath:  iconPath,
+		OutputDir: filepath.Join(base, "out"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "semantic version") {
+		t.Fatalf("expected semantic version validation error, got %v", err)
 	}
 }
 

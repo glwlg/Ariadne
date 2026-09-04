@@ -29,6 +29,7 @@ type Options struct {
 	ProductName string
 	Version     string
 	Args        []string
+	UpdateDir   string
 	KeepTemp    bool
 }
 
@@ -40,6 +41,7 @@ type Result struct {
 type ParsedArgs struct {
 	Quiet       bool
 	InstallArgs []string
+	UpdateDir   string
 }
 
 type commandOptions struct {
@@ -64,22 +66,38 @@ type commandOptions struct {
 }
 
 type installReceipt struct {
-	ProductName   string   `json:"productName"`
-	Version       string   `json:"version"`
-	InstalledAt   string   `json:"installedAt"`
-	InstallDir    string   `json:"installDir"`
-	ExePath       string   `json:"exePath"`
-	IconPath      string   `json:"iconPath"`
-	InstallerPath string   `json:"installerPath"`
-	Shortcuts     []string `json:"shortcuts"`
+	ProductName    string                 `json:"productName"`
+	Version        string                 `json:"version"`
+	InstalledAt    string                 `json:"installedAt"`
+	InstallDir     string                 `json:"installDir"`
+	ExePath        string                 `json:"exePath"`
+	IconPath       string                 `json:"iconPath"`
+	InstallerPath  string                 `json:"installerPath"`
+	Shortcuts      []string               `json:"shortcuts"`
+	InstallOptions *receiptInstallOptions `json:"installOptions,omitempty"`
+}
+
+type receiptInstallOptions struct {
+	CreateStartMenuShortcut  bool `json:"createStartMenuShortcut"`
+	CreateDesktopShortcut    bool `json:"createDesktopShortcut"`
+	InstallFileSearchService bool `json:"installFileSearchService"`
+	AutoStart                bool `json:"autoStart"`
 }
 
 func ParseArgs(args []string) ParsedArgs {
 	parsed := ParsedArgs{}
-	for _, arg := range args {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
 		switch strings.ToLower(strings.TrimSpace(arg)) {
 		case "--quiet", "-quiet", "/quiet", "--silent", "-silent", "/silent":
 			parsed.Quiet = true
+		case "--update-from":
+			if index+1 >= len(args) {
+				parsed.InstallArgs = append(parsed.InstallArgs, arg)
+				continue
+			}
+			index++
+			parsed.UpdateDir = strings.TrimSpace(args[index])
 		default:
 			parsed.InstallArgs = append(parsed.InstallArgs, arg)
 		}
@@ -311,6 +329,12 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 		IconPath:      iconPath,
 		InstallerPath: installerPath,
 		Shortcuts:     shortcuts,
+		InstallOptions: &receiptInstallOptions{
+			CreateStartMenuShortcut:  !command.NoShortcuts && command.CreateStartMenuShortcut,
+			CreateDesktopShortcut:    !command.NoShortcuts && command.CreateDesktopShortcut,
+			InstallFileSearchService: command.InstallFileSearchService,
+			AutoStart:                command.AutoStart,
+		},
 	}
 	if err := writeReceipt(filepath.Join(installDir, "install_receipt.json"), receipt); err != nil {
 		return Result{}, err

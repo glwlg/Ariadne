@@ -3,6 +3,7 @@ version: '3'
 vars:
   APP_NAME: ariadne
   BIN_DIR: bin
+  APP_VERSION: '{{.ARIADNE_VERSION | default "dev"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
 tasks:
@@ -19,7 +20,7 @@ tasks:
       - wails3 generate bindings -clean=false
       - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
       - wails3 task windows:resources
-      - go build -ldflags="-H windowsgui" -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" .
+      - go build -ldflags="-H windowsgui -X main.appVersion={{.APP_VERSION}}" -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" .
 
   windows:mcp-build:
     summary: Build a development-only Ariadne executable with the Wails MCP server.
@@ -29,7 +30,7 @@ tasks:
       - wails3 generate bindings -clean=false
       - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
       - wails3 task windows:resources
-      - go build -tags=mcp -ldflags="-H windowsgui" -o "{{.BIN_DIR}}/{{.APP_NAME}}-mcp.exe" .
+      - go build -tags=mcp -ldflags="-H windowsgui -X main.appVersion={{.APP_VERSION}}" -o "{{.BIN_DIR}}/{{.APP_NAME}}-mcp.exe" .
 
   windows:mcp-dev:
     summary: Run the development-only MCP build on loopback with a random available port.
@@ -49,7 +50,7 @@ tasks:
       - go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --out ariadne_resource.syso --no-suffix
 
   windows:package:
-    summary: Build Ariadne and create a user-level Windows setup exe plus zip package.
+    summary: Build Ariadne and create a user-level Windows setup exe plus updater checksum.
     cmds:
       - wails3 task windows:build
       - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/releasepack -version dev } else { go run ./cmd/releasepack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) }"

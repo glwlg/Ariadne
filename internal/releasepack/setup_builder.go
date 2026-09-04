@@ -169,6 +169,7 @@ func main() {
 		ProductName: %s,
 		Version: %s,
 		Args: parsed.InstallArgs,
+		UpdateDir: parsed.UpdateDir,
 	}
 	var result setupstub.Result
 	var err error

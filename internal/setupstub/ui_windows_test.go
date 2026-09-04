@@ -3,6 +3,8 @@
 package setupstub
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -63,5 +65,33 @@ func TestElevatedInstallArgsPreserveFileSearchServiceChoice(t *testing.T) {
 	}
 	if !strings.Contains(joined, ` --settings-config C:\Users\luwei\AppData\Roaming\Ariadne\config.json `) {
 		t.Fatalf("elevated retry should preserve settings config path: %#v", args)
+	}
+}
+
+func TestUpdateSelectionPreservesRecordedInstallOptions(t *testing.T) {
+	installDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(installDir, "ariadne.exe"), []byte("exe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeReceipt(filepath.Join(installDir, "install_receipt.json"), installReceipt{
+		ProductName: "Ariadne",
+		InstallDir:  installDir,
+		InstallOptions: &receiptInstallOptions{
+			CreateStartMenuShortcut:  true,
+			CreateDesktopShortcut:    false,
+			InstallFileSearchService: false,
+			AutoStart:                false,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	selection := initialInteractiveSelection(Options{ProductName: "Ariadne", UpdateDir: installDir})
+
+	if selection.InstallDir != installDir || !selection.CreateStartMenuShortcut || selection.CreateDesktopShortcut || selection.InstallFileSearchService || selection.AutoStart {
+		t.Fatalf("update selection did not preserve recorded options: %#v", selection)
+	}
+	if !selection.LaunchAfterInstall {
+		t.Fatal("interactive update should launch the refreshed application")
 	}
 }

@@ -4,6 +4,7 @@ package setupstub
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -271,6 +272,54 @@ func RunInteractive(payload []byte, options Options) (Result, error) {
 	return Run(payload, options)
 }
 
+func initialInteractiveSelection(options Options) interactiveInstallSelection {
+	selection := interactiveInstallSelection{
+		InstallDir:               defaultInstallDir(options.ProductName),
+		CreateStartMenuShortcut:  true,
+		CreateDesktopShortcut:    true,
+		InstallFileSearchService: true,
+		AutoStart:                true,
+		LaunchAfterInstall:       true,
+	}
+	updateDir := strings.TrimSpace(options.UpdateDir)
+	if updateDir == "" {
+		return selection
+	}
+	absolute, err := filepath.Abs(updateDir)
+	if err != nil {
+		return selection
+	}
+	if info, err := os.Stat(filepath.Join(absolute, strings.ToLower(options.ProductName)+".exe")); err != nil || info.IsDir() {
+		return selection
+	}
+	receipt := readReceipt(filepath.Join(absolute, "install_receipt.json"))
+	if receipt.ProductName != "" && !strings.EqualFold(receipt.ProductName, options.ProductName) {
+		return selection
+	}
+	selection.InstallDir = absolute
+	if receipt.InstallOptions != nil {
+		selection.CreateStartMenuShortcut = receipt.InstallOptions.CreateStartMenuShortcut
+		selection.CreateDesktopShortcut = receipt.InstallOptions.CreateDesktopShortcut
+		selection.InstallFileSearchService = receipt.InstallOptions.InstallFileSearchService
+		selection.AutoStart = receipt.InstallOptions.AutoStart
+		return selection
+	}
+	if receipt.Version != "" {
+		selection.CreateStartMenuShortcut = receiptListsShortcut(receipt, filepath.Join(defaultStartMenuDir(), options.ProductName+".lnk"))
+		selection.CreateDesktopShortcut = receiptListsShortcut(receipt, filepath.Join(defaultDesktopDir(), options.ProductName+".lnk"))
+	}
+	return selection
+}
+
+func receiptListsShortcut(receipt installReceipt, path string) bool {
+	for _, shortcut := range receipt.Shortcuts {
+		if strings.EqualFold(filepath.Clean(shortcut), filepath.Clean(path)) {
+			return true
+		}
+	}
+	return false
+}
+
 func showInstallerWindow(options Options) (interactiveInstallSelection, bool, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -281,16 +330,9 @@ func showInstallerWindow(options Options) (interactiveInstallSelection, bool, er
 	}
 
 	window := &installerWindow{
-		productName: options.ProductName,
-		version:     options.Version,
-		draft: interactiveInstallSelection{
-			InstallDir:               defaultInstallDir(options.ProductName),
-			CreateStartMenuShortcut:  true,
-			CreateDesktopShortcut:    true,
-			InstallFileSearchService: true,
-			AutoStart:                true,
-			LaunchAfterInstall:       true,
-		},
+		productName:    options.ProductName,
+		version:        options.Version,
+		draft:          initialInteractiveSelection(options),
 		cancelled:      true,
 		controlText:    map[windows.Handle]uint32{},
 		controlBrushes: map[windows.Handle]windows.Handle{},

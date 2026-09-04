@@ -3,6 +3,7 @@ module ariadne
 go 1.25.0
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/go-ole/go-ole v1.3.0
 	github.com/makiuchi-d/gozxing v0.1.1
@@ -26,6 +27,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/phuslu/log v1.0.120 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/text v0.39.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	modernc.org/libc v1.72.3 // indirect

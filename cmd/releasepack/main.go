@@ -15,6 +15,7 @@ func main() {
 	exePath := flag.String("exe", "bin/ariadne.exe", "path to ariadne.exe")
 	iconPath := flag.String("icon", "assets/logo.ico", "path to logo.ico")
 	outputDir := flag.String("output", "dist/release", "output directory")
+	keepZip := flag.Bool("keep-zip", false, "keep the intermediate portable zip")
 	flag.Parse()
 
 	result, err := releasepack.Build(releasepack.Options{
@@ -22,6 +23,7 @@ func main() {
 		ExePath:   *exePath,
 		IconPath:  *iconPath,
 		OutputDir: *outputDir,
+		KeepZip:   *keepZip,
 	})
 	if err != nil {
 		log.Fatal(err)

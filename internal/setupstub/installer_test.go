@@ -20,6 +20,16 @@ func TestParseArgsConsumesQuietFlags(t *testing.T) {
 	}
 }
 
+func TestParseArgsConsumesUpdateDirectory(t *testing.T) {
+	parsed := ParseArgs([]string{"--update-from", `C:\Apps\Ariadne`})
+	if parsed.UpdateDir != `C:\Apps\Ariadne` {
+		t.Fatalf("update dir = %q", parsed.UpdateDir)
+	}
+	if len(parsed.InstallArgs) != 0 {
+		t.Fatalf("update metadata must not force quiet install: %#v", parsed.InstallArgs)
+	}
+}
+
 func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 	command, err := parseCommandOptions([]string{
 		"-InstallDir", `C:\Apps\Ariadne`,
@@ -193,6 +203,10 @@ func TestRunInstallsAndUninstallsPayloadWithoutScripts(t *testing.T) {
 	receipt := readFile(t, filepath.Join(installDir, "install_receipt.json"))
 	if strings.Contains(strings.ToLower(receipt), "x-tools") {
 		t.Fatalf("receipt should not mention x-tools: %s", receipt)
+	}
+	recorded := readReceipt(filepath.Join(installDir, "install_receipt.json"))
+	if recorded.InstallOptions == nil || recorded.InstallOptions.CreateStartMenuShortcut || recorded.InstallOptions.CreateDesktopShortcut {
+		t.Fatalf("receipt should preserve disabled shortcut choices: %#v", recorded.InstallOptions)
 	}
 
 	result, err = Run(nil, Options{

@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 type Options struct {
@@ -23,6 +25,7 @@ type Options struct {
 	OutputDir   string
 	CreatedAt   time.Time
 	SkipSetup   bool
+	KeepZip     bool
 }
 
 type Manifest struct {
@@ -33,8 +36,9 @@ type Manifest struct {
 	Arch              string        `json:"arch"`
 	InstallDir        string        `json:"installDir"`
 	PackageDir        string        `json:"packageDir"`
-	ZipPath           string        `json:"zipPath"`
+	ZipPath           string        `json:"zipPath,omitempty"`
 	SetupPath         string        `json:"setupPath,omitempty"`
+	ChecksumPath      string        `json:"checksumPath,omitempty"`
 	SetupFile         *PackageFile  `json:"setupFile,omitempty"`
 	Files             []PackageFile `json:"files"`
 	RollbackNotes     []string      `json:"rollbackNotes"`
@@ -138,8 +142,26 @@ func Build(options Options) (Result, error) {
 		}
 		manifest.SetupPath = setupPath
 		manifest.SetupFile = &setupFile
+		manifest.ChecksumPath = filepath.Join(options.OutputDir, "SHA256SUMS")
+		if err := writeUpdaterChecksum(manifest.ChecksumPath, setupFile, setupPath); err != nil {
+			return Result{}, err
+		}
+	}
+	if !options.KeepZip {
+		if err := os.Remove(zipPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return Result{}, err
+		}
+		manifest.ZipPath = ""
+	}
+	if err := writeManifest(filepath.Join(packageDir, "manifest.json"), manifest); err != nil {
+		return Result{}, err
 	}
 	return Result{Manifest: manifest}, nil
+}
+
+func writeUpdaterChecksum(path string, setupFile PackageFile, setupPath string) error {
+	line := setupFile.SHA256 + "  " + filepath.Base(setupPath) + "\n"
+	return os.WriteFile(path, []byte(line), 0o644)
 }
 
 func normalizeOptions(options Options) Options {
@@ -149,6 +171,7 @@ func normalizeOptions(options Options) Options {
 	if options.Version == "" {
 		options.Version = "dev"
 	}
+	options.Version = strings.TrimSpace(options.Version)
 	if options.ExePath == "" {
 		options.ExePath = filepath.Join("bin", "ariadne.exe")
 	}
@@ -170,6 +193,12 @@ func normalizeOptions(options Options) Options {
 func validateOptions(options Options) error {
 	if options.ProductName == "" || options.Version == "" {
 		return errors.New("product name and version are required")
+	}
+	if !strings.EqualFold(options.Version, "dev") {
+		version := strings.TrimPrefix(options.Version, "v")
+		if _, err := semver.StrictNewVersion(version); err != nil {
+			return fmt.Errorf("release version must be a semantic version: %q", options.Version)
+		}
 	}
 	if info, err := os.Stat(options.ExePath); err != nil || info.IsDir() {
 		return fmt.Errorf("Ariadne executable not found at %s", options.ExePath)

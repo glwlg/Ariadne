@@ -98,8 +98,10 @@ wails3 task windows:package
 
 ```text
 dist\release\AriadneSetup-dev-windows-x64.exe
-dist\release\ariadne-dev-windows-x64.zip
+dist\release\SHA256SUMS
 ```
+
+安装器内部包含完整应用载荷；默认不会保留中间 ZIP。
 
 ## 常用命令
 
@@ -108,7 +110,7 @@ dist\release\ariadne-dev-windows-x64.zip
 | `wails3 task windows:build` | 构建 Windows 可执行文件。 |
 | `wails3 task windows:mcp-build` | 构建仅供隔离测试使用、启用 Wails MCP 的开发 EXE。 |
 | `wails3 task windows:mcp-dev` | 在回环地址和随机端口运行 MCP 开发构建。 |
-| `wails3 task windows:package` | 构建用户级 Windows 安装器和 zip 发布包。 |
+| `wails3 task windows:package` | 构建用户级 Windows 安装器和更新校验文件，不保留 ZIP。 |
 | `wails3 task windows:msix` | 生成未签名 MSIX 布局。 |
 | `wails3 task windows:search-perf` | 运行搜索性能基准。 |
 | `wails3 task windows:perf` | 运行桌面性能探针。 |

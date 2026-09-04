@@ -2131,6 +2131,29 @@ export interface ReleaseRestoreResult {
   restoredAt: number
 }
 
+export interface AppUpdateStatus {
+  currentVersion: string
+  state: string
+  enabled: boolean
+  canCheck: boolean
+  canInstall: boolean
+  updateAvailable: boolean
+  availableVersion?: string
+  releaseName?: string
+  releaseNotes?: string
+  artifactName?: string
+  downloadedPath?: string
+  installerLaunched: boolean
+  message?: string
+  lastError?: string
+}
+
+export interface AppUpdateResult {
+  ok: boolean
+  message: string
+  status: AppUpdateStatus
+}
+
 export interface SettingsStorageStatus {
   path: string
   directory: string

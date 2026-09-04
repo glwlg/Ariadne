@@ -5,6 +5,7 @@ import {
   Brain,
   Camera,
   Database,
+  Download,
   HardDrive,
   KeyRound,
   Plus,
@@ -60,6 +61,15 @@ const releaseBackupSummary = computed(() => {
   if (!status) return '未加载'
   if (status.backupCount > 0) return `${status.backupCount} 个 / ${formatBytes(status.backupBytes)}`
   return '暂无检查点'
+})
+const appUpdateSummary = computed(() => {
+  const status = settings.appUpdateStatus
+  if (!status) return '未加载'
+  if (!status.enabled) return '开发构建未启用'
+  if (status.installerLaunched) return '安装器已启动'
+  if (status.updateAvailable) return `可更新至 ${status.availableVersion || '新版本'}`
+  if (status.state === 'up-to-date') return '已是最新版本'
+  return '可以检查更新'
 })
 const launcherKindOptions = [
   { value: 'app', label: '应用' },
@@ -1390,6 +1400,52 @@ onMounted(() => {
               <p v-if="settings.storageStatus?.readBackError" class="settings-note is-danger">
                 {{ settings.storageStatus.readBackError }}
               </p>
+            </section>
+
+            <section v-if="activeSettingsPage === 'advanced'" class="settings-panel">
+              <div class="settings-panel-title">
+                <Download :size="15" />
+                应用更新
+              </div>
+              <div class="settings-status-grid">
+                <div class="settings-status-card">
+                  <span>当前版本</span>
+                  <strong>{{ settings.appUpdateStatus?.currentVersion || 'dev' }}</strong>
+                  <small>{{ settings.appUpdateStatus?.artifactName || '通过 GitHub Releases 获取安装器' }}</small>
+                </div>
+                <div class="settings-status-card">
+                  <span>更新状态</span>
+                  <strong>{{ appUpdateSummary }}</strong>
+                  <small>{{ settings.appUpdateStatus?.releaseName || settings.appUpdateStatus?.state || 'unconfigured' }}</small>
+                </div>
+              </div>
+              <p v-if="settings.appUpdateStatus?.releaseNotes" class="settings-note">
+                {{ settings.appUpdateStatus.releaseNotes }}
+              </p>
+              <p v-if="settings.appUpdateStatus?.message" class="settings-note" :class="{ 'is-danger': Boolean(settings.appUpdateStatus.lastError) }">
+                {{ settings.appUpdateStatus.message }}
+              </p>
+              <div class="settings-inline-actions">
+                <AriButton
+                  size="sm"
+                  variant="secondary"
+                  :disabled="settings.isCheckingUpdate || settings.isInstallingUpdate || !settings.appUpdateStatus?.canCheck"
+                  @click="settings.checkForUpdates()"
+                >
+                  <RotateCcw :size="14" />
+                  {{ settings.isCheckingUpdate ? '检查中' : '检查更新' }}
+                </AriButton>
+                <AriButton
+                  v-if="settings.appUpdateStatus?.updateAvailable || settings.appUpdateStatus?.installerLaunched"
+                  size="sm"
+                  variant="primary"
+                  :disabled="settings.isInstallingUpdate || !settings.appUpdateStatus?.canInstall"
+                  @click="settings.installAvailableUpdate()"
+                >
+                  <Download :size="14" />
+                  {{ settings.isInstallingUpdate ? '下载校验中' : settings.appUpdateStatus?.installerLaunched ? '安装器已启动' : '下载并安装' }}
+                </AriButton>
+              </div>
             </section>
 
             <section v-if="activeSettingsPage === 'advanced'" class="settings-panel">

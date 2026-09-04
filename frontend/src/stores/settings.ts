@@ -1,5 +1,6 @@
 import { computed, ref, toRaw } from 'vue'
 import { defineStore } from 'pinia'
+import { checkForAppUpdates, downloadAndLaunchAppUpdate, getAppUpdateStatus } from '../services/appUpdateApi'
 import { exportDiagnosticsBundle, getPlatformStatus, installFileSearchService, resolveLegacyConflict } from '../services/platformApi'
 import { createLauncherDraft, getLauncherStatus, removeLauncher, upsertLauncher } from '../services/launchersApi'
 import { getLegacyDataStatus, importLegacyData } from '../services/migrationApi'
@@ -17,6 +18,8 @@ import {
   updateSettings,
 } from '../services/settingsApi'
 import type {
+  AppUpdateResult,
+  AppUpdateStatus,
   AppSettings,
   ActionResult,
   DiagnosticsExportResult,
@@ -49,6 +52,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const releaseBackupStatus = ref<ReleaseBackupStatus | null>(null)
   const releaseBackupResult = ref<ReleaseBackupResult | null>(null)
   const releaseRestoreResult = ref<ReleaseRestoreResult | null>(null)
+  const appUpdateStatus = ref<AppUpdateStatus | null>(null)
+  const appUpdateResult = ref<AppUpdateResult | null>(null)
   const diagnosticsExportResult = ref<DiagnosticsExportResult | null>(null)
   const legacyHandoffResult = ref<LegacyHandoffResult | null>(null)
   const storageStatus = ref<SettingsStorageStatus | null>(null)
@@ -87,6 +92,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const isMigrating = ref(false)
   const isCreatingRollbackCheckpoint = ref(false)
   const isRestoringRollbackCheckpoint = ref(false)
+  const isCheckingUpdate = ref(false)
+  const isInstallingUpdate = ref(false)
   const isExportingDiagnostics = ref(false)
   const isResolvingLegacyConflict = ref(false)
   const isInstallingSearchService = ref(false)
@@ -112,7 +119,7 @@ export const useSettingsStore = defineStore('settings', () => {
   async function load() {
     isLoading.value = true
     try {
-      const [nextSettings, nextLegacy, nextStorage, nextPlatform, nextLaunchers, nextSearchUsage, nextLegacyData, nextReleaseBackup, nextSecrets, nextPlugins] = await Promise.all([
+      const [nextSettings, nextLegacy, nextStorage, nextPlatform, nextLaunchers, nextSearchUsage, nextLegacyData, nextReleaseBackup, nextAppUpdate, nextSecrets, nextPlugins] = await Promise.all([
         getSettings(),
         getLegacyConfigStatus(),
         getSettingsStorageStatus(),
@@ -121,6 +128,7 @@ export const useSettingsStore = defineStore('settings', () => {
         getSearchUsageStatus(),
         getLegacyDataStatus(),
         getReleaseBackupStatus(),
+        getAppUpdateStatus(),
         getSecretStatus(),
         listPlugins(),
       ])
@@ -133,6 +141,7 @@ export const useSettingsStore = defineStore('settings', () => {
       searchUsageStatus.value = nextSearchUsage
       legacyDataStatus.value = nextLegacyData
       releaseBackupStatus.value = nextReleaseBackup
+      appUpdateStatus.value = nextAppUpdate
       secretStatus.value = nextSecrets
       pluginManifests.value = nextPlugins
       syncTextDraftsFromSettings()
@@ -308,6 +317,32 @@ export const useSettingsStore = defineStore('settings', () => {
     } finally {
       rollbackRestoreArmed.value = false
       isRestoringRollbackCheckpoint.value = false
+    }
+  }
+
+  async function checkForUpdates() {
+    isCheckingUpdate.value = true
+    try {
+      appUpdateResult.value = await checkForAppUpdates()
+      appUpdateStatus.value = appUpdateResult.value.status
+      showFeedback(appUpdateResult.value.message)
+    } catch {
+      showFeedback('检查应用更新失败')
+    } finally {
+      isCheckingUpdate.value = false
+    }
+  }
+
+  async function installAvailableUpdate() {
+    isInstallingUpdate.value = true
+    try {
+      appUpdateResult.value = await downloadAndLaunchAppUpdate()
+      appUpdateStatus.value = appUpdateResult.value.status
+      showFeedback(appUpdateResult.value.message)
+    } catch {
+      showFeedback('下载或启动更新安装器失败')
+    } finally {
+      isInstallingUpdate.value = false
     }
   }
 
@@ -680,6 +715,8 @@ export const useSettingsStore = defineStore('settings', () => {
     releaseBackupStatus,
     releaseBackupResult,
     releaseRestoreResult,
+    appUpdateStatus,
+    appUpdateResult,
     diagnosticsExportResult,
     legacyHandoffResult,
     storageStatus,
@@ -706,6 +743,8 @@ export const useSettingsStore = defineStore('settings', () => {
     isMigrating,
     isCreatingRollbackCheckpoint,
     isRestoringRollbackCheckpoint,
+    isCheckingUpdate,
+    isInstallingUpdate,
     isExportingDiagnostics,
     isResolvingLegacyConflict,
     isInstallingSearchService,
@@ -726,6 +765,8 @@ export const useSettingsStore = defineStore('settings', () => {
     refreshPlatformStatus,
     createRollbackCheckpoint,
     restoreLatestRollbackCheckpoint,
+    checkForUpdates,
+    installAvailableUpdate,
     exportDiagnostics,
     resolveLegacyHandoff,
     updateWorkMemoryRuntime,
