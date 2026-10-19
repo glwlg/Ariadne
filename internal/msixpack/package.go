@@ -95,6 +95,16 @@ func Build(options Options) (Result, error) {
 		return Result{}, err
 	}
 	files = append(files, nativeCaptureFiles...)
+	airplayFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "uxplay"), filepath.Join(layoutDir, "uxplay"), layoutDir, "uxplay.exe")
+	if err != nil {
+		return Result{}, err
+	}
+	files = append(files, airplayFiles...)
+	controlFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "iphone-control"), filepath.Join(layoutDir, "iphone-control"), layoutDir, "Ariadne.iPhoneControl.exe")
+	if err != nil {
+		return Result{}, err
+	}
+	files = append(files, controlFiles...)
 	for _, name := range []string{"Square44x44Logo.png", "Square150x150Logo.png", "StoreLogo.png"} {
 		file, err := copyFile(options.LogoPath, filepath.Join(assetsDir, name), layoutDir)
 		if err != nil {

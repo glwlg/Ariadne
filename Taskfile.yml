@@ -17,6 +17,8 @@ tasks:
     cmds:
       - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
       - wails3 task native:capture-host
+      - wails3 task native:uxplay
+      - wails3 task native:iphone-control
       - wails3 generate bindings -clean=false
       - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
       - wails3 task windows:resources
@@ -27,6 +29,8 @@ tasks:
     cmds:
       - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
       - wails3 task native:capture-host
+      - wails3 task native:uxplay
+      - wails3 task native:iphone-control
       - wails3 generate bindings -clean=false
       - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
       - wails3 task windows:resources
@@ -37,6 +41,16 @@ tasks:
     cmds:
       - wails3 task windows:mcp-build
       - powershell -NoProfile -Command "$env:WAILS_MCP_HOST='127.0.0.1'; $env:WAILS_MCP_PORT='0'; & '{{.BIN_DIR}}\{{.APP_NAME}}-mcp.exe'"
+
+  native:uxplay:
+    summary: Build and verify the bundled Windows x64 AirPlay receiver.
+    cmds:
+      - powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-uxplay.ps1
+
+  native:iphone-control:
+    summary: Publish the Bluetooth HID iPhone control window.
+    cmds:
+      - powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-iphone-control.ps1
 
   native:capture-host:
     summary: Publish the WPF screenshot host used by the Windows native capture path.
@@ -97,5 +111,6 @@ tasks:
     cmds:
       - go test . ./cmd/... ./internal/...
       - wails3 task native:capture-host
+      - powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-iphone-control.ps1 -Test
       - wails3 generate bindings -clean=false
       - powershell -NoProfile -Command "Set-Location frontend; pnpm build"

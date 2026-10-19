@@ -89,6 +89,15 @@ internal static class CaptureCoordinator
             window.Show();
         }
 
+        var cursor = NativeMethods.CursorPos();
+        var monitors = captures.Select(capture => (capture.Bounds.X, capture.Bounds.Y, capture.Bounds.Width, capture.Bounds.Height)).ToArray();
+        var targetIndex = OverlayFocusTargetResolver.SelectTargetIndex(monitors, cursor.X, cursor.Y);
+        if (targetIndex < 0 || targetIndex >= windows.Count)
+        {
+            targetIndex = 0;
+        }
+        windows[targetIndex].ClaimKeyboardFocus();
+
         var result = await completion.Task;
         foreach (var window in windows)
         {

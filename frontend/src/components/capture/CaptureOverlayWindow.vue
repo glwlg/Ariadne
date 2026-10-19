@@ -9,6 +9,7 @@ import {
   Hash,
   Highlighter,
   Minus,
+  Move,
   MousePointer2,
   Pencil,
   Pin,
@@ -47,6 +48,7 @@ const props = defineProps<{
 
 type AnnotationTool = CaptureOverlayAnnotationOperation['kind']
 type Point = { x: number; y: number }
+type ToolbarPosition = { left: number; top: number }
 type TextEditorState = { x: number; y: number; width: number; text: string; index?: number }
 type VisualSelectionRect = { left: number; top: number; width: number; height: number; displayWidth: number; displayHeight: number }
 type ResizeAnchor = 'tl' | 't' | 'tr' | 'r' | 'br' | 'b' | 'bl' | 'l'
@@ -90,6 +92,9 @@ const movingAnnotationOrigin = ref<{ point: Point; operations: CaptureOverlayAnn
 const textEditor = ref<TextEditorState | null>(null)
 const textInputRef = ref<HTMLTextAreaElement | null>(null)
 const currentMousePoint = ref<Point>({ x: 0, y: 0 })
+const toolbarPosition = ref<ToolbarPosition | null>(null)
+const toolbarDragPointerId = ref<number | null>(null)
+const toolbarDragOrigin = ref<{ point: Point; position: ToolbarPosition } | null>(null)
 const colorFormat = ref<'rgb' | 'hex'>('rgb')
 let sampleCanvas: HTMLCanvasElement | null = null
 let sampleContext: CanvasRenderingContext2D | null = null
@@ -139,11 +144,11 @@ const toolbarStyle = computed(() => {
   const rect = selection.value
   if (!rect) return {}
   const viewport = overlayViewport()
-  const toolbarHeight = 74
-  const top = Math.min(viewport.height - toolbarHeight - 12, rect.top + rect.height + 10)
-  const toolbarWidth = Math.min(960, viewport.width - 24)
-  const right = Math.max(12, viewport.width - (rect.left + rect.width))
-  return { right: `${right}px`, top: `${Math.max(12, top)}px`, maxWidth: `${toolbarWidth}px` }
+  const toolbarWidth = Math.min(960, Math.max(1, viewport.width - 24))
+  const position = toolbarPosition.value
+    ? clampToolbarPosition(toolbarPosition.value, viewport, toolbarWidth)
+    : defaultToolbarPosition(rect, viewport, toolbarWidth)
+  return { left: `${position.left}px`, top: `${position.top}px`, maxWidth: `${toolbarWidth}px` }
 })
 
 const selectionViewBox = computed(() => {
@@ -300,6 +305,7 @@ function beginSelection(event: PointerEvent) {
   if ((event.target as HTMLElement | null)?.closest('button')) return
   if (editMode.value || textEditor.value) return
   clearRedactionPrepareTimer()
+  toolbarPosition.value = null
   const point = boundedPoint(event)
   dragStart.value = point
   dragEnd.value = point
@@ -340,9 +346,108 @@ function cancelSelectionPointer(event: PointerEvent) {
   }
 }
 
+function toolbarPointerPoint(event: PointerEvent): Point {
+  const surface = overlaySurfaceRect()
+  return { x: event.clientX - surface.left, y: event.clientY - surface.top }
+}
+
+function toolbarFits(position: ToolbarPosition, width: number, height: number, viewport: { width: number; height: number }, margin: number) {
+  return position.left >= margin
+    && position.top >= margin
+    && position.left + width <= viewport.width - margin
+    && position.top + height <= viewport.height - margin
+}
+
+function toolbarOverlapsSelection(position: ToolbarPosition, width: number, height: number, rect: { left: number; top: number; width: number; height: number }, gap: number) {
+  return position.left < rect.left + rect.width + gap
+    && position.left + width > rect.left - gap
+    && position.top < rect.top + rect.height + gap
+    && position.top + height > rect.top - gap
+}
+
+function clampToolbarPosition(position: ToolbarPosition, viewport: { width: number; height: number }, width: number, height = 78): ToolbarPosition {
+  const margin = 12
+  return {
+    left: clampNumber(position.left, margin, Math.max(margin, viewport.width - width - margin)),
+    top: clampNumber(position.top, margin, Math.max(margin, viewport.height - height - margin)),
+  }
+}
+
+function defaultToolbarPosition(rect: { left: number; top: number; width: number; height: number }, viewport: { width: number; height: number }, width: number): ToolbarPosition {
+  const height = 78
+  const gap = 12
+  const margin = 12
+  const candidates: ToolbarPosition[] = [
+    { left: rect.left + rect.width / 2 - width / 2, top: rect.top + rect.height + gap },
+    { left: rect.left + rect.width / 2 - width / 2, top: rect.top - height - gap },
+    { left: rect.left + rect.width + gap, top: rect.top },
+    { left: rect.left - width - gap, top: rect.top },
+  ]
+  const available = candidates.find((candidate) => (
+    toolbarFits(candidate, width, height, viewport, margin)
+    && !toolbarOverlapsSelection(candidate, width, height, rect, 4)
+  ))
+  return clampToolbarPosition(available ?? candidates[0], viewport, width, height)
+}
+
+function beginToolbarDrag(event: PointerEvent) {
+  if (event.button !== 0 || isBusy.value) return
+  const handle = event.currentTarget as HTMLElement
+  const toolbar = handle.closest<HTMLElement>('.capture-overlay-toolbar')
+  const bounds = toolbar?.getBoundingClientRect()
+  const surface = overlaySurfaceRect()
+  const viewport = overlayViewport()
+  const width = bounds?.width ?? Math.min(960, Math.max(1, viewport.width - 24))
+  const position = toolbarPosition.value ?? {
+    left: (bounds?.left ?? surface.left) - surface.left,
+    top: (bounds?.top ?? surface.top) - surface.top,
+  }
+  const clamped = clampToolbarPosition(position, viewport, width, bounds?.height ?? 78)
+  toolbarPosition.value = clamped
+  toolbarDragPointerId.value = event.pointerId
+  toolbarDragOrigin.value = { point: toolbarPointerPoint(event), position: { ...clamped } }
+  event.preventDefault()
+  handle.setPointerCapture(event.pointerId)
+}
+
+function moveToolbarDrag(event: PointerEvent) {
+  if (toolbarDragPointerId.value !== event.pointerId || !toolbarDragOrigin.value) return
+  const origin = toolbarDragOrigin.value
+  const point = toolbarPointerPoint(event)
+  const toolbar = document.querySelector<HTMLElement>('.capture-overlay-toolbar')
+  const bounds = toolbar?.getBoundingClientRect()
+  const viewport = overlayViewport()
+  const width = bounds?.width ?? Math.min(960, Math.max(1, viewport.width - 24))
+  const height = bounds?.height ?? 78
+  toolbarPosition.value = clampToolbarPosition(
+    { left: origin.position.left + point.x - origin.point.x, top: origin.position.top + point.y - origin.point.y },
+    viewport,
+    width,
+    height,
+  )
+}
+
+function endToolbarDrag(event: PointerEvent) {
+  if (toolbarDragPointerId.value !== event.pointerId) return
+  try {
+    ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
+  } catch {
+    // Pointer capture may already be released.
+  }
+  toolbarDragPointerId.value = null
+  toolbarDragOrigin.value = null
+}
+
+function cancelToolbarDrag(event: PointerEvent) {
+  if (toolbarDragPointerId.value !== event.pointerId) return
+  toolbarDragPointerId.value = null
+  toolbarDragOrigin.value = null
+}
+
 function beginResizeSelection(anchor: ResizeAnchor, event: PointerEvent) {
   if (event.button !== 0 || !selection.value) return
   event.preventDefault()
+  toolbarPosition.value = null
   if (textEditor.value) commitTextAnnotation()
   if (annotationOperations.value.length) {
     annotationOperations.value = []
@@ -540,6 +645,9 @@ async function closeWindow(cancel = true) {
 
 function resetSelection() {
   clearRedactionPrepareTimer()
+  toolbarPosition.value = null
+  toolbarDragPointerId.value = null
+  toolbarDragOrigin.value = null
   dragStart.value = null
   dragEnd.value = null
   selectionPointerId.value = null
@@ -1951,8 +2059,27 @@ function clampNumber(value: number, min: number, max: number) {
       />
     </div>
 
-    <div v-if="canShowToolbar" class="capture-overlay-toolbar" :style="toolbarStyle" @pointerdown.stop>
+    <div
+      v-if="canShowToolbar"
+      class="capture-overlay-toolbar"
+      :class="{ 'is-dragging': toolbarDragPointerId !== null }"
+      :style="toolbarStyle"
+      @pointerdown.stop
+    >
       <div class="capture-overlay-toolbar-row is-primary">
+        <button
+          class="capture-toolbar-drag-handle"
+          type="button"
+          title="拖动工具栏"
+          aria-label="拖动工具栏"
+          @pointerdown.stop.prevent="beginToolbarDrag"
+          @pointermove.stop="moveToolbarDrag"
+          @pointerup.stop.prevent="endToolbarDrag"
+          @pointercancel.stop.prevent="endToolbarDrag"
+          @lostpointercapture.stop.prevent="cancelToolbarDrag"
+        >
+          <Move :size="14" />
+        </button>
         <div class="capture-overlay-tool-group">
           <button type="button" :disabled="isBusy" title="识别二维码" aria-label="识别二维码" @click="runSelectionAction('qr')">
             <QrCode :size="14" />

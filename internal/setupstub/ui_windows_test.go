@@ -12,7 +12,6 @@ import (
 func TestInteractiveSelectionArgsEnableFileSearchService(t *testing.T) {
 	args := interactiveInstallSelection{
 		InstallDir:               `C:\Apps\Ariadne`,
-		CreateStartMenuShortcut:  true,
 		CreateDesktopShortcut:    true,
 		InstallFileSearchService: true,
 		AutoStart:                true,
@@ -35,9 +34,8 @@ func TestInteractiveSelectionArgsEnableFileSearchService(t *testing.T) {
 
 func TestInteractiveSelectionArgsDisableDefaultAutostart(t *testing.T) {
 	args := interactiveInstallSelection{
-		InstallDir:              `C:\Apps\Ariadne`,
-		CreateStartMenuShortcut: true,
-		CreateDesktopShortcut:   true,
+		InstallDir:            `C:\Apps\Ariadne`,
+		CreateDesktopShortcut: true,
 	}.args()
 
 	joined := " " + strings.Join(args, " ") + " "
@@ -77,7 +75,7 @@ func TestUpdateSelectionPreservesRecordedInstallOptions(t *testing.T) {
 		ProductName: "Ariadne",
 		InstallDir:  installDir,
 		InstallOptions: &receiptInstallOptions{
-			CreateStartMenuShortcut:  true,
+			CreateStartMenuShortcut:  false,
 			CreateDesktopShortcut:    false,
 			InstallFileSearchService: false,
 			AutoStart:                false,
@@ -88,8 +86,11 @@ func TestUpdateSelectionPreservesRecordedInstallOptions(t *testing.T) {
 
 	selection := initialInteractiveSelection(Options{ProductName: "Ariadne", UpdateDir: installDir})
 
-	if selection.InstallDir != installDir || !selection.CreateStartMenuShortcut || selection.CreateDesktopShortcut || selection.InstallFileSearchService || selection.AutoStart {
+	if selection.InstallDir != installDir || selection.CreateDesktopShortcut || selection.InstallFileSearchService || selection.AutoStart {
 		t.Fatalf("update selection did not preserve recorded options: %#v", selection)
+	}
+	if _, err := parseCommandOptions(selection.args()); err != nil {
+		t.Fatalf("an old disabled Start Menu choice must not disable it on upgrade: %v", err)
 	}
 	if !selection.LaunchAfterInstall {
 		t.Fatal("interactive update should launch the refreshed application")

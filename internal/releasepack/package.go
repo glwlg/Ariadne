@@ -94,6 +94,16 @@ func Build(options Options) (Result, error) {
 		return Result{}, err
 	}
 	files = append(files, nativeCaptureFiles...)
+	airplayFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "uxplay"), filepath.Join(appDir, "uxplay"), packageDir, "uxplay.exe")
+	if err != nil {
+		return Result{}, err
+	}
+	files = append(files, airplayFiles...)
+	controlFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "iphone-control"), filepath.Join(appDir, "iphone-control"), packageDir, "Ariadne.iPhoneControl.exe")
+	if err != nil {
+		return Result{}, err
+	}
+	files = append(files, controlFiles...)
 	if file, err := copyPackageFile(options.IconPath, filepath.Join(appDir, "logo.ico"), packageDir); err != nil {
 		return Result{}, err
 	} else {
@@ -123,7 +133,7 @@ func Build(options Options) (Result, error) {
 		VerificationNotes: []string{
 			"Run the setup EXE from the release directory; it opens normally and requests administrator permission only when installing the search service.",
 			"The setup EXE opens a wizard UI with user agreement, install directory, shortcuts, file index service, autostart, and launch options.",
-			"The setup EXE installs app files and selected shortcuts without external command files.",
+			"The setup EXE always creates or repairs Start Menu app and uninstall entries; the desktop shortcut is optional.",
 			"Run the installed Start Menu uninstaller shortcut to remove shortcuts and installed binaries.",
 			"Ariadne file search uses the built-in Windows NTFS USN/MFT index path and the optional AriadneFileSearch Windows service.",
 			"Local OCR uses an explicit Ariadne OCR runtime if configured.",
@@ -396,7 +406,9 @@ func readmeText(options Options) string {
 Ariadne %s for Windows
 
 Install:
-  Run AriadneSetup-%s-windows-x64.exe, review the user agreement, and choose the install directory, shortcuts, autostart, and launch options.
+  Run AriadneSetup-%s-windows-x64.exe, review the user agreement, and choose the install directory, desktop shortcut, autostart, and launch options.
+  Start Menu app and uninstall entries are always created or repaired, including during quiet upgrades.
+  --no-desktop-shortcut (or legacy --no-shortcuts) skips only the desktop shortcut.
 
 Uninstall:
   Run "Uninstall Ariadne" from the Start Menu.

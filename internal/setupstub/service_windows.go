@@ -102,12 +102,6 @@ func elevatedInstallArgs(command commandOptions) []string {
 	if command.InstallDir != "" {
 		args = append(args, "-InstallDir", command.InstallDir)
 	}
-	if command.NoShortcuts {
-		args = append(args, "-NoShortcuts")
-	}
-	if !command.CreateStartMenuShortcut {
-		args = append(args, "--no-start-menu-shortcut")
-	}
 	if !command.CreateDesktopShortcut {
 		args = append(args, "--no-desktop-shortcut")
 	}

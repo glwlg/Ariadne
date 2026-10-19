@@ -79,4 +79,9 @@ assert.match(source, /@pointermove\.stop="moveAnnotationCanvas"/, 'editing canva
 assert.match(source, /@pointerup\.stop="endAnnotationCanvas"/, 'editing canvas should route pointer release through the move-or-draw handler')
 assert.match(styles, /capture-annotation-canvas\.is-hovering-annotation/, 'editing canvas should show a move cursor over existing annotations')
 
+assert.match(source, /function defaultToolbarPosition\(/, 'capture toolbar should choose a position outside the selection')
+assert.match(source, /function beginToolbarDrag\(/, 'capture toolbar should expose a drag interaction')
+assert.match(source, /@pointerdown\.stop\.prevent="beginToolbarDrag"/, 'toolbar drag handle should own pointer capture')
+assert.match(styles, /capture-toolbar-drag-handle/, 'capture toolbar should show a dedicated drag handle')
+
 console.log('capture annotation flow tests passed')

@@ -91,6 +91,8 @@ type Service struct {
 	monitorStop        chan struct{}
 	networkMiniLayerAt time.Time
 	networkMiniLayout  string
+	captureFocusPaused bool
+	captureMiniHidden  bool
 }
 
 func NewService() *Service {
@@ -133,6 +135,63 @@ func (s *Service) registerNetworkMiniContextMenu(app *application.App) {
 	})
 	app.ContextMenu.Add(networkMiniContextMenu, menu)
 	menu.Update()
+}
+
+func (s *Service) SetCaptureFocusSuspended(suspended bool) {
+	s.mu.Lock()
+	s.captureFocusPaused = suspended
+	app := s.app
+	s.mu.Unlock()
+	if suspended {
+		s.hideNetworkMiniForCapture(app)
+		return
+	}
+	s.restoreNetworkMiniAfterCapture(app)
+}
+
+func (s *Service) hideNetworkMiniForCapture(app *application.App) {
+	window, ok := networkMiniWindow(app)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	wasHidden := s.networkMiniHidden
+	s.mu.Unlock()
+	if window.IsVisible() {
+		window.Hide()
+		s.mu.Lock()
+		s.captureMiniHidden = true
+		s.networkMiniHidden = true
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Lock()
+	s.captureMiniHidden = wasHidden
+	s.mu.Unlock()
+}
+
+func (s *Service) restoreNetworkMiniAfterCapture(app *application.App) {
+	s.mu.Lock()
+	shouldRestore := s.captureMiniHidden
+	s.captureMiniHidden = false
+	s.networkMiniHidden = false
+	s.mu.Unlock()
+	if !shouldRestore {
+		return
+	}
+	window, ok := networkMiniWindow(app)
+	if !ok {
+		return
+	}
+	s.applyNetworkMiniPlacement(window, app)
+	window.SetAlwaysOnTop(true).Show()
+	s.refreshNetworkMiniTaskbarLayerNow()
+}
+
+func (s *Service) captureFocusSuspended() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.captureFocusPaused
 }
 
 func (s *Service) SetWindowIcon(icon []byte) {
@@ -503,7 +562,7 @@ func focusLauncher(window application.Window) {
 
 func normalizeView(view string) string {
 	switch strings.ToLower(strings.TrimSpace(view)) {
-	case "work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "network-monitor", "network-mini", "settings":
+	case "work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "network-mini", "settings":
 		return strings.ToLower(strings.TrimSpace(view))
 	default:
 		return ""
@@ -526,6 +585,8 @@ func toolTitle(view string) string {
 		return "Ariadne - JSON 对比"
 	case "api-testing":
 		return "Ariadne - API 测试"
+	case "airplay":
+		return "Ariadne - iPhone 投屏"
 	case "network-monitor":
 		return "Ariadne - 进程网络"
 	case networkMiniView:
@@ -547,6 +608,8 @@ func toolSize(view string) (int, int) {
 		return 1180, 760
 	case "api-testing":
 		return 1240, 780
+	case "airplay":
+		return 1080, 760
 	case "network-monitor":
 		return 1240, 760
 	case networkMiniView:
@@ -563,6 +626,9 @@ func minWidth(view string) int {
 	if view == "network-monitor" {
 		return 760
 	}
+	if view == "airplay" {
+		return 820
+	}
 	if view == "settings" {
 		return 980
 	}
@@ -578,6 +644,9 @@ func minHeight(view string) int {
 	}
 	if view == "network-monitor" {
 		return 520
+	}
+	if view == "airplay" {
+		return 560
 	}
 	if view == "settings" {
 		return 680
@@ -928,10 +997,14 @@ func (s *Service) runNetworkMiniMonitor(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-taskbarEvents:
-			s.refreshNetworkMiniTaskbarLayerNow()
+			if !s.captureFocusSuspended() {
+				s.refreshNetworkMiniTaskbarLayerNow()
+			}
 		case <-ticker.C:
 			s.tickNetworkMiniAutoHide()
-			s.refreshNetworkMiniTaskbarLayerNow()
+			if !s.captureFocusSuspended() {
+				s.refreshNetworkMiniTaskbarLayerNow()
+			}
 		}
 	}
 }
@@ -969,19 +1042,10 @@ func (s *Service) tickNetworkMiniAutoHide() {
 		s.mu.Unlock()
 		return
 	}
-	if !enabled {
-		if wasAutoHidden || !window.IsVisible() {
-			s.applyNetworkMiniPlacement(window, app)
-			window.SetAlwaysOnTop(true).Show()
-		} else if window.IsVisible() {
-			s.refreshVisibleNetworkMini(window, app)
-		}
-		s.mu.Lock()
-		s.networkMiniHidden = false
-		s.mu.Unlock()
+	switch s.networkMiniCaptureAction(fullscreen, enabled, wasAutoHidden || !window.IsVisible()) {
+	case networkMiniCaptureHold:
 		return
-	}
-	if fullscreen {
+	case networkMiniCaptureHide:
 		if window.IsVisible() {
 			window.Hide()
 		}
@@ -989,8 +1053,7 @@ func (s *Service) tickNetworkMiniAutoHide() {
 		s.networkMiniHidden = true
 		s.mu.Unlock()
 		return
-	}
-	if wasAutoHidden {
+	case networkMiniCaptureShow:
 		s.applyNetworkMiniPlacement(window, app)
 		window.SetAlwaysOnTop(true).Show()
 		s.mu.Lock()
@@ -1003,12 +1066,40 @@ func (s *Service) tickNetworkMiniAutoHide() {
 	}
 }
 
+type networkMiniCaptureDecision int
+
+const (
+	networkMiniCaptureRefresh networkMiniCaptureDecision = iota
+	networkMiniCaptureHold
+	networkMiniCaptureHide
+	networkMiniCaptureShow
+)
+
+func (s *Service) networkMiniCaptureAction(fullscreen bool, autoHideEnabled bool, hiddenOrInvisible bool) networkMiniCaptureDecision {
+	if s.captureFocusSuspended() {
+		return networkMiniCaptureHold
+	}
+	if !autoHideEnabled {
+		if hiddenOrInvisible {
+			return networkMiniCaptureShow
+		}
+		return networkMiniCaptureRefresh
+	}
+	if fullscreen {
+		return networkMiniCaptureHide
+	}
+	if hiddenOrInvisible {
+		return networkMiniCaptureShow
+	}
+	return networkMiniCaptureRefresh
+}
+
 func (s *Service) restoreAutoHiddenNetworkMini() {
 	s.mu.RLock()
 	app := s.app
 	wasAutoHidden := s.networkMiniHidden
 	s.mu.RUnlock()
-	if app == nil || !wasAutoHidden {
+	if app == nil || !wasAutoHidden || s.captureFocusSuspended() {
 		return
 	}
 	if window, ok := app.Window.Get("tool-" + networkMiniView); ok {
@@ -1051,6 +1142,9 @@ func (s *Service) applyNetworkMiniPlacement(window application.Window, app *appl
 }
 
 func (s *Service) refreshVisibleNetworkMini(window application.Window, app *application.App) {
+	if s.captureFocusSuspended() {
+		return
+	}
 	if s.shouldReapplyNetworkMiniPlacement(app) {
 		s.applyNetworkMiniPlacement(window, app)
 		return
@@ -1061,18 +1155,25 @@ func (s *Service) refreshVisibleNetworkMini(window application.Window, app *appl
 }
 
 func (s *Service) refreshNetworkMiniTaskbarLayerNow() {
+	if s.captureFocusSuspended() {
+		return
+	}
 	s.mu.RLock()
 	app := s.app
 	s.mu.RUnlock()
-	if app == nil {
-		return
-	}
-	window, ok := app.Window.Get("tool-" + networkMiniView)
+	window, ok := networkMiniWindow(app)
 	if !ok || !window.IsVisible() {
 		return
 	}
 	refreshNetworkMiniTaskbarLayer(window)
 	s.markNetworkMiniLayerRefreshed()
+}
+
+func networkMiniWindow(app *application.App) (application.Window, bool) {
+	if app == nil {
+		return nil, false
+	}
+	return app.Window.Get("tool-" + networkMiniView)
 }
 
 func (s *Service) shouldReapplyNetworkMiniPlacement(app *application.App) bool {
@@ -1117,6 +1218,9 @@ func (s *Service) shouldRefreshNetworkMiniLayer() bool {
 }
 
 func (s *Service) shouldRefreshNetworkMiniLayerNow(taskbarForeground bool) bool {
+	if s.captureFocusSuspended() {
+		return false
+	}
 	if taskbarForeground {
 		s.markNetworkMiniLayerRefreshed()
 		return true

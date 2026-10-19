@@ -11,6 +11,7 @@ internal static partial class NativeMethods
     public const int HtCaption = 0x0002;
     public const int SwpNoZOrder = 0x0004;
     public const int SwpShowWindow = 0x0040;
+    private const int SwShow = 5;
     public const int WmNcLButtonDown = 0x00A1;
     private const int LogPixelsX = 88;
     private const int LogPixelsY = 90;
@@ -48,6 +49,44 @@ internal static partial class NativeMethods
             return;
         }
         SetWindowPos(hwnd, IntPtr.Zero, x, y, Math.Max(1, width), Math.Max(1, height), SwpNoZOrder | SwpShowWindow);
+    }
+
+    public static void ActivateOverlayWindow(System.Windows.Window window)
+    {
+        var hwnd = new WindowInteropHelper(window).Handle;
+        if (hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+        var foreground = GetForegroundWindow();
+        var foregroundThread = foreground == IntPtr.Zero ? 0u : GetWindowThreadProcessId(foreground, out _);
+        var targetThread = GetWindowThreadProcessId(hwnd, out _);
+        var attached = false;
+        try
+        {
+            if (foregroundThread != 0 && foregroundThread != targetThread)
+            {
+                attached = AttachThreadInput(foregroundThread, targetThread, true);
+            }
+            ShowWindow(hwnd, SwShow);
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+            SetActiveWindow(hwnd);
+            SetFocus(hwnd);
+        }
+        finally
+        {
+            if (attached)
+            {
+                AttachThreadInput(foregroundThread, targetThread, false);
+            }
+        }
+    }
+
+    public static bool IsForegroundWindow(System.Windows.Window window)
+    {
+        var hwnd = new WindowInteropHelper(window).Handle;
+        return hwnd != IntPtr.Zero && GetForegroundWindow() == hwnd;
     }
 
     public static Int32Rect WindowRect(System.Windows.Window window)
@@ -181,6 +220,34 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetWindowPos(IntPtr hwnd, IntPtr hwndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr GetForegroundWindow();
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetForegroundWindow(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr SetActiveWindow(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr SetFocus(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool BringWindowToTop(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ShowWindow(IntPtr hwnd, int cmdShow);
+
+    [LibraryImport("user32.dll")]
+    private static partial uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool attach);
 
     [LibraryImport("user32.dll")]
     public static partial IntPtr MonitorFromPoint(POINT point, uint flags);

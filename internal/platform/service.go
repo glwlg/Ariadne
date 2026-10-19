@@ -313,6 +313,7 @@ func (s *Service) Status() EnvironmentStatus {
 			{ID: "qr_recognition", Enabled: true, Provider: "gozxing QR reader", Note: "可识别截图历史或用户显式触发当前屏幕中的二维码；不后台扫描屏幕。"},
 			{ID: "system_commands", Enabled: runtime.GOOS == "windows", Provider: "Ariadne platform action runner", Note: "系统命令插件通过受控 Windows 命令映射执行锁屏、休眠、清空回收站、关机和重启，所有动作都需要用户二次确认。"},
 			{ID: "network_monitor", Enabled: runtime.GOOS == "windows", Provider: "Windows IP Helper API", Note: "实时上下行速率和网卡累计流量已接入 Go 服务、搜索入口和中心 UI。"},
+			{ID: "airplay", Enabled: runtime.GOOS == "windows", Provider: "UxPlay / GStreamer", Note: "iPhone 屏幕和声音投屏，需要手机与电脑处于同一局域网。"},
 			{ID: "hosts", Enabled: runtime.GOOS == "windows", Provider: "Ariadne hosts service", Note: "Hosts 方案管理、远程拉取、冲突检测和应用前预览已接入；写入系统 Hosts 需要用户确认并经 UAC。"},
 			{ID: "json_compare", Enabled: true, Provider: "Ariadne JSON compare service", Note: "JSON 语义差异、规范化 diff 和中心 UI 已接入 Go/TS 主路径。"},
 			{ID: "workflow_macros", Enabled: true, Provider: "Ariadne workflow service", Note: "工作流宏已接入持久化、旧配置迁移、搜索入口、变量渲染、命令链执行和中心 UI。"},

@@ -48,8 +48,6 @@ type commandOptions struct {
 	Uninstall                bool
 	Synchronous              bool
 	RemoveUserData           bool
-	NoShortcuts              bool
-	CreateStartMenuShortcut  bool
 	CreateDesktopShortcut    bool
 	AutoStart                bool
 	LaunchAfterInstall       bool
@@ -150,12 +148,13 @@ func Run(payload []byte, options Options) (Result, error) {
 
 func parseCommandOptions(args []string) (commandOptions, error) {
 	command := commandOptions{
-		CreateStartMenuShortcut:  true,
 		CreateDesktopShortcut:    true,
 		AutoStart:                true,
 		InstallFileSearchService: true,
 	}
 	var ignored bool
+	var noShortcuts bool
+	var createStartMenuShortcut bool
 	var noStartMenuShortcut bool
 	var noDesktopShortcut bool
 	var noAutostart bool
@@ -172,10 +171,10 @@ func parseCommandOptions(args []string) (commandOptions, error) {
 		flags.BoolVar(&command.RemoveUserData, name, false, "")
 	}
 	for _, name := range []string{"no-shortcuts", "NoShortcuts"} {
-		flags.BoolVar(&command.NoShortcuts, name, false, "")
+		flags.BoolVar(&noShortcuts, name, false, "")
 	}
 	for _, name := range []string{"create-start-menu-shortcut", "CreateStartMenuShortcut"} {
-		flags.BoolVar(&command.CreateStartMenuShortcut, name, true, "")
+		flags.BoolVar(&createStartMenuShortcut, name, true, "")
 	}
 	for _, name := range []string{"no-start-menu-shortcut", "NoStartMenuShortcut"} {
 		flags.BoolVar(&noStartMenuShortcut, name, false, "")
@@ -237,10 +236,11 @@ func parseCommandOptions(args []string) (commandOptions, error) {
 	if flags.NArg() > 0 {
 		return commandOptions{}, fmt.Errorf("unexpected installer arguments: %s", strings.Join(flags.Args(), " "))
 	}
-	if noStartMenuShortcut {
-		command.CreateStartMenuShortcut = false
+	if noStartMenuShortcut || !createStartMenuShortcut {
+		return commandOptions{}, errors.New("开始菜单入口为必需项；如不需要桌面快捷方式，请使用 --no-desktop-shortcut")
 	}
-	if noDesktopShortcut {
+	// Keep legacy automation discoverable: --no-shortcuts now only skips the desktop link.
+	if noShortcuts || noDesktopShortcut {
 		command.CreateDesktopShortcut = false
 	}
 	if noAutostart {
@@ -259,6 +259,10 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 	}
 
 	installDir := firstNonEmpty(command.InstallDir, defaultInstallDir(options.ProductName))
+	startMenuDir := firstNonEmpty(command.StartMenuDir, defaultStartMenuDir())
+	if startMenuDir == "" {
+		return Result{}, errors.New("无法确定开始菜单目录，安装未完成")
+	}
 	if !command.SkipServiceChanges {
 		if err := removeFileSearchService(options.ProductName, filepath.Join(installDir, strings.ToLower(options.ProductName)+".exe")); err != nil {
 			return Result{}, err
@@ -289,36 +293,26 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 
 	exePath := filepath.Join(installDir, strings.ToLower(options.ProductName)+".exe")
 	iconPath := filepath.Join(installDir, "logo.ico")
-	shortcuts := []string{}
-	if !command.NoShortcuts {
-		if command.CreateStartMenuShortcut {
-			startMenuDir := firstNonEmpty(command.StartMenuDir, defaultStartMenuDir())
-			if startMenuDir != "" {
-				startShortcut := filepath.Join(startMenuDir, options.ProductName+".lnk")
-				if err := createShortcut(exePath, startShortcut, iconPath, ""); err != nil {
-					return Result{}, err
-				}
-				shortcuts = append(shortcuts, startShortcut)
-
-				uninstallShortcut := filepath.Join(startMenuDir, "Uninstall "+options.ProductName+".lnk")
-				if err := createShortcut(installerPath, uninstallShortcut, iconPath, "--uninstall"); err != nil {
-					return Result{}, err
-				}
-				shortcuts = append(shortcuts, uninstallShortcut)
-			}
-		}
-		if command.CreateDesktopShortcut {
-			desktopDir := firstNonEmpty(command.DesktopDir, defaultDesktopDir())
-			if desktopDir != "" {
-				desktopShortcut := filepath.Join(desktopDir, options.ProductName+".lnk")
-				if err := createShortcut(exePath, desktopShortcut, iconPath, ""); err != nil {
-					return Result{}, err
-				}
-				shortcuts = append(shortcuts, desktopShortcut)
-			}
-		}
-		refreshShell()
+	startShortcut := filepath.Join(startMenuDir, options.ProductName+".lnk")
+	if err := createShortcut(exePath, startShortcut, iconPath, ""); err != nil {
+		return Result{}, err
 	}
+	uninstallShortcut := filepath.Join(startMenuDir, "Uninstall "+options.ProductName+".lnk")
+	if err := createShortcut(installerPath, uninstallShortcut, iconPath, "--uninstall"); err != nil {
+		return Result{}, err
+	}
+	shortcuts := []string{startShortcut, uninstallShortcut}
+	if command.CreateDesktopShortcut {
+		desktopDir := firstNonEmpty(command.DesktopDir, defaultDesktopDir())
+		if desktopDir != "" {
+			desktopShortcut := filepath.Join(desktopDir, options.ProductName+".lnk")
+			if err := createShortcut(exePath, desktopShortcut, iconPath, ""); err != nil {
+				return Result{}, err
+			}
+			shortcuts = append(shortcuts, desktopShortcut)
+		}
+	}
+	refreshShell()
 
 	receipt := installReceipt{
 		ProductName:   options.ProductName,
@@ -330,8 +324,8 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 		InstallerPath: installerPath,
 		Shortcuts:     shortcuts,
 		InstallOptions: &receiptInstallOptions{
-			CreateStartMenuShortcut:  !command.NoShortcuts && command.CreateStartMenuShortcut,
-			CreateDesktopShortcut:    !command.NoShortcuts && command.CreateDesktopShortcut,
+			CreateStartMenuShortcut:  true,
+			CreateDesktopShortcut:    command.CreateDesktopShortcut,
 			InstallFileSearchService: command.InstallFileSearchService,
 			AutoStart:                command.AutoStart,
 		},
@@ -380,7 +374,7 @@ func uninstall(options Options, command commandOptions) (Result, error) {
 			return Result{}, err
 		}
 	}
-	removeShortcuts(options.ProductName, receipt, command)
+	removeShortcuts(receipt)
 	cleanupAutostart(options.ProductName)
 	if command.RemoveUserData {
 		removeUserData(options.ProductName)
@@ -587,19 +581,10 @@ func readReceipt(path string) installReceipt {
 	return receipt
 }
 
-func removeShortcuts(productName string, receipt installReceipt, command commandOptions) {
+func removeShortcuts(receipt installReceipt) {
 	seen := map[string]bool{}
 	for _, shortcut := range receipt.Shortcuts {
 		removeShortcut(shortcut, seen)
-	}
-	startMenuDir := firstNonEmpty(command.StartMenuDir, defaultStartMenuDir())
-	if startMenuDir != "" {
-		removeShortcut(filepath.Join(startMenuDir, productName+".lnk"), seen)
-		removeShortcut(filepath.Join(startMenuDir, "Uninstall "+productName+".lnk"), seen)
-	}
-	desktopDir := firstNonEmpty(command.DesktopDir, defaultDesktopDir())
-	if desktopDir != "" {
-		removeShortcut(filepath.Join(desktopDir, productName+".lnk"), seen)
 	}
 }
 

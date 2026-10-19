@@ -182,6 +182,10 @@ func ordinaryWindowTaskbarSetWindowPosFlags(frameChanged bool) uint {
 }
 
 func setNetworkMiniTaskbarLayer(window application.Window, show bool) {
+	setNetworkMiniTaskbarLayerMode(window, true, show)
+}
+
+func setNetworkMiniTaskbarLayerMode(window application.Window, topmost bool, show bool) {
 	if window == nil {
 		return
 	}
@@ -195,23 +199,21 @@ func setNetworkMiniTaskbarLayer(window application.Window, show bool) {
 		flags |= w32.SWP_SHOWWINDOW
 	}
 	exStyle := w32.GetWindowLongPtr(hwnd, w32.GWL_EXSTYLE)
-	targetExStyle := exStyle
-	targetExStyle |= uintptr(w32.WS_EX_TOOLWINDOW | w32.WS_EX_TOPMOST | w32.WS_EX_NOACTIVATE)
+	targetExStyle := exStyle | uintptr(w32.WS_EX_TOOLWINDOW|w32.WS_EX_NOACTIVATE)
 	targetExStyle &^= uintptr(w32.WS_EX_APPWINDOW)
+	insertAfter := w32.HWND_NOTOPMOST
+	if topmost {
+		targetExStyle |= uintptr(w32.WS_EX_TOPMOST)
+		insertAfter = w32.HWND_TOPMOST
+	} else {
+		targetExStyle &^= uintptr(w32.WS_EX_TOPMOST)
+	}
 	if targetExStyle != exStyle {
 		w32.SetWindowLongPtr(hwnd, w32.GWL_EXSTYLE, targetExStyle)
 		flags |= w32.SWP_FRAMECHANGED
 	}
 	w32.SetWindowLongPtr(hwnd, w32.GWLP_HWNDPARENT, 0)
-	w32.SetWindowPos(
-		hwnd,
-		w32.HWND_TOPMOST,
-		0,
-		0,
-		0,
-		0,
-		flags,
-	)
+	w32.SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0, flags)
 }
 
 func isNetworkMiniTaskbarWindow(hwnd w32.HWND) bool {

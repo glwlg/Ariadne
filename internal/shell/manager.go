@@ -45,6 +45,7 @@ type Manager struct {
 	shortcutRegistry             shortcutRegistry
 	toggleHotkey                 *ManagedHotkeyRegistration
 	screenshotHotkey             *ManagedHotkeyRegistration
+	screenshotHotkeyHook         screenshotHotkeyHook
 	pinClipboardHotkey           *ManagedHotkeyRegistration
 	toggleHotkeyText             string
 	screenshotHotkeyText         string
@@ -129,15 +130,20 @@ func (m *Manager) Stop() error {
 	m.mu.Lock()
 	toggleHotkey := m.toggleHotkey
 	screenshotHotkey := m.screenshotHotkey
+	screenshotHotkeyHook := m.screenshotHotkeyHook
 	pinClipboardHotkey := m.pinClipboardHotkey
 	m.toggleHotkey = nil
 	m.screenshotHotkey = nil
+	m.screenshotHotkeyHook = nil
 	m.pinClipboardHotkey = nil
 	m.globalHotkeyRegistered = false
 	m.screenshotHotkeyRegistered = false
 	m.pinClipboardHotkeyRegistered = false
 	m.mu.Unlock()
 
+	if screenshotHotkeyHook != nil {
+		screenshotHotkeyHook.stop()
+	}
 	return stopHotkeys(toggleHotkey, screenshotHotkey, pinClipboardHotkey)
 }
 
@@ -157,7 +163,7 @@ func stopHotkeys(registrations ...*ManagedHotkeyRegistration) error {
 func (m *Manager) RetryHotkeyRegistration() Status {
 	m.mu.Lock()
 	m.globalHotkeyRegistered = m.toggleHotkey != nil && m.toggleHotkey.IsRegistered()
-	m.screenshotHotkeyRegistered = m.screenshotHotkey != nil && m.screenshotHotkey.IsRegistered()
+	m.screenshotHotkeyRegistered = m.screenshotHotkeyHook != nil && m.screenshotHotkeyHook.active()
 	m.pinClipboardHotkeyRegistered = m.pinClipboardHotkey != nil && m.pinClipboardHotkey.IsRegistered()
 	retryToggle := !m.globalHotkeyRegistered
 	retryScreenshot := !m.screenshotHotkeyRegistered
@@ -167,7 +173,7 @@ func (m *Manager) RetryHotkeyRegistration() Status {
 		return m.Status()
 	}
 	var toggleHotkey *ManagedHotkeyRegistration
-	var screenshotHotkey *ManagedHotkeyRegistration
+	var screenshotHook screenshotHotkeyHook
 	var pinClipboardHotkey *ManagedHotkeyRegistration
 	if retryToggle {
 		toggleHotkey = m.toggleHotkey
@@ -175,8 +181,8 @@ func (m *Manager) RetryHotkeyRegistration() Status {
 		m.globalHotkeyRegistered = false
 	}
 	if retryScreenshot {
-		screenshotHotkey = m.screenshotHotkey
-		m.screenshotHotkey = nil
+		screenshotHook = m.screenshotHotkeyHook
+		m.screenshotHotkeyHook = nil
 		m.screenshotHotkeyRegistered = false
 	}
 	if retryPinClipboard {
@@ -191,7 +197,9 @@ func (m *Manager) RetryHotkeyRegistration() Status {
 		m.registerToggleHotkey()
 	}
 	if retryScreenshot {
-		_ = stopHotkeys(screenshotHotkey)
+		if screenshotHook != nil {
+			screenshotHook.stop()
+		}
 		m.registerScreenshotHotkey()
 	}
 	if retryPinClipboard {
@@ -212,10 +220,11 @@ func (m *Manager) ApplyHotkeys(toggleHotkeyText string, screenshotHotkeyText str
 		return m.Status()
 	}
 	toggleHotkey := m.toggleHotkey
-	screenshotHotkey := m.screenshotHotkey
+	screenshotHook := m.screenshotHotkeyHook
 	pinClipboardHotkey := m.pinClipboardHotkey
 	m.toggleHotkey = nil
 	m.screenshotHotkey = nil
+	m.screenshotHotkeyHook = nil
 	m.pinClipboardHotkey = nil
 	m.toggleHotkeyText = toggleHotkeyText
 	m.screenshotHotkeyText = screenshotHotkeyText
@@ -225,7 +234,10 @@ func (m *Manager) ApplyHotkeys(toggleHotkeyText string, screenshotHotkeyText str
 	m.pinClipboardHotkeyRegistered = false
 	m.mu.Unlock()
 
-	_ = stopHotkeys(toggleHotkey, screenshotHotkey, pinClipboardHotkey)
+	if screenshotHook != nil {
+		screenshotHook.stop()
+	}
+	_ = stopHotkeys(toggleHotkey, pinClipboardHotkey)
 	m.registerHotkeys()
 	return m.Status()
 }
@@ -267,7 +279,7 @@ func (m *Manager) ApplyAutostart(enabled bool) error {
 func (m *Manager) Status() Status {
 	m.mu.RLock()
 	globalHotkeyRegistered := m.toggleHotkey != nil && m.toggleHotkey.IsRegistered()
-	screenshotHotkeyRegistered := m.screenshotHotkey != nil && m.screenshotHotkey.IsRegistered()
+	screenshotHotkeyRegistered := m.screenshotHotkeyHook != nil && m.screenshotHotkeyHook.active()
 	pinClipboardHotkeyRegistered := m.pinClipboardHotkey != nil && m.pinClipboardHotkey.IsRegistered()
 	status := Status{
 		SingleInstanceConfigured:     m.singleInstanceConfigured,
@@ -317,6 +329,7 @@ func (m *Manager) configureTray(icon []byte) {
 	menu.Add("剪贴板历史").OnClick(func(*application.Context) { m.openView("clipboard") })
 	menu.Add("截图历史").OnClick(func(*application.Context) { m.openView("capture") })
 	menu.Add("Hosts 管理").OnClick(func(*application.Context) { m.openView("hosts") })
+	menu.Add("iPhone 投屏").OnClick(func(*application.Context) { m.openView("airplay") })
 	menu.Add("网络监控").OnClick(func(*application.Context) { m.openView("network-monitor") })
 	menu.Add("网速小窗").OnClick(func(*application.Context) { m.openView("network-mini") })
 	menu.Add("JSON 对比").OnClick(func(*application.Context) { m.openView("json-compare") })
@@ -378,7 +391,7 @@ func (m *Manager) registerScreenshotHotkey() {
 		m.setError(err.Error())
 		return
 	}
-	registration, err := RegisterManagedGlobalHotkey(m.currentShortcutRegistry(), spec, func() {
+	hook, err := startScreenshotHotkeyHook(spec, func() {
 		m.openScreenshot()
 	})
 	if err != nil {
@@ -390,7 +403,7 @@ func (m *Manager) registerScreenshotHotkey() {
 	}
 
 	m.mu.Lock()
-	m.screenshotHotkey = registration
+	m.screenshotHotkeyHook = hook
 	m.screenshotHotkeyRegistered = true
 	if m.globalHotkeyRegistered && m.pinClipboardHotkeyRegistered {
 		m.lastError = ""

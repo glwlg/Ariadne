@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ariadne/internal/aiclient"
+	"ariadne/internal/airplay"
 	"ariadne/internal/apitesting"
 	"ariadne/internal/applog"
 	"ariadne/internal/apps"
@@ -119,6 +120,7 @@ func main() {
 		return ""
 	})
 	qrScanService := qrscan.NewService(captureService)
+	airplayService := airplay.NewService()
 	pluginService := plugins.NewService()
 	workflowService := workflows.NewService(pluginService)
 	checklistService := checklists.NewService()
@@ -171,11 +173,14 @@ func main() {
 	releaseService := release.NewService()
 	ocrService := ocr.NewService(captureService, clipboardService, workMemoryService)
 	ocr.RegisterAIClient(ocrService, aiclient.NewOpenAICompatibleImageOCR())
+	toolWindowService := toolwindows.NewService()
+	toolWindowService.SetWindowIcon(appIcon)
 	var nativeCaptureManager *nativecapture.Manager
 	if runtime.GOOS == "windows" {
 		nativeCaptureManager = nativecapture.NewManager(nativecapture.Options{})
 	}
 	captureOverlayService := captureoverlay.NewServiceWithNative(captureService, pinnedImageService, nativeCaptureManager, ocrService)
+	captureOverlayService.SetFocusSuspension(toolWindowService.SetCaptureFocusSuspended)
 	workmemory.RegisterAutoOCRProcessor(workMemoryService, func(entry workmemory.Entry) workmemory.Entry {
 		result := ocrService.RecognizeWorkMemory(entry.ID)
 		if result.WorkMemory == nil {
@@ -191,8 +196,6 @@ func main() {
 	workmemory.RegisterEmbeddingClient(workMemoryService, aiclient.NewOpenAICompatibleEmbedder())
 	imageIndexService := imageindex.NewService(captureService, clipboardService, ocrService)
 	searchService := search.NewService(fileSearchService, appService, launcherService, captureService, imageIndexService, workflowService, pluginService)
-	toolWindowService := toolwindows.NewService()
-	toolWindowService.SetWindowIcon(appIcon)
 	initialHotkeys := settingsService.GetSettings().Hotkeys
 	shellManager := shell.NewManager(
 		initialHotkeys.ToggleWindow,
@@ -286,6 +289,9 @@ func main() {
 		SingleInstance: shellManager.SingleInstanceOptions(),
 		OnShutdown: func() {
 			log.Println("Ariadne shutting down")
+			if result := airplayService.Stop(); !result.OK {
+				log.Printf("stop airplay: %s", result.Message)
+			}
 			if err := shellManager.Stop(); err != nil {
 				log.Printf("stop shell: %v", err)
 			}
@@ -313,6 +319,7 @@ func main() {
 			application.NewService(hostsService),
 			application.NewService(jsonCompareService),
 			application.NewService(apiTestingService),
+			application.NewService(airplayService),
 			application.NewService(networkMonitorService),
 			application.NewService(qrScanService),
 			application.NewService(ocrService),

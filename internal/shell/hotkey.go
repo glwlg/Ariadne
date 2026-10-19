@@ -96,6 +96,35 @@ func (s HotkeySpec) WailsAccelerator() string {
 	return strings.Join(parts, "+")
 }
 
+type screenshotHotkeyHook interface {
+	stop()
+	active() bool
+}
+
+type ScreenshotHotkeyEvent struct {
+	KeyDown bool
+	Repeat  bool
+	Matches bool
+}
+
+type ScreenshotHotkeyDecision struct {
+	Consume bool
+	Freeze  bool
+}
+
+func HandleScreenshotHotkey(event ScreenshotHotkeyEvent, freeze func()) ScreenshotHotkeyDecision {
+	if !event.Matches {
+		return ScreenshotHotkeyDecision{}
+	}
+	if !event.KeyDown || event.Repeat {
+		return ScreenshotHotkeyDecision{Consume: true}
+	}
+	if freeze != nil {
+		freeze()
+	}
+	return ScreenshotHotkeyDecision{Consume: true, Freeze: true}
+}
+
 func ParseHotkey(value string) (HotkeySpec, error) {
 	raw := strings.TrimSpace(value)
 	if raw == "" {

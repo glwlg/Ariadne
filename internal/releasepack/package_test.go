@@ -82,7 +82,7 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	if manifest.ProductName != "Ariadne" || manifest.Version != "0.1.0-test" {
 		t.Fatalf("unexpected manifest identity: %#v", manifest)
 	}
-	if manifest.ZipPath == "" || manifest.PackageDir == "" || len(manifest.Files) != 3 {
+	if manifest.ZipPath == "" || manifest.PackageDir == "" || len(manifest.Files) != 8 {
 		t.Fatalf("manifest should describe package paths and files: %#v", manifest)
 	}
 	if manifest.SetupPath == "" || manifest.SetupFile == nil || manifest.SetupFile.Path != "AriadneSetup-0.1.0-test-windows-x64.exe" {
@@ -120,6 +120,11 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	for _, name := range []string{
 		packageRoot + "/app/ariadne.exe",
 		packageRoot + "/app/native-capture/Ariadne.CaptureHost.exe",
+		packageRoot + "/app/uxplay/uxplay.exe",
+		packageRoot + "/app/uxplay/lib/gstreamer-1.0/libgstd3d11.dll",
+		packageRoot + "/app/uxplay/LICENSE-UxPlay",
+		packageRoot + "/app/iphone-control/Ariadne.iPhoneControl.exe",
+		packageRoot + "/app/iphone-control/Vendor/BleHid/LICENSE",
 		packageRoot + "/app/logo.ico",
 		packageRoot + "/manifest.json",
 		packageRoot + "/README.txt",
@@ -135,6 +140,35 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 		if entries[name] {
 			t.Fatalf("zip should not contain %s", name)
 		}
+	}
+}
+
+func TestBuildRejectsMissingAirPlayRuntime(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	iconPath := filepath.Join(base, "logo.ico")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, iconPath, "fake icon")
+	writeFile(t, filepath.Join(base, "bin", "native-capture", "Ariadne.CaptureHost.exe"), "fake capture host")
+	_, err := Build(Options{ExePath: exePath, IconPath: iconPath, OutputDir: filepath.Join(base, "release"), SkipSetup: true})
+	if err == nil || !strings.Contains(err.Error(), "uxplay.exe") {
+		t.Fatalf("release must include the receiver runtime: %v", err)
+	}
+}
+
+func TestBuildRejectsMissingPhoneControl(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	iconPath := filepath.Join(base, "logo.ico")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, iconPath, "fake icon")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
+	if err := os.Remove(filepath.Join(base, "bin", "iphone-control", "Ariadne.iPhoneControl.exe")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Build(Options{ExePath: exePath, IconPath: iconPath, OutputDir: filepath.Join(base, "release"), SkipSetup: true})
+	if err == nil || !strings.Contains(err.Error(), "Ariadne.iPhoneControl.exe") {
+		t.Fatalf("release must include phone control: %v", err)
 	}
 }
 
@@ -292,6 +326,11 @@ func writeFile(t *testing.T, path string, content string) {
 func writeNativeCaptureHost(t *testing.T, exeDir string) {
 	t.Helper()
 	writeFile(t, filepath.Join(exeDir, "native-capture", "Ariadne.CaptureHost.exe"), "fake native capture host")
+	writeFile(t, filepath.Join(exeDir, "uxplay", "uxplay.exe"), "fake airplay receiver")
+	writeFile(t, filepath.Join(exeDir, "uxplay", "lib", "gstreamer-1.0", "libgstd3d11.dll"), "fake video sink")
+	writeFile(t, filepath.Join(exeDir, "uxplay", "LICENSE-UxPlay"), "GPL-3.0")
+	writeFile(t, filepath.Join(exeDir, "iphone-control", "Ariadne.iPhoneControl.exe"), "fake phone control")
+	writeFile(t, filepath.Join(exeDir, "iphone-control", "Vendor", "BleHid", "LICENSE"), "MIT")
 }
 
 func readFile(t *testing.T, path string) string {

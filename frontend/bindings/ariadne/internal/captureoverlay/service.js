@@ -79,6 +79,14 @@ export function PrepareSelectionRedaction(request) {
     }));
 }
 
+/**
+ * @param {any} suspend
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetFocusSuspension(suspend) {
+    return $Call.ByID(3649595638, suspend);
+}
+
 // Private type creation functions
 const $$createType0 = $models.CaptureResult.createFrom;
 const $$createType1 = $models.Session.createFrom;

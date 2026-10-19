@@ -12,6 +12,7 @@ export type AppToolView =
   | 'workflow'
   | 'json-compare'
   | 'api-testing'
+  | 'airplay'
   | 'network-monitor'
   | 'network-mini'
   | 'settings'
@@ -26,6 +27,7 @@ const viewSizes: Record<AppView, { width: number; height: number }> = {
   workflow: { width: 1120, height: 720 },
   'json-compare': { width: 1180, height: 760 },
   'api-testing': { width: 1240, height: 780 },
+  airplay: { width: 1080, height: 760 },
   'network-monitor': { width: 1240, height: 760 },
   'network-mini': { width: 318, height: 168 },
   settings: { width: 1120, height: 720 },
@@ -40,6 +42,7 @@ const viewTitles: Record<AppView, string> = {
   workflow: 'Ariadne - 工作流',
   'json-compare': 'Ariadne - JSON 对比',
   'api-testing': 'Ariadne - API 测试',
+  airplay: 'Ariadne - iPhone 投屏',
   'network-monitor': 'Ariadne - 进程网络',
   'network-mini': 'Ariadne - 网速小窗',
   settings: 'Ariadne - 设置',
@@ -104,6 +107,10 @@ export const useAppShellStore = defineStore('app-shell', () => {
 
   function openAPITesting() {
     return openView('api-testing')
+  }
+
+  function openAirPlay() {
+    return openView('airplay')
   }
 
   function openNetworkMonitor() {
@@ -223,6 +230,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
     openWorkflow,
     openJsonCompare,
     openAPITesting,
+    openAirPlay,
     openNetworkMonitor,
     openNetworkMini,
     openSettings,

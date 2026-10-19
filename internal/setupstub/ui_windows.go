@@ -23,7 +23,6 @@ const (
 	installerIDCancel    = 1003
 	installerIDBrowse    = 1004
 	installerIDPath      = 1005
-	installerIDStartMenu = 1006
 	installerIDDesktop   = 1007
 	installerIDAutostart = 1008
 	installerIDLaunch    = 1009
@@ -144,7 +143,6 @@ type installerLogFont struct {
 
 type interactiveInstallSelection struct {
 	InstallDir               string
-	CreateStartMenuShortcut  bool
 	CreateDesktopShortcut    bool
 	InstallFileSearchService bool
 	AutoStart                bool
@@ -153,9 +151,6 @@ type interactiveInstallSelection struct {
 
 func (selection interactiveInstallSelection) args() []string {
 	args := []string{"-InstallDir", selection.InstallDir}
-	if !selection.CreateStartMenuShortcut {
-		args = append(args, "--no-start-menu-shortcut")
-	}
 	if !selection.CreateDesktopShortcut {
 		args = append(args, "--no-desktop-shortcut")
 	}
@@ -200,7 +195,6 @@ type installerWindow struct {
 	cancelled  bool
 	err        error
 	pathEdit   windows.Handle
-	startMenu  windows.Handle
 	desktop    windows.Handle
 	autostart  windows.Handle
 	launch     windows.Handle
@@ -275,7 +269,6 @@ func RunInteractive(payload []byte, options Options) (Result, error) {
 func initialInteractiveSelection(options Options) interactiveInstallSelection {
 	selection := interactiveInstallSelection{
 		InstallDir:               defaultInstallDir(options.ProductName),
-		CreateStartMenuShortcut:  true,
 		CreateDesktopShortcut:    true,
 		InstallFileSearchService: true,
 		AutoStart:                true,
@@ -298,14 +291,12 @@ func initialInteractiveSelection(options Options) interactiveInstallSelection {
 	}
 	selection.InstallDir = absolute
 	if receipt.InstallOptions != nil {
-		selection.CreateStartMenuShortcut = receipt.InstallOptions.CreateStartMenuShortcut
 		selection.CreateDesktopShortcut = receipt.InstallOptions.CreateDesktopShortcut
 		selection.InstallFileSearchService = receipt.InstallOptions.InstallFileSearchService
 		selection.AutoStart = receipt.InstallOptions.AutoStart
 		return selection
 	}
 	if receipt.Version != "" {
-		selection.CreateStartMenuShortcut = receiptListsShortcut(receipt, filepath.Join(defaultStartMenuDir(), options.ProductName+".lnk"))
 		selection.CreateDesktopShortcut = receiptListsShortcut(receipt, filepath.Join(defaultDesktopDir(), options.ProductName+".lnk"))
 	}
 	return selection
@@ -530,7 +521,7 @@ func (window *installerWindow) renderOptionsPage() {
 	window.addButton(614, 167, 74, 32, "浏览...", installerIDBrowse, false)
 
 	window.addText("快捷方式", 256, 224, 120, 22, window.headingFont, colorText, window.whiteBrush)
-	window.startMenu = window.addCheckbox(258, 256, 300, 24, "创建开始菜单入口", window.draft.CreateStartMenuShortcut, installerIDStartMenu)
+	window.addText("开始菜单入口（必需）", 260, 256, 390, 24, window.defaultFont, colorText, window.whiteBrush)
 	window.desktop = window.addCheckbox(258, 286, 300, 24, "创建桌面快捷方式", window.draft.CreateDesktopShortcut, installerIDDesktop)
 
 	window.addText("后台服务", 256, 326, 120, 22, window.headingFont, colorText, window.whiteBrush)
@@ -550,7 +541,7 @@ func (window *installerWindow) renderReadyPage() {
 	window.addPanel(256, 218, 430, 1, window.panelBrush)
 
 	window.addText("将创建", 256, 246, 120, 22, window.headingFont, colorText, window.whiteBrush)
-	window.addText(optionLabel(window.draft.CreateStartMenuShortcut, "开始菜单入口"), 260, 282, 390, 22, window.defaultFont, colorText, window.whiteBrush)
+	window.addText(optionLabel(true, "开始菜单入口"), 260, 282, 390, 22, window.defaultFont, colorText, window.whiteBrush)
 	window.addText(optionLabel(window.draft.CreateDesktopShortcut, "桌面快捷方式"), 260, 312, 390, 22, window.defaultFont, colorText, window.whiteBrush)
 	window.addText(optionLabel(window.draft.InstallFileSearchService, "后台服务（文件索引、进程网络）"), 260, 342, 390, 22, window.defaultFont, colorText, window.whiteBrush)
 	window.addText(optionLabel(window.draft.AutoStart, "随 Windows 启动"), 260, 372, 390, 22, window.defaultFont, colorText, window.whiteBrush)
@@ -730,7 +721,6 @@ func (window *installerWindow) saveOptions() bool {
 	}
 	window.draft = interactiveInstallSelection{
 		InstallDir:               filepath.Clean(installDir),
-		CreateStartMenuShortcut:  window.isChecked(window.startMenu),
 		CreateDesktopShortcut:    window.isChecked(window.desktop),
 		InstallFileSearchService: window.isChecked(window.indexSvc),
 		AutoStart:                window.isChecked(window.autostart),
@@ -788,7 +778,6 @@ func (window *installerWindow) destroyPageControls() {
 	}
 	window.pageControls = nil
 	window.pathEdit = 0
-	window.startMenu = 0
 	window.desktop = 0
 	window.autostart = 0
 	window.launch = 0

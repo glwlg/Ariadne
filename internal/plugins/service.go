@@ -58,7 +58,8 @@ type Service struct {
 }
 
 func NewService() *Service {
-	return &Service{plugins: []registeredPlugin{
+	s := &Service{}
+	s.plugins = []registeredPlugin{
 		manifest("calculator", "计算器", "执行数学运算", []string{"c", "calc", "calculate"}, nil, CommandSchema{
 			Usage:    "calc <expression>",
 			Examples: []string{"calc 12*(8+3)", "c 3.14*8^2"},
@@ -143,6 +144,10 @@ func NewService() *Service {
 			Usage:    "net",
 			Examples: []string{"net", "network", "网速"},
 		}, executeNetworkMonitor),
+		manifest("airplay", "iPhone 投屏", "连接 iPhone，管理投屏与播放设置", []string{"airplay", "uxplay", "mirror", "投屏", "手机投屏", "iphone"}, []string{"airplay"}, CommandSchema{
+			Usage:    "airplay",
+			Examples: []string{"投屏", "airplay", "iphone"},
+		}, executeAirPlay),
 		manifest("workflow", "工作流宏", "执行和管理命令链工作流", []string{"wf", "workflow", "flow", "macro"}, []string{"clipboard"}, CommandSchema{
 			Usage:    "wf <workflow-id>",
 			Examples: []string{"wf clip-md5", "workflow now-timestamp", "flow"},
@@ -153,7 +158,8 @@ func NewService() *Service {
 			Examples: []string{"mem gateway", "mem daily", "mem capture"},
 			Params:   []CommandParam{{Name: "query", Label: "记忆查询或命令", Placeholder: "gateway / daily / capture", Required: false}},
 		}, executeWorkMemory),
-	}}
+	}
+	return s
 }
 
 func manifest(id string, name string, description string, keywords []string, capabilities []string, schema CommandSchema, handle handler) registeredPlugin {

@@ -97,6 +97,8 @@ export const useLauncherStore = defineStore('launcher', () => {
         opened = await appShell.openJsonCompare()
       } else if (command === 'open_api_testing') {
         opened = await appShell.openAPITesting()
+      } else if (command === 'open_airplay') {
+        opened = await appShell.openAirPlay()
       } else if (command === 'open_network_monitor') {
         opened = await appShell.openNetworkMonitor()
       } else if (command === 'open_network_mini') {

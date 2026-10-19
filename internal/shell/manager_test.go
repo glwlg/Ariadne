@@ -55,15 +55,20 @@ func TestManagerUsesWailsRegistryForDynamicGlobalShortcuts(t *testing.T) {
 	})
 
 	manager.attachShortcutRegistry(registry)
-	for _, accelerator := range []string{"Alt+Q", "Alt+A", "Alt+V"} {
+	for _, accelerator := range []string{"Alt+Q", "Alt+V"} {
 		if !registry.IsRegistered(accelerator) {
 			t.Fatalf("expected %s to be registered, got %#v", accelerator, registry.callbacks)
 		}
 	}
+	if registry.IsRegistered("Alt+A") {
+		t.Fatal("screenshot hotkey must not use RegisterHotKey, which dismisses an open menu before the screen freezes")
+	}
+	if status := manager.Status(); !status.ScreenshotHotkeyRegistered {
+		t.Fatalf("expected the pre-delivery screenshot hook to be active, got %#v", status)
+	}
 	registry.callbacks["Alt+Q"]()
-	registry.callbacks["Alt+A"]()
 	registry.callbacks["Alt+V"]()
-	if len(opened) != 1 || opened[0] != "launcher" || screenshots != 1 || pins != 1 {
+	if len(opened) != 1 || opened[0] != "launcher" || screenshots != 0 || pins != 1 {
 		t.Fatalf("unexpected shortcut callbacks: opened=%v screenshots=%d pins=%d", opened, screenshots, pins)
 	}
 
@@ -76,10 +81,13 @@ func TestManagerUsesWailsRegistryForDynamicGlobalShortcuts(t *testing.T) {
 			t.Fatalf("expected old shortcut %s to be removed", accelerator)
 		}
 	}
-	for _, accelerator := range []string{"Ctrl+Q", "Ctrl+A", "Ctrl+V"} {
+	for _, accelerator := range []string{"Ctrl+Q", "Ctrl+V"} {
 		if !registry.IsRegistered(accelerator) {
 			t.Fatalf("expected replacement shortcut %s, got %#v", accelerator, registry.callbacks)
 		}
+	}
+	if registry.IsRegistered("Ctrl+A") {
+		t.Fatal("replacement screenshot hotkey must stay on the pre-delivery hook")
 	}
 
 	if err := manager.Stop(); err != nil {

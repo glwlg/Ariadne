@@ -11,7 +11,7 @@ import (
 )
 
 func TestNormalizeViewAcceptsKnownToolViews(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "network-monitor", "network-mini", "settings"} {
+	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "network-mini", "settings"} {
 		if normalizeView(" "+view+" ") != view {
 			t.Fatalf("expected %q to be accepted", view)
 		}
@@ -68,7 +68,7 @@ func TestSettingsAndHostsUseDesignSpecificWindowGeometry(t *testing.T) {
 }
 
 func TestOnlyNetworkMiniUsesFramelessFixedUtilityWindow(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "network-monitor", "settings"} {
+	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "settings"} {
 		if frameless(view) {
 			t.Fatalf("%s should use native window chrome", view)
 		}
@@ -93,6 +93,19 @@ func TestOnlyNetworkMiniUsesFramelessFixedUtilityWindow(t *testing.T) {
 func TestToolTitleUsesFlowBrandForWorkMemoryWindow(t *testing.T) {
 	if got := toolTitle("work-memory"); got != "Ariadne - 心流" {
 		t.Fatalf("unexpected work memory title: %q", got)
+	}
+}
+
+func TestAirPlayUsesIndependentOrdinaryToolWindow(t *testing.T) {
+	if toolTitle("airplay") != "Ariadne - iPhone 投屏" {
+		t.Fatal("airplay should use the Ariadne tool title")
+	}
+	width, height := toolSize("airplay")
+	if width != 1080 || height != 760 || minWidth("airplay") != 820 || minHeight("airplay") != 560 {
+		t.Fatalf("unexpected airplay window geometry: %dx%d", width, height)
+	}
+	if !ordinaryTaskbarToggleAllowed("airplay") || frameless("airplay") || hiddenOnTaskbar("airplay") {
+		t.Fatal("airplay should use normal native window and taskbar controls")
 	}
 }
 
@@ -166,7 +179,7 @@ func TestOrdinaryWindowPolicyRetriesLateTaskbarRegistration(t *testing.T) {
 }
 
 func TestTaskbarToggleOnlyAppliesToOrdinaryToolWindows(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "network-monitor", "settings"} {
+	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "settings"} {
 		if !ordinaryTaskbarToggleAllowed(view) {
 			t.Fatalf("%s should keep ordinary taskbar minimise behaviour", view)
 		}
@@ -351,6 +364,35 @@ func TestNetworkMiniLayerRefreshIsThrottled(t *testing.T) {
 	service.mu.Unlock()
 	if !service.shouldRefreshNetworkMiniLayer() {
 		t.Fatal("stale layer refresh should be allowed")
+	}
+}
+
+func TestCaptureFocusSuspensionPausesNetworkMiniTopmostRefresh(t *testing.T) {
+	service := NewServiceWithOptions(filepath.Join(t.TempDir(), "network-mini.json"), nil)
+	if !service.shouldRefreshNetworkMiniLayerNow(true) {
+		t.Fatal("taskbar foreground should refresh before capture starts")
+	}
+
+	service.SetCaptureFocusSuspended(true)
+	if service.shouldRefreshNetworkMiniLayerNow(true) {
+		t.Fatal("capture should pause taskbar-triggered topmost refresh")
+	}
+	if service.shouldRefreshNetworkMiniLayerNow(false) {
+		t.Fatal("capture should pause periodic topmost refresh")
+	}
+	if service.networkMiniCaptureAction(true, false, true) != networkMiniCaptureHold {
+		t.Fatal("fullscreen auto-hide must not restore the network mini during capture")
+	}
+	if service.networkMiniCaptureAction(false, true, true) != networkMiniCaptureHold {
+		t.Fatal("disabled auto-hide must not show the network mini during capture")
+	}
+
+	service.SetCaptureFocusSuspended(false)
+	if !service.shouldRefreshNetworkMiniLayerNow(true) {
+		t.Fatal("ending capture should restore taskbar-triggered topmost refresh")
+	}
+	if service.networkMiniCaptureAction(false, true, true) != networkMiniCaptureShow {
+		t.Fatal("a mini hidden by capture should be restored afterwards")
 	}
 }
 

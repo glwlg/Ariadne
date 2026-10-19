@@ -80,6 +80,51 @@ func TestParseHotkeyAllowsBareFunctionKeys(t *testing.T) {
 	}
 }
 
+func TestScreenshotHotkeyPressIsConsumedBeforeForegroundDelivery(t *testing.T) {
+	order := []string{}
+	decision := HandleScreenshotHotkey(ScreenshotHotkeyEvent{
+		KeyDown: true,
+		Repeat:  false,
+		Matches: true,
+	}, func() {
+		order = append(order, "freeze")
+	})
+	if !decision.Consume || !decision.Freeze || len(order) != 1 || order[0] != "freeze" {
+		t.Fatalf("screenshot keydown must freeze and swallow the key before the menu sees it, got %#v order=%v", decision, order)
+	}
+
+	repeat := HandleScreenshotHotkey(ScreenshotHotkeyEvent{
+		KeyDown: true,
+		Repeat:  true,
+		Matches: true,
+	}, func() {
+		order = append(order, "repeat")
+	})
+	if !repeat.Consume || repeat.Freeze || len(order) != 1 {
+		t.Fatalf("holding the screenshot key must stay swallowed without freezing again, got %#v order=%v", repeat, order)
+	}
+
+	release := HandleScreenshotHotkey(ScreenshotHotkeyEvent{
+		KeyDown: false,
+		Matches: true,
+	}, func() {
+		order = append(order, "release")
+	})
+	if !release.Consume || release.Freeze || len(order) != 1 {
+		t.Fatalf("screenshot key release must stay swallowed, got %#v order=%v", release, order)
+	}
+
+	other := HandleScreenshotHotkey(ScreenshotHotkeyEvent{
+		KeyDown: true,
+		Matches: false,
+	}, func() {
+		order = append(order, "other")
+	})
+	if other.Consume || other.Freeze || len(order) != 1 {
+		t.Fatalf("unrelated keys must still reach the foreground window, got %#v order=%v", other, order)
+	}
+}
+
 func TestManagedGlobalHotkeyUsesRegistryLifecycle(t *testing.T) {
 	registry := newFakeShortcutRegistry()
 	spec, err := ParseHotkey("ctrl shift f12")

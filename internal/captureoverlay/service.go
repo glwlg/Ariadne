@@ -166,6 +166,7 @@ type Service struct {
 	redact   map[string]*redactionCacheEntry
 	policy   ScreenshotPolicy
 	opening  bool
+	suspend  func(bool)
 }
 
 func NewService(captures CaptureSink, pins PinService, ocrProviders ...OCRProvider) *Service {
@@ -189,6 +190,12 @@ func NewServiceWithNative(captures CaptureSink, pins PinService, native *nativec
 		native.SetPinActionHandler(service.handleNativePinAction)
 	}
 	return service
+}
+
+func (s *Service) SetFocusSuspension(suspend func(bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suspend = suspend
 }
 
 func (s *Service) Attach(app *application.App) {
@@ -215,6 +222,8 @@ func (s *Service) Open() OpenResult {
 		return s.openNative(native)
 	}
 
+	s.suspendFocus(true)
+	defer s.suspendFocus(false)
 	s.mu.RLock()
 	app := s.app
 	s.mu.RUnlock()
@@ -281,6 +290,15 @@ func nativeCaptureRequest(policy ScreenshotPolicy) nativecapture.Request {
 		Command:             "capture",
 		AutoPin:             policy.AutoPin,
 		DirectClipboardCopy: true,
+	}
+}
+
+func (s *Service) suspendFocus(suspended bool) {
+	s.mu.RLock()
+	suspend := s.suspend
+	s.mu.RUnlock()
+	if suspend != nil {
+		suspend(suspended)
 	}
 }
 

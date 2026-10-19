@@ -87,6 +87,14 @@ export function ResetNetworkMiniPlacement() {
 }
 
 /**
+ * @param {boolean} suspended
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetCaptureFocusSuspended(suspended) {
+    return $Call.ByID(3456369227, suspended);
+}
+
+/**
  * @param {string} anchor
  * @returns {$CancellablePromise<$models.NetworkMiniStatus>}
  */

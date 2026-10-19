@@ -1,0 +1,138 @@
+# iPhone 投屏
+
+Ariadne 内置 `airplay` 插件，通过独立的 UxPlay 接收进程显示 iPhone 屏幕并播放声音。
+
+## 使用
+
+1. 将 iPhone 和电脑连接到同一局域网，电脑的 Windows 网络类型设为“专用”。
+2. 按 `Alt+Q`，输入 `投屏` 或 `airplay`，回车选择“打开 iPhone 投屏”，在独立窗口点击“启动投屏”。也可以从托盘菜单打开。
+3. 在 iPhone 控制中心打开“屏幕镜像”，选择投屏窗口显示的 `Ariadne · 电脑名称`。
+4. 首次配对时，在 iPhone 输入投屏窗口中的四位配对码。
+
+投屏中心集中管理接收开关、实时连接状态、配对码、帧率、防火墙授权和接收日志。
+重复唤起复用已有窗口。关闭投屏中心不停止接收，正常退出 Ariadne 会停止其启动的接收进程。
+启动器仅负责打开工具窗口；旧的 `airplay start/stop/status/logs/firewall/control/fps` 输入同样只打开投屏中心，不再直接执行操作。
+
+手机连接后，画面显示在 Ariadne 投屏窗口中，声音通过电脑默认音频设备播放。
+窗口跟随实际视频的横竖屏比例，在当前显示器可用区域内调整，并分别记住手动调整后的横屏和竖屏大小。
+最大化、最小化和全屏期间不自动改变窗口大小。
+
+- 双击画面或按 `Alt+Enter` 切换全屏，`Esc` 退出全屏。
+- 右键画面可切换“窗口置顶”“跟随横竖屏”，或执行“适配画面”。
+- 实际视频开始显示后保持电脑亮屏；最小化、断开或关闭窗口后释放亮屏请求，恢复显示后重新申请。不会更改系统的休眠设置。
+- 收到手机发送的播放标题、作者元数据时，标题栏显示 `Ariadne · 标题 · 作者`。断开时清除元数据。屏幕镜像中的抖音视频标题、红果剧名是否可用，取决于应用是否实际发送对应 AirPlay 元数据，不能保证。
+Windows 启动接收进程时仅禁止创建控制台，不设置 `SW_HIDE`，以免隐藏首个视频窗口。
+
+| 投屏中心操作 | 作用 |
+| --- | --- |
+| 启动投屏 / 停止接收 | 启动或停止接收进程；停止会断开当前手机 |
+| 刷新状态 | 手动刷新；窗口显示时每 1.5 秒自动刷新连接状态 |
+| 复制接收名称 / 配对码 | 将对应内容复制到剪贴板 |
+| 帧率上限 | 选择 30 / 60 fps 并保存；运行中切换会重启接收服务，需要在 iPhone 重新连接 |
+| 允许局域网投屏 | 请求管理员授权，允许专用网络内的局域网设备连接 |
+| 接收日志 | 展开读取最近 4 KB 日志，可手动刷新 |
+| 手机控制（可选） | 展开后打开蓝牙控制窗；再次执行唤起已有窗口 |
+
+搜索 `投屏` / `airplay` / `uxplay` / `iphone` / `mirror` 只提供“打开 iPhone 投屏”操作，不读取日志、不暴露配对码、不修改接收状态。插件可在设置中心的插件列表中停用。
+
+状态区分“等待 iPhone 连接”“正在投屏”“连接已断开，等待重新连接”。
+“正在投屏”由 Direct3D11 视频输出的首帧呈现事件触发，不以接收进程启动作为依据。
+投屏中心可以查看当前画面尺寸、设备名及实际收到的播放标题。
+默认帧率上限为 30 fps，可选择 60 fps；这只是向手机提供的上限，实际帧率由手机、应用与网络决定。
+继续使用 UxPlay 默认的时间戳音画同步。
+
+## 手机控制
+
+投屏和输入使用独立通道：UxPlay 接收画面与声音，蓝牙 HID 发送鼠标输入。
+无需在 iPhone 安装应用，但电脑蓝牙须支持 BLE 外围模式。
+
+1. 在投屏中心展开“手机控制（可选）”，点击“打开蓝牙控制”，等待出现“等待 iPhone 鼠标控制连接”；保持窗口打开。
+2. 在 iPhone 开启“设置 → 辅助功能 → 触控 → 辅助触控”。
+3. 在同一个“辅助触控”页面进入“设备 → 蓝牙设备”，选择电脑名称，完成配对和连接。
+4. 在控制窗的“控制设备”下拉框中选择手机。
+5. 在控制窗选择手机后，直接在投屏画面点击、按住拖动或长按；滚轮向下切换下一个视频，向上切换上一个视频。控制窗保持打开。
+
+直接操作使用绝对坐标定位手机指针，再通过相对鼠标报告完成按下与松开。
+窗口缩放、横竖屏、全屏均按当前视频区域换算；黑边不接受点击，拖出画面时将位置限制在画面边缘并在松开时释放。
+右键菜单“直接操作手机”可关闭该功能；启用时双击会发送两次手机点击，全屏使用 `Alt+Enter` 或右键菜单。
+失去焦点、失去鼠标捕获、窗口尺寸或视频方向改变、断线及退出时取消直接操作并释放按键。
+此通道模拟单指鼠标操作，不发送双指缩放等多点触控。
+
+从旧版控制组件升级后，如果状态显示“触控板已连接；直接操作画面需在 iPhone 重新配对电脑”，
+说明手机尚未订阅新增的绝对坐标报告。先在 Windows 蓝牙设置删除这台 iPhone，
+再在 iPhone 蓝牙设置忽略电脑，保持控制窗打开后重新从辅助触控的蓝牙设备页面连接。
+仅当选中的手机同时订阅相对鼠标与绝对坐标报告时，投屏画面才接受输入，不自动改用相对坐标定位。
+
+控制窗仍保留相对触控板。使用它时，移动鼠标前先将光标放入触控板。
+上滑、下滑按钮模拟按下并拖动，释放后将指针移回；滚轮向下/键盘 ↓ 对应上滑，滚轮向上/↑ 对应下滑。
+键盘快捷键只在触控板获得焦点时生效，Space 点击，Esc 取消当前动作并松开。
+如果切换视频不完整，可调整“滑动距离”；滑动前将手机指针移到视频中部。
+“按住长按”在按下鼠标时按下手机指针，松开时释放；可用于应用支持的长按加速。
+倍速选择通过点击手机应用中的倍速菜单完成，不改变 AirPlay 流播放速度，也不假定所有应用有相同按钮。
+
+只有用户选择的、已订阅鼠标报告的蓝牙设备接收输入，不向其他配对设备广播。
+投屏窗口通过带版本号的 `WM_COPYDATA` 包发送坐标；控制组件校验输入范围与 UxPlay 进程路径，
+限制单个活动视频窗口，合并连续移动并按 BLE 连接间隔发送。画面消息不改变用户选择的目标。
+失去焦点、丢失鼠标捕获、断线、按 Esc 或关闭控制窗时取消排队动作并尝试释放按键。
+控制窗只处理自身的输入，不使用全局键鼠拦截。正常关闭会停止广播；父 Ariadne 退出后控制窗自动关闭。
+控制日志为 `%APPDATA%\Ariadne\airplay\control.log`。如果手机不能重连，删除 Windows 与手机两端的旧配对后重新连接。
+如果普通蓝牙设置显示已连接，但控制列表为空，回到“辅助触控 → 设备 → 蓝牙设备”连接电脑。
+普通音频或通话连接不代表鼠标控制服务已连接；只有鼠标报告订阅建立后，手机才会出现在控制列表。
+实际应用的滑动和长按行为需要在对应 iOS / 抖音 / 红果版本上验收。
+
+## 连接排查
+
+- 设备列表没有接收名称：在投屏中心点击“允许局域网投屏”并接受 Windows 管理员授权。规则只允许 UxPlay 程序在专用网络上接受来自 `LocalSubnet` 的入站连接，不修改网络类型。
+- 避免访客 Wi-Fi、AP 客户端隔离，以及阻断局域网发现的 VPN。
+- 投屏中心显示异常退出时，展开“接收日志”查看原因。
+- 首次启动会创建 GStreamer 插件缓存，需要几秒完成初始化。
+
+运行数据位于 `%APPDATA%\Ariadne\airplay`：`receiver.conf`、`uxplay.log`、`gstreamer-registry.bin`、帧率设置 `preferences.json` 和窗口设置 `window.ini`。日志每次启动重新写入；配对码每次启动随机生成，不保存在设置中。已有受信任设备的重新认证行为由 UxPlay 协议处理。
+
+## 构建和打包
+
+```powershell
+wails3 task native:uxplay
+wails3 task native:iphone-control
+wails3 task windows:build
+```
+
+`windows:build` 和 `windows:mcp-build` 自动构建投屏运行库。首次构建下载经过 SHA256 校验的 MSYS2 基础环境和 UxPlay 源码，在 `.codex-tmp\uxplay-build` 内安装编译依赖；不会安装到系统的 MSYS2 目录。后续构建复用 `bin\uxplay` 中与源码版本一致的已验证运行库。
+
+当前固定使用 UxPlay `1.74-dev` 提交 `4e95a9ec013c52d8555d88dbc55abe346e94d56e`，以使用内置 mDNS，无需额外安装 Bonjour SDK 或 Bonjour 服务：
+
+- 上游源码：<https://github.com/FDH2/UxPlay/tree/4e95a9ec013c52d8555d88dbc55abe346e94d56e>
+- MSYS2 基础环境：2026-09-27，Windows x64 / UCRT64
+- 禁用 `-march=native`，避免将本机 CPU 指令集要求带入发布包。
+- 修正 Windows 网卡筛选：保留承载局域网网关的 Hyper-V 外部交换机接口，避免设备发现广播缺失主机地址。构建时运行对应的原生回归测试。
+- 投屏窗口使用 Ariadne 标题和应用图标；每次创建视频窗口时设置，包括断开后重连。原生窗口扩展负责尺寸适配、置顶、全屏、亮屏管理以及结构化视频状态事件；元数据沿用 UxPlay 的 DMAP 解析。构建时使用真实 Direct3D11 视频窗口验证横竖屏、尺寸记忆、元数据标题、置顶、全屏、断开及重连。
+- 仅打包屏幕镜像和音频所需的 GStreamer 插件及其 DLL 依赖；构建时验证视频输出、音频输出、解析器和解码器。
+
+安装器和 MSIX 打包都要求包含 `uxplay\uxplay.exe`，并递归收集其 DLL、GStreamer 插件、扫描器、许可证和上游源码压缩包。Ariadne 只启动应用目录下的 `uxplay\uxplay.exe`，不搜索系统 PATH 或自动切换到其他投屏程序。
+
+控制组件发布为自带 .NET 运行时的 `iphone-control\Ariadne.iPhoneControl.exe`，
+Windows 构建、安装包和 MSIX 均包含它及 MIT 许可证。蓝牙核心固定来自
+`abhishek-raj/windows-ble-hid` 提交 `b33a0043b3865ea8251a242eae27aa2f72816512`，
+来源、许可证与局部修改见 `native/Ariadne.iPhoneControl/Vendor/BleHid/NOTICE.md`。
+
+上游 UxPlay 使用 GPLv3；运行库保留 `LICENSE-UxPlay`、对应的 `UxPlay-source.zip`、`README-UxPlay.md` 及 MSYS2 依赖许可证和版本清单。更新时应同步更新脚本中的提交、源码校验值和相关通知。
+Windows 网卡筛选、窗口品牌及直接操作的完整源文件、资源文件随运行库放在 `modified-source/`；将此目录的内容覆盖到对应上游源码即可重建。
+
+## 验证
+
+```powershell
+go test . ./cmd/... ./internal/...
+dotnet run --project native/Ariadne.iPhoneControl.Tests -c Release
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-iphone-control.ps1
+pnpm --dir frontend build
+$env:ARIADNE_TEST_UXPLAY_RUNTIME = (Resolve-Path bin\uxplay).Path
+go test ./internal/airplay -run TestBundledRuntimeSmoke -v -count=1
+$env:ARIADNE_TEST_UXPLAY_IPV4 = (Get-NetIPConfiguration | Where-Object IPv4DefaultGateway | Select-Object -First 1).IPv4Address.IPAddress
+go test ./internal/airplay -run TestBundledRuntimeDiscovery -v -count=1
+```
+
+本机蓝牙完整服务烟测：`bin\iphone-control\Ariadne.iPhoneControl.exe --probe "$env:TEMP\Ariadne-BluetoothProbe.json"`。
+它实际创建加密 HID 服务、报告描述符、电池服务并开始广播，将诊断写入指定 JSON 后停止。
+`ok: true` 验证电脑侧服务可用，不代表已经完成 iPhone 配对或应用内操作验收。
+
+真实运行库烟测验证进程启动、服务套接字初始化和停止回收。发现测试通过指定局域网地址发送 mDNS 查询，验证收到含本次接收名称和正确主机 IPv4 地址的响应。手机端设备列表、配对、屏幕画面、横竖屏旋转和声音播放仍需要连接真实 iPhone 验收。

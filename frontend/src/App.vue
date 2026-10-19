@@ -7,6 +7,7 @@ import { defineAsyncComponent, onMounted, onUnmounted } from 'vue'
 
 const AriadneLauncher = defineAsyncComponent(() => import('./components/launcher/AriadneLauncher.vue'))
 const ApiTestingCenter = defineAsyncComponent(() => import('./components/apitesting/ApiTestingCenter.vue'))
+const AirPlayCenter = defineAsyncComponent(() => import('./components/airplay/AirPlayCenter.vue'))
 const CaptureOverlayWindow = defineAsyncComponent(() => import('./components/capture/CaptureOverlayWindow.vue'))
 const CaptureHistoryCenter = defineAsyncComponent(() => import('./components/capture/CaptureHistoryCenter.vue'))
 const ClipboardCenter = defineAsyncComponent(() => import('./components/clipboard/ClipboardCenter.vue'))
@@ -158,7 +159,7 @@ async function ensureUtilityWindow(options: {
 }
 
 function isStandaloneToolView(view: string): view is AppToolView {
-  return ['work-memory', 'clipboard', 'capture', 'hosts', 'workflow', 'json-compare', 'api-testing', 'network-monitor', 'network-mini', 'settings'].includes(view)
+  return ['work-memory', 'clipboard', 'capture', 'hosts', 'workflow', 'json-compare', 'api-testing', 'airplay', 'network-monitor', 'network-mini', 'settings'].includes(view)
 }
 
 function shouldRenderToolView(view: AppToolView) {
@@ -177,6 +178,7 @@ function shouldRenderToolView(view: AppToolView) {
   <WorkflowCenter v-else-if="shouldRenderToolView('workflow')" />
   <JsonCompareCenter v-else-if="shouldRenderToolView('json-compare')" />
   <ApiTestingCenter v-else-if="shouldRenderToolView('api-testing')" />
+  <AirPlayCenter v-else-if="shouldRenderToolView('airplay')" />
   <NetworkMonitorCenter v-else-if="shouldRenderToolView('network-monitor')" />
   <NetworkMiniWindow v-else-if="shouldRenderToolView('network-mini')" />
   <SettingsCenter v-else-if="shouldRenderToolView('settings')" />

@@ -46,6 +46,11 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join(manifest.LayoutDir, "Ariadne.exe"),
 		filepath.Join(manifest.LayoutDir, "native-capture", "Ariadne.CaptureHost.exe"),
+		filepath.Join(manifest.LayoutDir, "uxplay", "uxplay.exe"),
+		filepath.Join(manifest.LayoutDir, "uxplay", "lib", "gstreamer-1.0", "libgstd3d11.dll"),
+		filepath.Join(manifest.LayoutDir, "uxplay", "LICENSE-UxPlay"),
+		filepath.Join(manifest.LayoutDir, "iphone-control", "Ariadne.iPhoneControl.exe"),
+		filepath.Join(manifest.LayoutDir, "iphone-control", "Vendor", "BleHid", "LICENSE"),
 		filepath.Join(manifest.LayoutDir, "Assets", "Square44x44Logo.png"),
 		filepath.Join(manifest.LayoutDir, "Assets", "Square150x150Logo.png"),
 		filepath.Join(manifest.LayoutDir, "Assets", "StoreLogo.png"),
@@ -57,7 +62,7 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 			t.Fatalf("expected generated MSIX layout file %s: %v", path, err)
 		}
 	}
-	if len(manifest.Files) != 7 {
+	if len(manifest.Files) != 12 {
 		t.Fatalf("manifest should hash the app payload, logos, AppxManifest, and README; got %#v", manifest.Files)
 	}
 	for _, file := range manifest.Files {
@@ -90,6 +95,35 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 	}
 	assertContains(t, strings.Join(manifestFile.SigningNotes, "\n"), "signtool.exe")
 	assertContains(t, readFile(t, filepath.Join(manifest.LayoutDir, "README-msix.txt")), "does not include work memory exports")
+}
+
+func TestBuildRejectsMissingAirPlayRuntime(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	logoPath := filepath.Join(base, "logo.png")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, logoPath, "fake logo")
+	writeFile(t, filepath.Join(base, "bin", "native-capture", "Ariadne.CaptureHost.exe"), "fake capture host")
+	_, err := Build(Options{ExePath: exePath, LogoPath: logoPath, OutputDir: filepath.Join(base, "msix")})
+	if err == nil || !strings.Contains(err.Error(), "uxplay.exe") {
+		t.Fatalf("MSIX must include the receiver runtime: %v", err)
+	}
+}
+
+func TestBuildRejectsMissingPhoneControl(t *testing.T) {
+	base := t.TempDir()
+	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	logoPath := filepath.Join(base, "logo.png")
+	writeFile(t, exePath, "fake exe")
+	writeFile(t, logoPath, "fake logo")
+	writeNativeCaptureHost(t, filepath.Dir(exePath))
+	if err := os.Remove(filepath.Join(base, "bin", "iphone-control", "Ariadne.iPhoneControl.exe")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Build(Options{ExePath: exePath, LogoPath: logoPath, OutputDir: filepath.Join(base, "msix")})
+	if err == nil || !strings.Contains(err.Error(), "Ariadne.iPhoneControl.exe") {
+		t.Fatalf("MSIX must include phone control: %v", err)
+	}
 }
 
 func TestBuildRejectsMissingExecutable(t *testing.T) {
@@ -169,6 +203,11 @@ func writeFile(t *testing.T, path string, content string) {
 func writeNativeCaptureHost(t *testing.T, exeDir string) {
 	t.Helper()
 	writeFile(t, filepath.Join(exeDir, "native-capture", "Ariadne.CaptureHost.exe"), "fake native capture host")
+	writeFile(t, filepath.Join(exeDir, "uxplay", "uxplay.exe"), "fake airplay receiver")
+	writeFile(t, filepath.Join(exeDir, "uxplay", "lib", "gstreamer-1.0", "libgstd3d11.dll"), "fake video sink")
+	writeFile(t, filepath.Join(exeDir, "uxplay", "LICENSE-UxPlay"), "GPL-3.0")
+	writeFile(t, filepath.Join(exeDir, "iphone-control", "Ariadne.iPhoneControl.exe"), "fake phone control")
+	writeFile(t, filepath.Join(exeDir, "iphone-control", "Vendor", "BleHid", "LICENSE"), "MIT")
 }
 
 func readFile(t *testing.T, path string) string {

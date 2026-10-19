@@ -29,6 +29,7 @@ Ariadne 是一个轻量的 Windows 桌面效率工具。它把常用启动、文
 | 截图历史 | 屏幕/窗口/区域截图、标注、OCR、二维码识别、置顶图片和历史检索。 |
 | 剪贴板历史 | 文本和图片剪贴板监听、搜索、复制回写、OCR、二维码识别和截图归档。 |
 | 工具中心 | Hosts 管理、JSON 对比、网络监控、工作流宏、设置中心和 API 调试窗口。 |
+| iPhone 投屏 | 启动器输入 `投屏` 或 `airplay` 打开独立工具窗口，集中管理接收开关、连接状态、配对码、帧率、网络授权和日志。 |
 | 本地数据 | 运行数据写入 `%APPDATA%\Ariadne\ariadne.sqlite`，安装目录和用户数据目录分离。 |
 | 发布包 | 用户级安装器，支持安装界面、安装位置、快捷方式、自启动、卸载和内置文件索引。 |
 
@@ -36,7 +37,11 @@ Ariadne 是一个轻量的 Windows 桌面效率工具。它把常用启动、文
 
 1. 打开 [Releases](https://github.com/glwlg/Ariadne/releases)。
 2. 下载最新的 `AriadneSetup-dev-windows-x64.exe`。
-3. 双击安装器，阅读用户协议，按需选择安装位置、开始菜单入口、桌面快捷方式和随 Windows 启动。
+3. 双击安装器，阅读用户协议，按需选择安装位置、桌面快捷方式和随 Windows 启动。安装器始终创建开始菜单入口和卸载入口。
+
+静默安装和升级同样会创建或修复开始菜单入口。`--no-desktop-shortcut` 只跳过桌面快捷方式；
+旧参数 `--no-shortcuts` / `-NoShortcuts` 现在也只跳过桌面快捷方式，不再关闭开始菜单入口。
+显式禁用开始菜单入口的参数会报错，不执行安装。
 
 `ariadne-dev-windows-x64.zip` 是排查用 payload，正常安装优先使用 setup exe。
 
@@ -108,6 +113,8 @@ dist\release\SHA256SUMS
 | 命令 | 用途 |
 | --- | --- |
 | `wails3 task windows:build` | 构建 Windows 可执行文件。 |
+| `wails3 task native:uxplay` | 构建自带的 Windows x64 投屏运行库。 |
+| `wails3 task native:iphone-control` | 构建蓝牙 iPhone 控制窗；从投屏中心的“手机控制（可选）”打开。 |
 | `wails3 task windows:mcp-build` | 构建仅供隔离测试使用、启用 Wails MCP 的开发 EXE。 |
 | `wails3 task windows:mcp-dev` | 在回环地址和随机端口运行 MCP 开发构建。 |
 | `wails3 task windows:package` | 构建用户级 Windows 安装器和更新校验文件，不保留 ZIP。 |
@@ -117,6 +124,8 @@ dist\release\SHA256SUMS
 | `wails3 task windows:autostart-smoke` | 验证自启动注册路径。 |
 
 MCP 开发构建输出为 `bin\ariadne-mcp.exe`，不会被 Windows 发布任务打包。它允许测试客户端控制 Wails WebView 窗口，因此只能在隔离测试桌面运行；正式的 `bin\ariadne.exe` 不包含 `mcp` build tag。
+
+iPhone 投屏的连接方法、局域网授权、运行库构建和验证见 [投屏说明](docs/airplay.md)。
 
 ## 项目结构
 

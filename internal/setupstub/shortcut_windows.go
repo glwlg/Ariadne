@@ -25,7 +25,10 @@ func createShortcut(targetPath string, shortcutPath string, iconPath string, arg
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED); err != nil {
-		return fmt.Errorf("initialize COM for shortcut: %w", err)
+		// S_FALSE also succeeds when this thread already initialized COM.
+		if oleErr, ok := err.(*ole.OleError); !ok || oleErr.Code() != installerCoInitSFalse {
+			return fmt.Errorf("initialize COM for shortcut: %w", err)
+		}
 	}
 	defer ole.CoUninitialize()
 

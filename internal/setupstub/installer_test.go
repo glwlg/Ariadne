@@ -33,7 +33,6 @@ func TestParseArgsConsumesUpdateDirectory(t *testing.T) {
 func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 	command, err := parseCommandOptions([]string{
 		"-InstallDir", `C:\Apps\Ariadne`,
-		"--no-start-menu-shortcut",
 		"--no-desktop-shortcut",
 		"--no-autostart",
 		"--launch-after-install",
@@ -44,9 +43,6 @@ func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 	}
 	if command.InstallDir != `C:\Apps\Ariadne` {
 		t.Fatalf("install dir = %q", command.InstallDir)
-	}
-	if command.CreateStartMenuShortcut {
-		t.Fatal("start menu shortcut should be disabled")
 	}
 	if command.CreateDesktopShortcut {
 		t.Fatal("desktop shortcut should be disabled")
@@ -59,6 +55,30 @@ func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 	}
 	if command.InstallFileSearchService {
 		t.Fatal("file search service should be disabled")
+	}
+}
+
+func TestParseCommandOptionsLegacyNoShortcutsOnlyDisablesDesktop(t *testing.T) {
+	for _, flag := range []string{"--no-shortcuts", "-NoShortcuts"} {
+		command, err := parseCommandOptions([]string{flag})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if command.CreateDesktopShortcut {
+			t.Fatalf("%s should disable the optional desktop shortcut", flag)
+		}
+	}
+}
+
+func TestParseCommandOptionsRejectsDisablingStartMenu(t *testing.T) {
+	for _, flag := range []string{
+		"--no-start-menu-shortcut", "-NoStartMenuShortcut",
+		"--create-start-menu-shortcut=false", "-CreateStartMenuShortcut=false",
+	} {
+		_, err := parseCommandOptions([]string{flag})
+		if err == nil || !strings.Contains(err.Error(), "开始菜单入口为必需项") {
+			t.Fatalf("%s must not allow an undiscoverable install: %v", flag, err)
+		}
 	}
 }
 
@@ -172,18 +192,26 @@ func TestExtractPayloadRejectsZipSlip(t *testing.T) {
 
 func TestRunInstallsAndUninstallsPayloadWithoutScripts(t *testing.T) {
 	base := t.TempDir()
+	const productName = "AriadneSetupTest"
 	installDir := filepath.Join(base, "install")
+	startMenuDir := filepath.Join(base, "start-menu")
+	desktopDir := filepath.Join(base, "desktop")
 	payload := zipPayload(t, map[string]string{
-		"ariadne-dev-windows-x64/app/ariadne.exe": "fake exe",
-		"ariadne-dev-windows-x64/app/logo.ico":    "fake icon",
-		"ariadne-dev-windows-x64/manifest.json":   "{}",
+		"ariadne-dev-windows-x64/app/ariadne.exe":          "fake exe",
+		"ariadne-dev-windows-x64/app/ariadnesetuptest.exe": "fake test exe",
+		"ariadne-dev-windows-x64/app/logo.ico":             "fake icon",
+		"ariadne-dev-windows-x64/manifest.json":            "{}",
 	})
 
-	result, err := Run(payload, Options{
-		ProductName: "Ariadne",
+	options := Options{
+		ProductName: productName,
 		Version:     "0.1.0-test",
-		Args:        []string{"-InstallDir", installDir, "-NoShortcuts", "-SkipProcessStop", "-SkipServiceChanges"},
-	})
+		Args: []string{
+			"-InstallDir", installDir, "-StartMenuDir", startMenuDir, "-DesktopDir", desktopDir,
+			"-NoShortcuts", "-NoAutoStart", "-SkipProcessStop", "-SkipServiceChanges",
+		},
+	}
+	result, err := Run(payload, options)
 	if err != nil {
 		t.Fatalf("run installer: %v", err)
 	}
@@ -191,10 +219,12 @@ func TestRunInstallsAndUninstallsPayloadWithoutScripts(t *testing.T) {
 		t.Fatalf("action = %s, want %s", result.Action, ActionInstall)
 	}
 	for _, path := range []string{
-		filepath.Join(installDir, "ariadne.exe"),
+		filepath.Join(installDir, "ariadnesetuptest.exe"),
 		filepath.Join(installDir, "logo.ico"),
-		filepath.Join(installDir, "AriadneSetup.exe"),
+		filepath.Join(installDir, productName+"Setup.exe"),
 		filepath.Join(installDir, "install_receipt.json"),
+		filepath.Join(startMenuDir, productName+".lnk"),
+		filepath.Join(startMenuDir, "Uninstall "+productName+".lnk"),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected installed file %s: %v", path, err)
@@ -205,14 +235,45 @@ func TestRunInstallsAndUninstallsPayloadWithoutScripts(t *testing.T) {
 		t.Fatalf("receipt should not mention x-tools: %s", receipt)
 	}
 	recorded := readReceipt(filepath.Join(installDir, "install_receipt.json"))
-	if recorded.InstallOptions == nil || recorded.InstallOptions.CreateStartMenuShortcut || recorded.InstallOptions.CreateDesktopShortcut {
-		t.Fatalf("receipt should preserve disabled shortcut choices: %#v", recorded.InstallOptions)
+	if recorded.InstallOptions == nil || !recorded.InstallOptions.CreateStartMenuShortcut || recorded.InstallOptions.CreateDesktopShortcut {
+		t.Fatalf("receipt must keep Start Menu enabled without creating a desktop link: %#v", recorded.InstallOptions)
+	}
+	if _, err := os.Stat(filepath.Join(desktopDir, productName+".lnk")); !os.IsNotExist(err) {
+		t.Fatalf("desktop shortcut should remain optional: %v", err)
+	}
+
+	// Reproduce an older quiet install that recorded no shortcuts and left the app undiscoverable.
+	for _, shortcut := range recorded.Shortcuts {
+		if err := os.Remove(shortcut); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recorded.Shortcuts = nil
+	recorded.InstallOptions.CreateStartMenuShortcut = false
+	if err := writeReceipt(filepath.Join(installDir, "install_receipt.json"), recorded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(payload, options); err != nil {
+		t.Fatalf("upgrade old no-shortcuts install: %v", err)
+	}
+	recorded = readReceipt(filepath.Join(installDir, "install_receipt.json"))
+	if recorded.InstallOptions == nil || !recorded.InstallOptions.CreateStartMenuShortcut || len(recorded.Shortcuts) != 2 {
+		t.Fatalf("upgrade must repair and record both Start Menu links: %#v", recorded)
+	}
+	for _, shortcut := range recorded.Shortcuts {
+		if _, err := os.Stat(shortcut); err != nil {
+			t.Fatalf("upgrade did not restore %s: %v", shortcut, err)
+		}
 	}
 
 	result, err = Run(nil, Options{
-		ProductName: "Ariadne",
+		ProductName: productName,
 		Version:     "0.1.0-test",
-		Args:        []string{"--uninstall", "--synchronous", "-InstallDir", installDir, "-NoShortcuts", "-SkipProcessStop", "-SkipServiceChanges"},
+		Args: []string{
+			"--uninstall", "--synchronous", "-InstallDir", installDir,
+			"-StartMenuDir", startMenuDir, "-DesktopDir", desktopDir,
+			"-SkipProcessStop", "-SkipServiceChanges",
+		},
 	})
 	if err != nil {
 		t.Fatalf("run uninstaller: %v", err)
@@ -222,6 +283,63 @@ func TestRunInstallsAndUninstallsPayloadWithoutScripts(t *testing.T) {
 	}
 	if _, err := os.Stat(installDir); !os.IsNotExist(err) {
 		t.Fatalf("install dir should be removed, stat err=%v", err)
+	}
+	for _, shortcut := range recorded.Shortcuts {
+		if _, err := os.Stat(shortcut); !os.IsNotExist(err) {
+			t.Fatalf("uninstall should remove %s: %v", shortcut, err)
+		}
+	}
+}
+
+func TestInstallRequiresStartMenuDirectory(t *testing.T) {
+	t.Setenv("APPDATA", "")
+	packageRoot := t.TempDir()
+	appSource := filepath.Join(packageRoot, "app")
+	if err := os.Mkdir(appSource, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appSource, "ariadne.exe"), []byte("exe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installDir := filepath.Join(t.TempDir(), "install")
+	_, err := install(packageRoot, Options{ProductName: "Ariadne"}, commandOptions{
+		InstallDir: installDir, SkipProcessStop: true, SkipServiceChanges: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "无法确定开始菜单目录") {
+		t.Fatalf("missing Start Menu directory must fail explicitly: %v", err)
+	}
+	if _, err := os.Stat(installDir); !os.IsNotExist(err) {
+		t.Fatalf("validation must happen before modifying the installation: %v", err)
+	}
+}
+
+func TestRemoveShortcutsOnlyRemovesRecordedEntries(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("APPDATA", filepath.Join(base, "appdata"))
+	t.Setenv("USERPROFILE", filepath.Join(base, "user"))
+	preserved := []string{
+		filepath.Join(defaultStartMenuDir(), "Ariadne.lnk"),
+		filepath.Join(defaultStartMenuDir(), "Uninstall Ariadne.lnk"),
+		filepath.Join(defaultDesktopDir(), "Ariadne.lnk"),
+	}
+	recorded := filepath.Join(base, "test-install.lnk")
+	for _, shortcut := range append(preserved, recorded) {
+		if err := os.MkdirAll(filepath.Dir(shortcut), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(shortcut, []byte("shortcut"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removeShortcuts(installReceipt{})
+	removeShortcuts(installReceipt{Shortcuts: []string{recorded}})
+	if _, err := os.Stat(recorded); !os.IsNotExist(err) {
+		t.Fatalf("recorded shortcut should be removed: %v", err)
+	}
+	for _, shortcut := range preserved {
+		if _, err := os.Stat(shortcut); err != nil {
+			t.Fatalf("uninstall must not infer and delete another installation's shortcut %s: %v", shortcut, err)
+		}
 	}
 }
 

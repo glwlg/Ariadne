@@ -8,5 +8,6 @@
   <ItemGroup>
     <Compile Include="..\Ariadne.CaptureHost\ColorPickerShortcutResolver.cs" Link="ColorPickerShortcutResolver.cs" />
     <Compile Include="..\Ariadne.CaptureHost\ColorFormatPreferences.cs" Link="ColorFormatPreferences.cs" />
+    <Compile Include="..\Ariadne.CaptureHost\OverlayFocusTargetResolver.cs" Link="OverlayFocusTargetResolver.cs" />
   </ItemGroup>
 </Project>

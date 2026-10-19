@@ -98,6 +98,7 @@ internal sealed class OverlayWindow : Window
         Opacity = 0.75
     };
     private readonly Border _toolbar = new();
+    private readonly Border _toolbarDragHandle = new();
     private readonly Border _selectionSize = new();
     private readonly TextBlock _selectionSizeText = new();
     private readonly Border _hint = new();
@@ -146,8 +147,14 @@ internal sealed class OverlayWindow : Window
     private int _lastMagnifierPhysicalX = int.MinValue;
     private int _lastMagnifierPhysicalY = int.MinValue;
     private bool _selectionDragVisualsActive;
+    private bool _toolbarPositionPinned;
+    private bool _toolbarDragActive;
+    private WpfPoint _toolbarDragStart;
+    private WpfPoint _toolbarDragOrigin;
     private bool _editMode;
     private bool _completed;
+    private int _initialFocusAttempts;
+    private const int InitialFocusAttempts = 8;
     private bool _ocrBusy;
     private bool _redactBusy;
 
@@ -192,6 +199,61 @@ internal sealed class OverlayWindow : Window
     {
         _completed = true;
         Close();
+    }
+
+    public void ClaimKeyboardFocus()
+    {
+        _initialFocusAttempts = 0;
+        ActivateOverlayKeyboard();
+        Dispatcher.BeginInvoke(new Action(ActivateOverlayKeyboard), DispatcherPriority.Input);
+        Dispatcher.BeginInvoke(new Action(ScheduleInitialFocusRetry), DispatcherPriority.ApplicationIdle);
+    }
+
+    private void ActivateOverlayKeyboard()
+    {
+        if (_completed || HasActiveTextEditor())
+        {
+            return;
+        }
+        Activate();
+        NativeMethods.ActivateOverlayWindow(this);
+        _overlay.Focus();
+        Keyboard.Focus(_overlay);
+        FocusManager.SetFocusedElement(this, _overlay);
+    }
+
+    private void ScheduleInitialFocusRetry()
+    {
+        if (!OverlayFocusTargetResolver.ShouldRetryInitialFocus(
+                _completed,
+                HasActiveTextEditor(),
+                NativeMethods.IsForegroundWindow(this),
+                IsActive,
+                IsOverlayKeyboardFocused(),
+                _initialFocusAttempts,
+                InitialFocusAttempts))
+        {
+            return;
+        }
+        _initialFocusAttempts++;
+        ActivateOverlayKeyboard();
+        var timer = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(40) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            ScheduleInitialFocusRetry();
+        };
+        timer.Start();
+    }
+
+    private bool HasActiveTextEditor()
+    {
+        return _textEditor != null && (_textEditor.IsKeyboardFocusWithin || _textEditor.IsFocused);
+    }
+
+    private bool IsOverlayKeyboardFocused()
+    {
+        return _overlay.IsKeyboardFocused || _overlay.IsKeyboardFocusWithin;
     }
 
     private Grid BuildContent()
@@ -312,7 +374,7 @@ internal sealed class OverlayWindow : Window
         {
             PositionOverlayChrome();
             UpdateToolStates();
-            _overlay.Focus();
+            ActivateOverlayKeyboard();
         };
         root.Children.Add(_overlay);
         return root;
@@ -345,6 +407,33 @@ internal sealed class OverlayWindow : Window
         var panel = new StackPanel { Orientation = WpfOrientation.Vertical };
         var primary = _primaryToolbarRow;
         primary.Orientation = WpfOrientation.Horizontal;
+        _toolbarDragHandle.Width = 24;
+        _toolbarDragHandle.Height = 30;
+        _toolbarDragHandle.Margin = new Thickness(0, 0, 2, 0);
+        _toolbarDragHandle.Padding = new Thickness(0);
+        _toolbarDragHandle.Background = NativeVisuals.Brush(28, 39, 39, 42);
+        _toolbarDragHandle.CornerRadius = new CornerRadius(6);
+        _toolbarDragHandle.BorderBrush = NativeVisuals.Brush(72, 148, 163, 184);
+        _toolbarDragHandle.BorderThickness = new Thickness(1);
+        _toolbarDragHandle.ToolTip = "拖动工具栏";
+        _toolbarDragHandle.Cursor = Cursors.SizeAll;
+        _toolbarDragHandle.Child = new TextBlock
+        {
+            Text = "⋮⋮",
+            FontFamily = NativeVisuals.ToolbarFont,
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
+            Foreground = NativeVisuals.Brush(82, 82, 91),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            IsHitTestVisible = false
+        };
+        _toolbarDragHandle.MouseLeftButtonDown += BeginToolbarDrag;
+        _toolbarDragHandle.MouseMove += MoveToolbarDrag;
+        _toolbarDragHandle.MouseLeftButtonUp += EndToolbarDrag;
+        _toolbarDragHandle.LostMouseCapture += CancelToolbarDrag;
+        primary.Children.Add(_toolbarDragHandle);
         primary.Children.Add(ActionButton("lucide:qr-code", "扫码 (Q)", () => Finish("qr")));
         primary.Children.Add(Separator());
         primary.Children.Add(ToolButton("lucide:square", "矩形 (R)", AnnotationTool.Rect));
@@ -415,6 +504,69 @@ internal sealed class OverlayWindow : Window
         secondary.Children.Add(_thicknessText);
         panel.Children.Add(secondary);
         return panel;
+    }
+
+    private void BeginToolbarDrag(object sender, MouseButtonEventArgs eventArgs)
+    {
+        if (eventArgs.ChangedButton != MouseButton.Left || _toolbar.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        _toolbarDragActive = true;
+        _toolbarPositionPinned = true;
+        _toolbarDragStart = eventArgs.GetPosition(_overlay);
+        _toolbarDragOrigin = new WpfPoint(
+            double.IsNaN(Canvas.GetLeft(_toolbar)) ? 0 : Canvas.GetLeft(_toolbar),
+            double.IsNaN(Canvas.GetTop(_toolbar)) ? 0 : Canvas.GetTop(_toolbar));
+        _toolbarDragHandle.CaptureMouse();
+        _toolbarDragHandle.Cursor = Cursors.SizeAll;
+        eventArgs.Handled = true;
+    }
+
+    private void MoveToolbarDrag(object sender, WpfMouseEventArgs eventArgs)
+    {
+        if (!_toolbarDragActive || eventArgs.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        var point = eventArgs.GetPosition(_overlay);
+        var totalWidth = Math.Max(ActualWidth, Width);
+        var totalHeight = Math.Max(ActualHeight, Height);
+        var toolbarWidth = _toolbar.ActualWidth > 0 ? _toolbar.ActualWidth : _toolbar.Width;
+        var toolbarHeight = _toolbar.ActualHeight > 0 ? _toolbar.ActualHeight : _toolbar.Height;
+        var x = _toolbarDragOrigin.X + point.X - _toolbarDragStart.X;
+        var y = _toolbarDragOrigin.Y + point.Y - _toolbarDragStart.Y;
+        x = Math.Clamp(x, 8, Math.Max(8, totalWidth - toolbarWidth - 8));
+        y = Math.Clamp(y, 8, Math.Max(8, totalHeight - toolbarHeight - 8));
+        Canvas.SetLeft(_toolbar, x);
+        Canvas.SetTop(_toolbar, y);
+        eventArgs.Handled = true;
+    }
+
+    private void EndToolbarDrag(object sender, MouseButtonEventArgs eventArgs)
+    {
+        if (!_toolbarDragActive || eventArgs.ChangedButton != MouseButton.Left)
+        {
+            return;
+        }
+
+        _toolbarDragActive = false;
+        _toolbarDragHandle.ReleaseMouseCapture();
+        _toolbarDragHandle.Cursor = Cursors.SizeAll;
+        eventArgs.Handled = true;
+    }
+
+    private void CancelToolbarDrag(object? sender, MouseEventArgs eventArgs)
+    {
+        if (!_toolbarDragActive)
+        {
+            return;
+        }
+
+        _toolbarDragActive = false;
+        _toolbarDragHandle.Cursor = Cursors.SizeAll;
     }
 
     private WpfButton ActionButton(string glyph, string tooltip, Action action, bool primary = false)
@@ -548,6 +700,7 @@ internal sealed class OverlayWindow : Window
 
         _interactionStart = point;
         _interactionOrigin = selection;
+        _toolbarPositionPinned = false;
         _resizeAnchor = HitTestResizeAnchor(point, selection);
         if (_resizeAnchor != ResizeAnchor.None)
         {
@@ -580,6 +733,15 @@ internal sealed class OverlayWindow : Window
             Cursor = Cursors.Arrow;
             _magnifier.Visibility = Visibility.Collapsed;
             return;
+        }
+
+        if (OverlayFocusTargetResolver.ShouldRefocusOverlayOnPointerMove(
+                _completed,
+                HasActiveTextEditor(),
+                IsActive,
+                _overlay.IsKeyboardFocusWithin))
+        {
+            ActivateOverlayKeyboard();
         }
 
         var point = ClampPoint(eventArgs.GetPosition(_overlay));
@@ -807,6 +969,7 @@ internal sealed class OverlayWindow : Window
 
         if (bounds.Width < 1 || bounds.Height < 1)
         {
+            _toolbarPositionPinned = false;
             _selection.Visibility = Visibility.Collapsed;
             _toolbar.Visibility = Visibility.Collapsed;
             _selectionSize.Visibility = Visibility.Collapsed;
@@ -863,11 +1026,52 @@ internal sealed class OverlayWindow : Window
             _toolbar.Measure(new WpfSize(maxToolbarWidth, double.PositiveInfinity));
             var toolbarWidth = Math.Min(maxToolbarWidth, _toolbar.DesiredSize.Width);
             var toolbarHeight = _toolbar.DesiredSize.Height;
-            var x = Math.Clamp(bounds.X + bounds.Width - toolbarWidth, 8, Math.Max(8, totalWidth - toolbarWidth - 8));
-            var y = bounds.Y + bounds.Height + 8;
-            if (y + toolbarHeight > totalHeight - 8)
+            var margin = 8d;
+            var gap = 8d;
+            var x = bounds.X + bounds.Width / 2 - toolbarWidth / 2;
+            var y = bounds.Bottom + gap;
+            if (_toolbarPositionPinned)
             {
-                y = Math.Max(8, bounds.Y - toolbarHeight - 8);
+                x = Canvas.GetLeft(_toolbar);
+                y = Canvas.GetTop(_toolbar);
+            }
+            else
+            {
+                var reserved = bounds.InflateBy(4);
+                var candidates = new (double X, double Y)[]
+                {
+                    (bounds.X + bounds.Width / 2 - toolbarWidth / 2, bounds.Bottom + gap),
+                    (bounds.X + bounds.Width / 2 - toolbarWidth / 2, bounds.Top - toolbarHeight - gap),
+                    (bounds.Right + gap, bounds.Y),
+                    (bounds.X - toolbarWidth - gap, bounds.Y)
+                };
+                var found = false;
+                foreach (var candidate in candidates)
+                {
+                    var candidateRect = new Rect(candidate.X, candidate.Y, toolbarWidth, toolbarHeight);
+                    if (candidate.X >= margin &&
+                        candidate.Y >= margin &&
+                        candidateRect.Right <= totalWidth - margin &&
+                        candidateRect.Bottom <= totalHeight - margin &&
+                        !candidateRect.IntersectsWith(reserved))
+                    {
+                        x = candidate.X;
+                        y = candidate.Y;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                {
+                    x = candidates[0].X;
+                    y = candidates[0].Y;
+                }
+            }
+            x = Math.Clamp(x, margin, Math.Max(margin, totalWidth - toolbarWidth - margin));
+            y = Math.Clamp(y, margin, Math.Max(margin, totalHeight - toolbarHeight - margin));
+            if (_toolbarPositionPinned)
+            {
+                _toolbarDragOrigin = new WpfPoint(x, y);
             }
             SetElement(_toolbar, x, y, toolbarWidth, toolbarHeight);
         }
@@ -1406,6 +1610,7 @@ internal sealed class OverlayWindow : Window
     private void ResetSelection()
     {
         CancelTextAnnotation();
+        _toolbarPositionPinned = false;
         _start = new WpfPoint();
         _end = new WpfPoint();
         _mode = OverlayInteractionMode.None;
