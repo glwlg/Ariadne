@@ -1,0 +1,82 @@
+{
+  "clipboard": {
+    "title": "Ariadne - 剪贴板历史",
+    "command": "open_clipboard_center",
+    "width": 1120,
+    "height": 720,
+    "minWidth": 900,
+    "minHeight": 620
+  },
+  "capture": {
+    "title": "Ariadne - 截图历史",
+    "command": "open_capture_center",
+    "width": 1120,
+    "height": 720,
+    "minWidth": 900,
+    "minHeight": 620
+  },
+  "hosts": {
+    "title": "Ariadne - Hosts",
+    "command": "open_hosts",
+    "width": 1360,
+    "height": 860,
+    "minWidth": 1120,
+    "minHeight": 720
+  },
+  "workflow": {
+    "title": "Ariadne - 工作流",
+    "command": "open_workflow_center",
+    "width": 1120,
+    "height": 720,
+    "minWidth": 900,
+    "minHeight": 620
+  },
+  "json-compare": {
+    "title": "Ariadne - JSON 对比",
+    "command": "open_json_compare",
+    "width": 1180,
+    "height": 760,
+    "minWidth": 900,
+    "minHeight": 620
+  },
+  "api-testing": {
+    "title": "Ariadne - API 测试",
+    "command": "open_api_testing",
+    "width": 1240,
+    "height": 780,
+    "minWidth": 900,
+    "minHeight": 620
+  },
+  "airplay": {
+    "title": "Ariadne - iPhone 投屏",
+    "command": "open_airplay",
+    "width": 1080,
+    "height": 760,
+    "minWidth": 820,
+    "minHeight": 560
+  },
+  "network-monitor": {
+    "title": "Ariadne - 进程网络",
+    "command": "open_network_monitor",
+    "width": 1240,
+    "height": 760,
+    "minWidth": 760,
+    "minHeight": 520
+  },
+  "network-mini": {
+    "title": "Ariadne - 网速小窗",
+    "command": "open_network_mini",
+    "width": 156,
+    "height": 40,
+    "minWidth": 156,
+    "minHeight": 40
+  },
+  "settings": {
+    "title": "Ariadne - 设置",
+    "command": "open_settings",
+    "width": 1240,
+    "height": 800,
+    "minWidth": 980,
+    "minHeight": 680
+  }
+}

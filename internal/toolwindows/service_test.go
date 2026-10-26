@@ -11,7 +11,7 @@ import (
 )
 
 func TestNormalizeViewAcceptsKnownToolViews(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "network-mini", "settings"} {
+	for _, view := range []string{"clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "network-mini", "settings"} {
 		if normalizeView(" "+view+" ") != view {
 			t.Fatalf("expected %q to be accepted", view)
 		}
@@ -27,7 +27,7 @@ func TestNormalizeViewRejectsLauncherAndUnknownViews(t *testing.T) {
 }
 
 func TestToolWindowSizingKeepsPaletteSeparateFromToolWindows(t *testing.T) {
-	width, height := toolSize("work-memory")
+	width, height := toolSize("capture")
 	if width != 1120 || height != 720 {
 		t.Fatalf("unexpected work memory size: %dx%d", width, height)
 	}
@@ -37,7 +37,7 @@ func TestToolWindowSizingKeepsPaletteSeparateFromToolWindows(t *testing.T) {
 		t.Fatalf("unexpected json compare size: %dx%d", width, height)
 	}
 
-	if minWidth("network-monitor") >= minWidth("work-memory") {
+	if minWidth("network-monitor") >= minWidth("capture") {
 		t.Fatalf("network monitor should keep a smaller minimum width")
 	}
 	if width, height = toolSize("network-monitor"); width != 1240 || height != 760 {
@@ -68,7 +68,7 @@ func TestSettingsAndHostsUseDesignSpecificWindowGeometry(t *testing.T) {
 }
 
 func TestOnlyNetworkMiniUsesFramelessFixedUtilityWindow(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "settings"} {
+	for _, view := range []string{"clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "settings"} {
 		if frameless(view) {
 			t.Fatalf("%s should use native window chrome", view)
 		}
@@ -87,12 +87,6 @@ func TestOnlyNetworkMiniUsesFramelessFixedUtilityWindow(t *testing.T) {
 	}
 	if !disableIcon("network-mini") || !hiddenOnTaskbar("network-mini") {
 		t.Fatal("network mini should hide titlebar icon and taskbar button")
-	}
-}
-
-func TestToolTitleUsesFlowBrandForWorkMemoryWindow(t *testing.T) {
-	if got := toolTitle("work-memory"); got != "Ariadne - 心流" {
-		t.Fatalf("unexpected work memory title: %q", got)
 	}
 }
 
@@ -179,7 +173,7 @@ func TestOrdinaryWindowPolicyRetriesLateTaskbarRegistration(t *testing.T) {
 }
 
 func TestTaskbarToggleOnlyAppliesToOrdinaryToolWindows(t *testing.T) {
-	for _, view := range []string{"work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "settings"} {
+	for _, view := range []string{"clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "settings"} {
 		if !ordinaryTaskbarToggleAllowed(view) {
 			t.Fatalf("%s should keep ordinary taskbar minimise behaviour", view)
 		}

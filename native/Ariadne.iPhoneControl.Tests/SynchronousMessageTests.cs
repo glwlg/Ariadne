@@ -16,7 +16,7 @@ internal static class SynchronousMessageTests
                 throw new Exception("Bluetooth callback ran inside a synchronous message.");
             received.Add(packet.Kind);
             return Task.CompletedTask;
-        }) { Readiness = 2 };
+        }) { Readiness = 2, KeyboardReady = true };
         var synchronous = false;
         IntPtr original = IntPtr.Zero;
         WindowProc callback = (hwnd, message, wParam, lParam) =>
@@ -29,7 +29,8 @@ internal static class SynchronousMessageTests
         original = SetWindowLongPtrW(window, -4, Marshal.GetFunctionPointerForDelegate(callback));
         try
         {
-            foreach (var kind in new[] { ScreenPointerKind.Query, ScreenPointerKind.Down, ScreenPointerKind.Up })
+            foreach (var kind in new[] { ScreenPointerKind.Query, ScreenPointerKind.Down, ScreenPointerKind.Up,
+                         ScreenPointerKind.KeyboardQuery, ScreenPointerKind.KeyDown, ScreenPointerKind.KeyUp })
             {
                 var sending = Task.Run(() =>
                 {
@@ -37,7 +38,9 @@ internal static class SynchronousMessageTests
                     var header = Marshal.AllocHGlobal(Marshal.SizeOf<CopyData>());
                     try
                     {
-                        Marshal.StructureToPtr(new ScreenPointerPacket(1, kind, 1234, 2345, 0), packet, false);
+                        var keyboard = kind is ScreenPointerKind.KeyDown or ScreenPointerKind.KeyUp;
+                        Marshal.StructureToPtr(new ScreenPointerPacket(1, kind, keyboard ? 4 : 1234,
+                            keyboard ? 0 : 2345, 0), packet, false);
                         Marshal.StructureToPtr(new CopyData
                         {
                             Tag = ScreenPointerPacket.DataTag, Length = 20, Data = packet
@@ -59,7 +62,8 @@ internal static class SynchronousMessageTests
                 if (received.Count != 0) throw new Exception("Input ran before the IPC sender returned.");
             }
             bridge.DispatchPendingAsync().GetAwaiter().GetResult();
-            if (!synchronous || !received.SequenceEqual(new[] { ScreenPointerKind.Down, ScreenPointerKind.Up }))
+            if (!synchronous || !received.SequenceEqual(new[] { ScreenPointerKind.Down, ScreenPointerKind.Up,
+                    ScreenPointerKind.KeyDown, ScreenPointerKind.KeyUp }))
                 throw new Exception("Deferred IPC must preserve copied press/release packets after the sender frees them.");
         }
         finally

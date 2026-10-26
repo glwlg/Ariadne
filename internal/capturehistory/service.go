@@ -997,7 +997,6 @@ func entryToResult(entry Entry, score float64) contracts.SearchResult {
 				},
 				Feedback: &contracts.ActionFeedback{SuccessLabel: pinSuccess, DurationMS: 1400},
 			},
-			contracts.RememberAction("remember_capture", "加入记忆", "capture-"+entry.ID),
 		},
 	}
 }

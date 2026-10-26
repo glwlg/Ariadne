@@ -1,8 +1,5 @@
 import type {
   WorkflowDefinition,
-  WorkflowDraft,
-  WorkflowDraftSaveRequest,
-  WorkflowDraftSaveResult,
   WorkflowExportResult,
   WorkflowImportResult,
   WorkflowRunRequest,
@@ -137,36 +134,6 @@ export async function importWorkflows(raw: string): Promise<WorkflowImportResult
   }
 }
 
-export async function saveWorkflowDraft(request: WorkflowDraftSaveRequest): Promise<WorkflowDraftSaveResult> {
-  const binding = await tryWorkflowBinding()
-  if (binding) {
-    return normalizeDraftSaveResult(await binding.SaveWorkflowDraft(request))
-  }
-  const workflow = workflowFromDraft(request.draft)
-  const risks = draftRiskReasons(request.draft, workflow)
-  if (!request.confirmed) {
-    return {
-      ok: false,
-      message: '保存候选工作流需要确认',
-      workflow,
-      status: fallbackStatus,
-      requiresConfirmation: true,
-      riskReasons: risks.length ? risks : ['候选工作流来自工作记忆经验发现，保存为正式工作流前需要用户确认'],
-    }
-  }
-  fallbackWorkflows = [
-    ...fallbackWorkflows.filter((item) => item.id !== workflow.id),
-    workflow,
-  ].sort((a, b) => a.id.localeCompare(b.id))
-  fallbackStatus = { ...fallbackStatus, count: fallbackWorkflows.length, workflows: fallbackWorkflows }
-  return {
-    ok: true,
-    message: '候选工作流已保存为正式工作流',
-    workflow,
-    status: fallbackStatus,
-    riskReasons: risks,
-  }
-}
 
 export async function runWorkflow(request: WorkflowRunRequest): Promise<WorkflowRunResult> {
   const binding = await tryWorkflowBinding()
@@ -281,56 +248,9 @@ function normalizeImportResult(result: WorkflowImportResult): WorkflowImportResu
   }
 }
 
-function normalizeDraftSaveResult(result: WorkflowDraftSaveResult): WorkflowDraftSaveResult {
-  return {
-    ok: Boolean(result.ok),
-    message: result.message || (result.ok ? '候选工作流已保存' : '候选工作流保存失败'),
-    workflow: normalizeWorkflow(result.workflow ?? { id: '', name: '', description: '', steps: [] }),
-    status: normalizeStatus(result.status ?? fallbackStatus),
-    requiresConfirmation: Boolean(result.requiresConfirmation),
-    riskReasons: result.riskReasons ?? [],
-  }
-}
 
-function workflowFromDraft(draft: WorkflowDraft): WorkflowDefinition {
-  const id = draftWorkflowId(draft)
-  const description = [
-    '由工作记忆经验发现生成，保存前需要用户审阅。',
-    draft.trigger ? `触发: ${draft.trigger}` : '',
-    draft.input ? `输入: ${draft.input}` : '',
-    draft.output ? `输出: ${draft.output}` : '',
-    draft.riskLevel ? `风险: ${draft.riskLevel}` : '',
-    draft.evidence?.length ? `证据: ${draft.evidence.join(', ')}` : '',
-  ].filter(Boolean).join('\n')
-  return normalizeWorkflow({
-    id,
-    name: draft.title || '工作记忆候选工作流',
-    description,
-    steps: (draft.steps ?? []).map((step) => ({ command: step.command })),
-    updatedAt: Math.floor(Date.now() / 1000),
-  })
-}
 
-function draftWorkflowId(draft: WorkflowDraft) {
-  const raw = String(draft.id || '').trim().toLowerCase().replace(/^workflow-draft-/, '')
-  const slug = raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-  return slug ? `memory-${slug}` : `memory-${Math.max(1, Number(draft.createdAt || 0))}`
-}
 
-function draftRiskReasons(draft: WorkflowDraft, workflow: WorkflowDefinition) {
-  const reasons = new Set<string>()
-  const risk = String(draft.riskLevel || '').trim().toLowerCase()
-  if (risk && risk !== 'low') {
-    reasons.add(`草稿风险等级: ${risk}`)
-  }
-  for (const step of draft.steps ?? []) {
-    if (step.requiresConfirm) {
-      reasons.add(`步骤需要确认: ${step.label || step.command}`)
-    }
-  }
-  fallbackRiskReasons(workflow).forEach((reason) => reasons.add(reason))
-  return [...reasons]
-}
 
 function uniqueFallbackId() {
   for (let index = 1; index < 1000; index += 1) {

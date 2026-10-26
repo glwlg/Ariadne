@@ -203,11 +203,11 @@ export class App {
 /**
  * AutostartManager provides cross-platform control over whether the
  * application launches when the user logs in.
- * 
+ *
  * Registration takes effect on the next login, not immediately.
- * 
+ *
  * Platform behaviour:
- * 
+ *
  *   - macOS 13+ (bundled .app):  SMAppService.mainAppService — works for
  *     sandboxed and Mac-App-Store apps, no TCC automation prompt.
  *   - macOS (older or unbundled): a LaunchAgent plist is written to

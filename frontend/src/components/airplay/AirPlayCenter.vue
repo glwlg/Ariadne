@@ -3,10 +3,11 @@ import { Airplay, Copy, Monitor, Play, RefreshCw, ShieldCheck, Smartphone, Squar
 import { computed } from 'vue'
 import AriButton from '../ui/AriButton.vue'
 import AirPlayLogs from './AirPlayLogs.vue'
+import AirPlayControlStatus from './AirPlayControlStatus.vue'
 import { useAirPlay } from '../../composables/useAirPlay'
 import type { AirPlayCommand } from '../../types/airplay'
 
-const { status, error, pending, refreshing, feedback, stateLabel, refresh, run, copy } = useAirPlay()
+const { status, error, pending, refreshing, feedback, stateLabel, refresh, run, copy, copyingDiagnostics, copyDiagnostics } = useAirPlay()
 const mirroring = computed(() => status.value?.running && status.value.phase === 'mirroring')
 const busy = computed(() => !!pending.value)
 const heading = computed(() => {
@@ -47,6 +48,9 @@ function changeFrameRate(event: Event) {
             </span>
             <AriButton size="sm" variant="ghost" :disabled="refreshing || busy" @click="refresh">
               <RefreshCw :size="14" />刷新状态
+            </AriButton>
+            <AriButton size="sm" variant="ghost" :disabled="copyingDiagnostics" @click="copyDiagnostics">
+              <Copy :size="14" />{{ copyingDiagnostics ? '正在读取…' : '复制诊断' }}
             </AriButton>
           </div>
         </header>
@@ -132,11 +136,7 @@ function changeFrameRate(event: Event) {
                   <ShieldCheck :size="14" />{{ pending === 'firewall' ? '等待授权…' : '允许局域网投屏' }}
                 </AriButton>
               </section>
-              <details v-if="status?.controlReady" class="airplay-control">
-                <summary>手机控制（可选）</summary>
-                <p class="airplay-help">蓝牙鼠标控制需要开启 iPhone 辅助触控，会显示悬浮按钮。也可以直接在手机上操作。</p>
-                <AriButton size="sm" :disabled="busy" @click="run('control')">打开蓝牙控制</AriButton>
-              </details>
+              <AirPlayControlStatus v-if="status" :status="status" :busy="busy" @open="run('control')" />
             </aside>
           </div>
           <AirPlayLogs />

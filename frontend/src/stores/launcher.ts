@@ -17,6 +17,7 @@ import { indexRecentImages } from '../services/imageIndexApi'
 import { openPinnedCapture, openPinnedClipboardImage, openPinnedQRText } from '../services/pinnedImageApi'
 import { runWorkflow } from '../services/workflowApi'
 import { useAppShellStore } from './appShell'
+import { toolViewForCommand } from '../lib/toolWindows'
 import type { ActionResult, PreviewAction, SearchResponse, SearchResult } from '../types/ariadne'
 
 export const useLauncherStore = defineStore('launcher', () => {
@@ -24,13 +25,12 @@ export const useLauncherStore = defineStore('launcher', () => {
   const results = ref<SearchResult[]>([])
   const selectedId = ref('')
   const lastAction = ref<ActionResult | null>(null)
-  const isTimeMachineEnabled = ref(false)
-  const privacyMode = ref(false)
   const elapsedMs = ref(0)
   const totalResults = ref(0)
   const pendingConfirmationKey = ref('')
   let activeSearchRequest: AriadneSearchRequest | null = null
   let searchRequestSerial = 0
+  let selectionRevision = 0
   let pendingConfirmationTimer: number | undefined
   const isExpanded = computed(() => query.value.trim().length > 0 || results.value.length > 0 || Boolean(lastAction.value))
 
@@ -44,10 +44,12 @@ export const useLauncherStore = defineStore('launcher', () => {
   })
 
   function select(id: string) {
+    selectionRevision++
     selectedId.value = id
   }
 
   function moveSelection(delta: number) {
+    selectionRevision++
     if (!results.value.length) {
       selectedId.value = ''
       return
@@ -76,36 +78,16 @@ export const useLauncherStore = defineStore('launcher', () => {
     if (action.id === 'open_tool') {
       const appShell = useAppShellStore()
       let opened = false
-      if (command === 'open_clipboard_center') {
-        opened = await appShell.openClipboard()
-      } else if (command === 'open_capture_center') {
-        opened = await appShell.openCaptureHistory()
-      } else if (command === 'open_capture_overlay') {
+      if (command === 'open_capture_overlay') {
         const response = await openCaptureOverlay()
         lastAction.value = { ok: response.ok, message: response.message || (response.ok ? '已打开截图覆盖层' : '打开截图覆盖层失败') }
         window.setTimeout(() => {
           lastAction.value = null
         }, action.feedback?.durationMs ?? 1400)
         return
-      } else if (command === 'open_work_memory_center') {
-        opened = await appShell.openWorkMemory()
-      } else if (command === 'open_hosts') {
-        opened = await appShell.openHosts()
-      } else if (command === 'open_workflow_center') {
-        opened = await appShell.openWorkflow()
-      } else if (command === 'open_json_compare') {
-        opened = await appShell.openJsonCompare()
-      } else if (command === 'open_api_testing') {
-        opened = await appShell.openAPITesting()
-      } else if (command === 'open_airplay') {
-        opened = await appShell.openAirPlay()
-      } else if (command === 'open_network_monitor') {
-        opened = await appShell.openNetworkMonitor()
-      } else if (command === 'open_network_mini') {
-        opened = await appShell.openNetworkMini()
-      } else if (command === 'open_settings') {
-        opened = await appShell.openSettings()
       }
+      const view = toolViewForCommand(command)
+      if (view) opened = await appShell.openView(view)
       lastAction.value = opened
         ? { ok: true, message: action.feedback?.successLabel ?? `${action.label} 已打开` }
         : { ok: false, message: `${action.label} 打开失败：工具窗口服务不可用` }
@@ -362,7 +344,16 @@ export const useLauncherStore = defineStore('launcher', () => {
       return
     }
 
-    const request = createAriadneSearchRequest(value)
+    const initialSelectionRevision = selectionRevision
+    const applyResponse = (response: SearchResponse) => {
+      if (requestSerial !== searchRequestSerial || query.value !== value) return
+      const selection = selectionRevision !== initialSelectionRevision ? selectedId.value : ''
+      results.value = response.results
+      elapsedMs.value = response.elapsedMs
+      totalResults.value = response.totalResults ?? response.results.length
+      selectedId.value = results.value.some((result) => result.id === selection) ? selection : (results.value[0]?.id ?? '')
+    }
+    const request = createAriadneSearchRequest(value, applyResponse)
     activeSearchRequest = request
     let response: SearchResponse
     try {
@@ -384,13 +375,7 @@ export const useLauncherStore = defineStore('launcher', () => {
       }
     }
 
-    if (requestSerial !== searchRequestSerial || query.value !== value) {
-      return
-    }
-    results.value = response.results
-    elapsedMs.value = response.elapsedMs
-    totalResults.value = response.totalResults ?? response.results.length
-    selectedId.value = results.value[0]?.id ?? ''
+    applyResponse(response)
   }
 
   function setQuery(value: string) {
@@ -443,8 +428,6 @@ export const useLauncherStore = defineStore('launcher', () => {
     resultCountLabel,
     isExpanded,
     lastAction,
-    isTimeMachineEnabled,
-    privacyMode,
     elapsedMs,
     setQuery,
     applyCommandSuggestion,

@@ -11,7 +11,7 @@ The compact search-and-command surface used to find results and trigger actions.
 _Avoid_: Dashboard, main window, home page
 
 **Search Result**:
-A ranked item returned by the launcher, such as a file, app, plugin trigger, workflow, clipboard item, capture, memory, command, or setting.
+A ranked item returned by the launcher, such as a file, app, plugin trigger, workflow, clipboard item, capture, command, or setting.
 _Avoid_: Row, item, card
 
 **Preview**:
@@ -29,56 +29,6 @@ _Avoid_: Launcher page, embedded dashboard
 **Tool Center**:
 The full workspace for a focused tool such as settings, Hosts, workflow, clipboard, screenshot history, or JSON compare.
 _Avoid_: Page, modal
-
-### Flow And Work Memory
-
-**Flow (心流)**:
-The conversation-first surface for asking questions about recent local work context and reviewing the evidence behind answers.
-_Avoid_: Work memory center, chatbot, activity dashboard
-
-**Work Memory**:
-The local body of captured, imported, or manually added evidence that Ariadne can search, summarize, and use to answer Flow questions.
-_Avoid_: Flow memory, activity log, telemetry
-
-**Memory Entry**:
-A single piece of work memory evidence, such as a note, screenshot-derived record, clipboard record, or captured window context.
-_Avoid_: Event, log line, record
-
-**Evidence**:
-A memory entry or source reference used to justify an answer, draft, insight, workflow, checklist, or task package.
-_Avoid_: Citation, proof, attachment
-
-**Time Machine**:
-The automatic capture source that records stable foreground work context over time.
-_Avoid_: Screen recorder, background stream
-
-**Pending Capture**:
-A newly captured memory entry that has not yet passed quality review and should not drive answers, drafts, insights, or agent evidence.
-_Avoid_: Fresh evidence, unchecked screenshot
-
-**Sensitive Entry**:
-A memory entry that may contain credentials or private material and is excluded from normal answers, exports, and external processing unless explicitly allowed.
-_Avoid_: Secret, blocked item
-
-**Privacy Mode**:
-The user-controlled state that prevents Ariadne from using local work memory in ways that could expose private context.
-_Avoid_: Incognito mode, disabled memory
-
-**Self Model (我模型)**:
-The local model of the user's confirmed identity, preferences, relationships, and delegation boundaries that Flow uses to interpret work memory from the user's point of view.
-_Avoid_: Personal profile, user database, persona prompt
-
-**Self Assertion**:
-A single claim in the Self Model, carrying its source, confirmation state, confidence, scope, and permission to be used in model context.
-_Avoid_: Profile field, memory fact, guessed preference
-
-**Speaker Attribution**:
-The evidence-backed determination of who authored, addressed, or was mentioned by a message before Flow turns chat evidence into the user's actions, commitments, or todos.
-_Avoid_: Contact extraction, chat summary, name detection
-
-**Todo Item**:
-A durable local follow-up in Flow with status, priority, scope, evidence, and optional due or reminder time.
-_Avoid_: Chat bullet, draft note, inferred promise
 
 ### Capture And Recall
 
@@ -123,14 +73,6 @@ _Avoid_: Network widget, traffic badge
 **Settings Center**:
 The tool center for configuring Ariadne behavior, credentials, diagnostics, migration, and rollback state.
 _Avoid_: Preferences page, config screen
-
-**Skill Asset**:
-A confirmed local reusable instruction package distilled from work memory evidence or drafts.
-_Avoid_: Workflow draft, note, installed skill
-
-**Task Package**:
-A reviewable bundle of goal, context, evidence, boundaries, and acceptance criteria for an agent to act on.
-_Avoid_: Prompt, issue, checklist
 
 **Legacy x-tools**:
 The previous Python/PyQt runtime whose data can be imported and whose runtime behavior may coexist or conflict with Ariadne.

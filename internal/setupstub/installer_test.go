@@ -167,7 +167,7 @@ func TestExtractPayloadFindsPackageRootWithoutScripts(t *testing.T) {
 		"ariadne-dev-windows-x64/app/logo.ico":    "fake icon",
 		"ariadne-dev-windows-x64/manifest.json":   "{}",
 	})
-	root, err := ExtractPayload(payload, t.TempDir())
+	root, err := ExtractPayload(payload, t.TempDir(), "Ariadne")
 	if err != nil {
 		t.Fatalf("extract payload: %v", err)
 	}
@@ -184,9 +184,19 @@ func TestExtractPayloadRejectsZipSlip(t *testing.T) {
 		"ariadne-dev-windows-x64/app/ariadne.exe": "fake exe",
 		"../escape.txt": "escape",
 	})
-	_, err := ExtractPayload(payload, t.TempDir())
+	_, err := ExtractPayload(payload, t.TempDir(), "Ariadne")
 	if err == nil || !strings.Contains(err.Error(), "unsafe zip entry") {
 		t.Fatalf("expected unsafe zip entry error, got %v", err)
+	}
+}
+
+func TestExtractPayloadRequiresSelectedProductExecutable(t *testing.T) {
+	payload := zipPayload(t, map[string]string{
+		"release/app/ariadne.exe": "production app",
+	})
+	_, err := ExtractPayload(payload, t.TempDir(), "AriadneReleaseCheck")
+	if err == nil || !strings.Contains(err.Error(), "app/ariadnereleasecheck.exe") {
+		t.Fatalf("isolated product must not use the real app executable: %v", err)
 	}
 }
 

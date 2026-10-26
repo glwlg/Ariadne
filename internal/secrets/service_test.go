@@ -42,10 +42,6 @@ func TestStatusReportsEnvironmentAndStoredSecrets(t *testing.T) {
 	if !ai.EnvPresent || !ai.Stored || ai.ActiveSource != "credential_manager" {
 		t.Fatalf("AI record should prefer stored Ariadne credential over generic env: %#v", ai)
 	}
-	embedding := record(status, "embedding_api_key")
-	if !embedding.EnvPresent || !embedding.Stored || embedding.ActiveSource != "credential_manager" {
-		t.Fatalf("embedding record should prefer stored Ariadne credential over generic env: %#v", embedding)
-	}
 }
 
 func TestStatusReportsAriadneEnvironmentAsActive(t *testing.T) {
@@ -65,9 +61,7 @@ func TestSaveAndClearSecret(t *testing.T) {
 	service := NewServiceWithStore(store)
 
 	targets := map[string]string{
-		"ai_api_key":        "Ariadne/OpenAI/APIKey",
-		"embedding_api_key": "Ariadne/Embedding/APIKey",
-		"milvus_token":      "Ariadne/Milvus/Token",
+		"ai_api_key": "Ariadne/OpenAI/APIKey",
 	}
 	for kind, target := range targets {
 		t.Run(kind, func(t *testing.T) {

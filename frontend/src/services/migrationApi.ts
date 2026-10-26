@@ -41,7 +41,6 @@ function fallbackLegacyDataStatus(): LegacyDataStatus {
     sources: [
       { source: 'clipboard_history', path: '%APPDATA%/x-tools/clipboard_history.json', exists: false, count: 0, bytes: 0, importedCount: 0, needsImport: false },
       { source: 'capture_history', path: '%APPDATA%/x-tools/capture_history.json', exists: false, count: 0, bytes: 0, importedCount: 0, needsImport: false },
-      { source: 'work_memory', path: '%APPDATA%/x-tools/work_memory/entries.json', exists: false, count: 0, bytes: 0, importedCount: 0, needsImport: false },
     ],
     totalCount: 0,
     totalBytes: 0,

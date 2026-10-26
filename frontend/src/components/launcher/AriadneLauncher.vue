@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   AppWindow,
-  Brain,
   CalendarDays,
   Camera,
   Clipboard,
@@ -48,7 +47,6 @@ const iconMap = {
   command: TerminalSquare,
   file: FileText,
   folder: FolderOpen,
-  memory: Brain,
   open: ExternalLink,
   pin: Pin,
   plugin: Code2,
@@ -64,7 +62,6 @@ const actionIconMap = {
   open: ExternalLink,
   pin: Pin,
   plugin: Code2,
-  remember: Brain,
   run: Play,
   settings: Settings,
   workflow: Workflow,
@@ -194,7 +191,6 @@ function isEditableTarget(target: EventTarget | null) {
 }
 
 function sourceTone(type: SearchResult['type']) {
-  if (type === 'memory') return 'text-[var(--primary)]'
   if (type === 'clipboard') return 'text-[var(--warning)]'
   if (type === 'workflow') return 'text-[var(--success)]'
   if (type === 'file') return 'text-[var(--info)]'
@@ -374,7 +370,7 @@ watch(
             </section>
 
             <section class="preview-details" aria-label="结果属性">
-              <div v-if="preview.kind === 'image'" class="memory-thumb">
+              <div v-if="preview.kind === 'image'" class="preview-image">
                 <Database :size="24" />
                 <span>{{ preview.imageHint || '图片预览' }}</span>
               </div>

@@ -2099,17 +2099,17 @@ internal sealed class OverlayWindow : Window
             var clipboardMs = Environment.TickCount64 - redactStarted;
             if (!response.Ok)
             {
-                ShowFeedback(string.IsNullOrWhiteSpace(response.Message) ? "打码复制失败" : response.Message);
+                ShowPersistentFeedback(string.IsNullOrWhiteSpace(response.Message) ? "打码复制失败" : response.Message);
                 return;
             }
             if (!response.ClipboardWritten)
             {
-                ShowFeedback("打码复制失败: 剪贴板未写入");
+                ShowPersistentFeedback("打码复制失败: 剪贴板未写入");
                 return;
             }
             if (string.IsNullOrWhiteSpace(response.PngBase64))
             {
-                ShowFeedback("打码复制失败: 截图数据无效");
+                ShowPersistentFeedback("打码复制失败: 截图数据无效");
                 return;
             }
 
@@ -2120,7 +2120,7 @@ internal sealed class OverlayWindow : Window
             }
             catch (Exception ex)
             {
-                ShowFeedback("打码复制失败: " + ex.Message);
+                ShowPersistentFeedback("打码复制失败: " + ex.Message);
                 return;
             }
 
@@ -2167,7 +2167,7 @@ internal sealed class OverlayWindow : Window
         }
         catch (Exception ex)
         {
-            ShowFeedback("打码复制失败: " + ex.Message);
+            ShowPersistentFeedback("打码复制失败: " + ex.Message);
         }
         finally
         {

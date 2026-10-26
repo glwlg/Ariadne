@@ -20,7 +20,6 @@ import (
 	"ariadne/internal/plugins"
 	"ariadne/internal/search"
 	"ariadne/internal/workflows"
-	"ariadne/internal/workmemory"
 )
 
 const defaultSearchTargetP95Ms int64 = 100
@@ -38,7 +37,6 @@ type DefaultStack struct {
 	SearchService      *search.Service
 	FileSearchService  *filesearch.Service
 	ClipboardService   *clipboardhistory.Service
-	WorkMemoryService  *workmemory.Service
 	CaptureService     *capturehistory.Service
 	ImageIndexService  *imageindex.Service
 	WorkflowService    *workflows.Service
@@ -118,8 +116,7 @@ func NewDefaultStack() *DefaultStack {
 	launcherService := launchers.NewService()
 	pluginService := plugins.NewService()
 	workflowService := workflows.NewService(pluginService)
-	workMemoryService := workmemory.NewService(captureService)
-	ocrService := ocr.NewService(captureService, clipboardService, workMemoryService)
+	ocrService := ocr.NewService(captureService, clipboardService)
 	imageIndexService := imageindex.NewService(captureService, clipboardService, ocrService)
 	searchService := search.NewService(
 		fileSearchService,
@@ -134,7 +131,6 @@ func NewDefaultStack() *DefaultStack {
 		SearchService:      searchService,
 		FileSearchService:  fileSearchService,
 		ClipboardService:   clipboardService,
-		WorkMemoryService:  workMemoryService,
 		CaptureService:     captureService,
 		ImageIndexService:  imageIndexService,
 		WorkflowService:    workflowService,
@@ -171,9 +167,6 @@ func (s *DefaultStack) Close() {
 	}
 	if s.ClipboardService != nil {
 		s.ClipboardService.StopWatcher()
-	}
-	if s.WorkMemoryService != nil {
-		s.WorkMemoryService.Stop()
 	}
 }
 

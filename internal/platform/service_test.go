@@ -49,10 +49,6 @@ func TestStatusReportsHonestDesktopShellCapabilities(t *testing.T) {
 	if strings.Contains(pinnedImage.Note, "待接入") || !strings.Contains(pinnedImage.Note, "拖动") || !strings.Contains(pinnedImage.Note, "右键菜单") || !strings.Contains(pinnedImage.Note, "OCR") {
 		t.Fatalf("pinned image capability note should reflect migrated pin window behavior: %#v", pinnedImage)
 	}
-	workMemory := capability(status.Capabilities, "work_memory")
-	if strings.Contains(workMemory.Note, "embedding 待接入") || !strings.Contains(workMemory.Note, "Milvus") {
-		t.Fatalf("work memory capability note should reflect embedding and Milvus support: %#v", workMemory)
-	}
 	networkMonitor := capability(status.Capabilities, "network_monitor")
 	if networkMonitor.Enabled != (status.Diagnostics.OS == "windows") {
 		t.Fatalf("network monitor capability should follow Windows runtime support: %#v", networkMonitor)
@@ -431,30 +427,6 @@ func TestActionSuccessUsesInlineFeedback(t *testing.T) {
 
 	if message != "已启动" {
 		t.Fatalf("expected inline feedback message, got %q", message)
-	}
-}
-
-func TestRememberActionUsesConfiguredHandler(t *testing.T) {
-	called := false
-	service := NewService(WithRememberActionHandler(func(action contracts.PreviewAction) contracts.ActionResult {
-		called = true
-		if action.Payload["targetId"] != "clipboard-1" {
-			t.Fatalf("unexpected target payload: %#v", action.Payload)
-		}
-		return contracts.ActionResult{OK: true, Message: "已加入工作记忆"}
-	}))
-
-	result := service.ExecuteAction(contracts.PreviewAction{
-		ID:    "remember_clipboard",
-		Label: "加入记忆",
-		Kind:  contracts.ActionRemember,
-		Payload: map[string]interface{}{
-			"targetId": "clipboard-1",
-		},
-	})
-
-	if !called || !result.OK || result.Message != "已加入工作记忆" {
-		t.Fatalf("remember action should use handler, called=%v result=%#v", called, result)
 	}
 }
 

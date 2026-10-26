@@ -25,18 +25,27 @@ const clipboard = useClipboardHistoryStore()
 
 const selected = computed(() => clipboard.selectedEntry)
 let refreshTimer = 0
+let disposed = false
+
+async function refresh() {
+  if (disposed) return
+  if (!document.hidden && !clipboard.isLoading) await clipboard.load()
+  if (!disposed) refreshTimer = window.setTimeout(refresh, 2500)
+}
+
+function onVisibilityChange() {
+  if (!document.hidden && !clipboard.isLoading) void clipboard.load()
+}
 
 onMounted(() => {
-  void clipboard.load()
-  refreshTimer = window.setInterval(() => {
-    void clipboard.load()
-  }, 2500)
+  void refresh()
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onBeforeUnmount(() => {
-  if (refreshTimer) {
-    window.clearInterval(refreshTimer)
-  }
+  disposed = true
+  window.clearTimeout(refreshTimer)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 function formatTime(seconds: number) {

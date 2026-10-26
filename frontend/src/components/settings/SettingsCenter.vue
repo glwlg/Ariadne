@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import {
   AlertTriangle,
-  Bot,
-  Brain,
   Camera,
   Database,
   Download,
@@ -22,6 +20,8 @@ import {
 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import AriButton from '../ui/AriButton.vue'
+import OCRSettingsPage from './OCRSettingsPage.vue'
+import HistorySettingsPage from './HistorySettingsPage.vue'
 import SearchSettingsPage from './SearchSettingsPage.vue'
 import { useSettingsStore } from '../../stores/settings'
 import type { HotkeySettings, Launcher } from '../../types/ariadne'
@@ -99,7 +99,6 @@ function legacySourceLabel(source: string) {
   const labels: Record<string, string> = {
     clipboard_history: '剪贴板历史',
     capture_history: '截图历史',
-    work_memory: '工作记忆',
   }
   return labels[source] ?? source
 }
@@ -117,29 +116,12 @@ function pluginCapabilitiesLabel(capabilities: string[]) {
   return capabilities.length ? capabilities.join(' / ') : '本地命令'
 }
 
-function secretSourceLabel(source: string) {
-  const labels: Record<string, string> = {
-    environment: '环境变量',
-    credential_manager: '安全存储',
-    missing: '未配置',
-  }
-  return labels[source] ?? source
-}
 
-function secretInputValue(kind: string) {
-  return settings.secretInputs[kind]?.trim() ?? ''
-}
 
-function canSaveSecret(kind: string) {
-  return Boolean(settings.secretStatus?.available && secretInputValue(kind) && !settings.isSaving)
-}
 
-function canClearSecret(stored: boolean) {
-  return Boolean(settings.secretStatus?.available && stored && !settings.isSaving)
-}
 
 type HotkeyKey = keyof HotkeySettings
-type SettingsPageId = 'general' | 'hotkeys' | 'plugins' | 'launchers' | 'screenshot' | 'search' | 'work-memory' | 'ai' | 'privacy' | 'data' | 'advanced'
+type SettingsPageId = 'general' | 'hotkeys' | 'plugins' | 'launchers' | 'screenshot' | 'ocr' | 'search' | 'data' | 'advanced'
 
 const activeSettingsPage = ref<SettingsPageId>('general')
 const settingsPages: Array<{
@@ -153,6 +135,7 @@ const settingsPages: Array<{
   { id: 'plugins', label: '插件', detail: '命令与能力开关', icon: Puzzle },
   { id: 'launchers', label: '启动项', detail: '应用、文件、URL', icon: Rocket },
   { id: 'screenshot', label: '截图', detail: '复制、贴图、保存', icon: Camera },
+  { id: 'ocr', label: 'OCR 模型', detail: '截图、贴图、接口密钥', icon: Camera },
   { id: 'search', label: '搜索', detail: '索引、排除规则', icon: Search },
   { id: 'data', label: '数据与存储', detail: '配置、检查点', icon: Database },
   { id: 'advanced', label: '高级维护', detail: '诊断、导入、回滚', icon: HardDrive },
@@ -728,34 +711,8 @@ onMounted(() => {
               </label>
             </section>
 
-            <section v-if="activeSettingsPage === 'screenshot'" class="settings-panel">
-              <div class="settings-panel-title">
-                <Brain :size="15" />
-                贴图 OCR
-              </div>
-              <div class="settings-toggle-grid">
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.pinnedOcrModelEnabled" type="checkbox" />
-                  <span />
-                  <strong>使用大模型 OCR</strong>
-                  <small>仅用于贴图窗口中的文字识别。</small>
-                </label>
-              </div>
-              <div class="settings-hotkey-grid">
-                <label class="settings-field">
-                  <span>OCR provider</span>
-                  <input v-model="settings.settings.ai.pinnedOcrProvider" class="settings-input" placeholder="openai-compatible / ollama-generate" />
-                </label>
-                <label class="settings-field">
-                  <span>OCR base URL</span>
-                  <input v-model="settings.settings.ai.pinnedOcrBaseUrl" class="settings-input" placeholder="http://127.0.0.1:18000/v1" />
-                </label>
-                <label class="settings-field">
-                  <span>OCR vision model</span>
-                  <input v-model="settings.settings.ai.pinnedOcrModel" class="settings-input" placeholder="ppocrv6-medium-ocr" />
-                </label>
-              </div>
-            </section>
+
+            <OCRSettingsPage v-if="activeSettingsPage === 'ocr'" />
 
             <section v-if="activeSettingsPage === 'hotkeys'" class="settings-panel">
               <div class="settings-panel-title">
@@ -980,400 +937,12 @@ onMounted(() => {
               </div>
             </section>
 
-            <section v-if="activeSettingsPage === 'work-memory'" class="settings-panel">
-              <div class="settings-panel-title">
-                <Brain :size="15" />
-                工作记忆采集
-              </div>
 
-              <div class="settings-toggle-grid">
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.enabled" type="checkbox" />
-                  <span />
-                  <strong>工作记忆总开关</strong>
-                  <small>关闭后不采集新记忆，历史仍可搜索。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.timeMachineEnabled" type="checkbox" />
-                  <span />
-                  <strong>屏幕时间机器</strong>
-                  <small>默认关闭，用户明确开启后才自动截图。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.windowSwitchCaptureEnabled" type="checkbox" />
-                  <span />
-                  <strong>窗口切换触发</strong>
-                  <small>时间机器开启后，前台窗口变化可触发一次截图，仍受隐私和排除规则约束。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.privacyMode" type="checkbox" />
-                  <span />
-                  <strong>隐私模式</strong>
-                  <small>优先暂停截图、OCR、embedding、AI 和导出。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.pauseOnIdle" type="checkbox" />
-                  <span />
-                  <strong>空闲暂停</strong>
-                  <small>超过阈值时暂停屏幕时间机器，避免无人值守截图。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.pauseOnLock" type="checkbox" />
-                  <span />
-                  <strong>锁屏暂停</strong>
-                  <small>检测到锁屏或不可切换桌面时暂停自动采集。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.autoOcr" type="checkbox" />
-                  <span />
-                  <strong>自动 OCR</strong>
-                  <small>本地 RapidOCR 已接入；大模型 OCR 可指向 GPU 服务，失败后本地兜底。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.draftScheduleEnabled" type="checkbox" />
-                  <span />
-                  <strong>定期草稿</strong>
-                  <small>本地定时生成日报、复盘和经验发现，不外发、不自动保存为资产。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.dailyDraftScheduleEnabled" type="checkbox" />
-                  <span />
-                  <strong>定期日报</strong>
-                  <small>按新非敏感记忆生成本地日报草稿。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.retrospectiveDraftScheduleEnabled" type="checkbox" />
-                  <span />
-                  <strong>定期复盘</strong>
-                  <small>仅在有问题、验证、待办等线索时生成复盘草稿。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.experienceScheduleEnabled" type="checkbox" />
-                  <span />
-                  <strong>定期经验发现</strong>
-                  <small>沿用本地经验发现规则和处理状态。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.experienceDiscoveryEnabled" type="checkbox" />
-                  <span />
-                  <strong>AI 经验发现</strong>
-                  <small>允许手动二次确认后调用外部 AI；定期经验报告仍只走本地规则。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.skillSuggestionEnabled" type="checkbox" />
-                  <span />
-                  <strong>Skill 建议</strong>
-                  <small>从复盘和经验中建议可沉淀的 Codex Skill。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.workflowSuggestionEnabled" type="checkbox" />
-                  <span />
-                  <strong>工作流建议</strong>
-                  <small>从重复操作中建议可沉淀的 Ariadne 工作流。</small>
-                </label>
-              </div>
 
-              <div class="settings-hotkey-grid">
-                <label class="settings-field">
-                  <span>同窗探测秒</span>
-                  <input v-model.number="settings.settings.workMemory.autoCaptureIntervalSeconds" class="settings-input" type="number" min="10" />
-                </label>
-                <label class="settings-field">
-                  <span>窗口稳定秒</span>
-                  <input v-model.number="settings.settings.workMemory.windowSwitchCooldownSeconds" class="settings-input" type="number" min="3" />
-                </label>
-                <label class="settings-field">
-                  <span>草稿调度分钟</span>
-                  <input v-model.number="settings.settings.workMemory.draftScheduleIntervalMinutes" class="settings-input" type="number" min="15" />
-                </label>
-                <label class="settings-field">
-                  <span>空闲阈值秒</span>
-                  <input v-model.number="settings.settings.workMemory.idlePauseSeconds" class="settings-input" type="number" min="30" />
-                </label>
-                <label class="settings-field">
-                  <span>记忆截图质量</span>
-                  <input v-model.number="settings.settings.workMemory.screenshotQuality" class="settings-input" type="number" min="1" max="100" />
-                </label>
-                <label class="settings-field">
-                  <span>经验发现天数</span>
-                  <input v-model.number="settings.settings.workMemory.experienceDiscoveryDays" class="settings-input" type="number" min="1" max="365" />
-                </label>
-                <label class="settings-field">
-                  <span>采集范围</span>
-                  <select v-model="settings.settings.workMemory.captureScope" class="settings-select">
-                    <option value="all_screens">全部屏幕</option>
-                    <option value="active_window">前台窗口</option>
-                    <option value="primary_screen">主屏幕</option>
-                  </select>
-                </label>
-                <label class="settings-field">
-                  <span>多屏策略</span>
-                  <select v-model="settings.settings.workMemory.multiMonitor" class="settings-select">
-                    <option value="combined">合并截图</option>
-                    <option value="per_monitor">按屏幕分条</option>
-                    <option value="primary_only">仅主屏</option>
-                  </select>
-                </label>
-              </div>
-
-              <div class="settings-source-list">
-                <label v-for="source in settings.memorySources" :key="source.key" class="settings-source">
-                  <input
-                    type="checkbox"
-                    :checked="source.enabled"
-                    @change="settings.setMemorySource(source.key, ($event.target as HTMLInputElement).checked)"
-                  />
-                  <span>{{ source.label }}</span>
-                </label>
-              </div>
-            </section>
-
-            <section v-if="activeSettingsPage === 'privacy'" class="settings-panel">
-              <div class="settings-panel-title">
-                <Shield :size="15" />
-                排除与敏感内容
-              </div>
-
-              <div class="settings-text-grid">
-                <label class="settings-field">
-                  <span>排除应用</span>
-                  <textarea
-                    class="settings-textarea"
-                    :value="settings.listText('excludeApps')"
-                    @input="settings.setList('excludeApps', ($event.target as HTMLTextAreaElement).value)"
-                  />
-                </label>
-                <label class="settings-field">
-                  <span>排除窗口关键词</span>
-                  <textarea
-                    class="settings-textarea"
-                    :value="settings.listText('excludeWindowKeywords')"
-                    @input="settings.setList('excludeWindowKeywords', ($event.target as HTMLTextAreaElement).value)"
-                  />
-                </label>
-                <label class="settings-field">
-                  <span>排除路径</span>
-                  <textarea
-                    class="settings-textarea"
-                    :value="settings.listText('excludePaths')"
-                    @input="settings.setList('excludePaths', ($event.target as HTMLTextAreaElement).value)"
-                  />
-                </label>
-                <label class="settings-field">
-                  <span>排除 URL</span>
-                  <textarea
-                    class="settings-textarea"
-                    :value="settings.listText('excludeUrls')"
-                    placeholder="example.com/private&#10;*.corp.local"
-                    @input="settings.setList('excludeUrls', ($event.target as HTMLTextAreaElement).value)"
-                  />
-                </label>
-                <label class="settings-field">
-                  <span>内容正则</span>
-                  <textarea
-                    class="settings-textarea"
-                    :value="settings.listText('excludeContentPatterns')"
-                    @input="settings.setList('excludeContentPatterns', ($event.target as HTMLTextAreaElement).value)"
-                  />
-                </label>
-              </div>
-
-              <div class="settings-toggle-grid">
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.sensitiveRulesEnabled" type="checkbox" />
-                  <span />
-                  <strong>敏感内容规则</strong>
-                  <small>识别密码、token、cookie、内网地址等风险内容。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.workMemory.allowSensitiveExport" type="checkbox" />
-                  <span />
-                  <strong>允许敏感导出</strong>
-                  <small>默认关闭，导出包不包含敏感条目。</small>
-                </label>
-              </div>
-            </section>
-
-            <section v-if="activeSettingsPage === 'ai'" class="settings-panel">
-              <div class="settings-panel-title">
-                <Bot :size="15" />
-                AI、embedding 与外部代理
-              </div>
-
-              <div class="settings-toggle-grid">
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.enabled" type="checkbox" />
-                  <span />
-                  <strong>OpenAI Agents SDK 问答</strong>
-                  <small>心流默认先检索本地证据，再交给 Ariadne agent sidecar 生成回答。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.embeddingEnabled" type="checkbox" />
-                  <span />
-                  <strong>语义检索</strong>
-                  <small>embedding 默认关闭，关键词检索始终可降级。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.agentsSdkEnabled" type="checkbox" />
-                  <span />
-                  <strong>Agent sidecar</strong>
-                  <small>使用 OpenAI Agents SDK runtime；未启用 Codex 时不走外部代理。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.agentResponsesEnabled" type="checkbox" />
-                  <span />
-                  <strong>Responses 原生 Skill</strong>
-                  <small>OpenAI 官方路径使用原生 ShellTool；LiteLLM 等兼容接口使用 SDK 兼容工具。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.externalAgentEnabled" type="checkbox" />
-                  <span />
-                  <strong>外部代理任务包</strong>
-                  <small>允许生成给 Codex Desktop 等外部代理使用的任务上下文。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.codexCollaborationEnabled" type="checkbox" />
-                  <span />
-                  <strong>Codex 协作</strong>
-                  <small>可选扩展；开启后心流问答才交给 Codex runner。</small>
-                </label>
-                <label class="settings-toggle">
-                  <input v-model="settings.settings.ai.opscoreSyncEnabled" type="checkbox" />
-                  <span />
-                  <strong>OpsCore 同步</strong>
-                  <small>保留内部同步开关；开启后仍走受控后端路径。</small>
-                </label>
-              </div>
-
-              <div class="settings-hotkey-grid">
-                <label class="settings-field">
-                  <span>AI provider</span>
-                  <input v-model="settings.settings.ai.provider" class="settings-input" placeholder="disabled / opencore / openai-compatible" />
-                </label>
-                <label class="settings-field">
-                  <span>AI base URL</span>
-                  <input v-model="settings.settings.ai.baseUrl" class="settings-input" placeholder="https://ai.internal/v1" />
-                </label>
-                <label class="settings-field">
-                  <span>AI model</span>
-                  <input v-model="settings.settings.ai.model" class="settings-input" placeholder="model name" />
-                </label>
-                <label class="settings-field">
-                  <span>Embedding provider</span>
-                  <input v-model="settings.settings.ai.embeddingProvider" class="settings-input" placeholder="disabled / openai-compatible" />
-                </label>
-                <label class="settings-field">
-                  <span>Embedding base URL</span>
-                  <input v-model="settings.settings.ai.embeddingBaseUrl" class="settings-input" placeholder="http://embedding.internal/v1" />
-                </label>
-                <label class="settings-field">
-                  <span>Embedding model</span>
-                  <input v-model="settings.settings.ai.embeddingModel" class="settings-input" placeholder="/model/qwen_eb" />
-                </label>
-                <label class="settings-field">
-                  <span>向量存储</span>
-                  <select v-model="settings.settings.ai.vectorStoreType" class="settings-select">
-                    <option value="embedded">内置缓存</option>
-                    <option value="milvus">Milvus</option>
-                    <option value="disabled">关闭</option>
-                  </select>
-                </label>
-                <label class="settings-field">
-                  <span>向量存储 URI</span>
-                  <input v-model="settings.settings.ai.vectorStoreUri" class="settings-input" placeholder="milvus://192.168.1.100:19530" />
-                </label>
-                <label class="settings-field">
-                  <span>向量集合</span>
-                  <input v-model="settings.settings.ai.vectorCollection" class="settings-input" />
-                </label>
-                <label class="settings-field">
-                  <span>Trace</span>
-                  <select v-model="settings.settings.ai.traceMode" class="settings-select">
-                    <option value="off">关闭</option>
-                    <option value="local">本地日志</option>
-                    <option value="internal">内部观测</option>
-                  </select>
-                </label>
-                <label class="settings-field">
-                  <span>外部代理任务目录</span>
-                  <input v-model="settings.settings.ai.externalAgentTaskDirectory" class="settings-input" placeholder="~/Documents/Ariadne/agent_tasks" />
-                </label>
-              </div>
-
-              <div class="secret-store-block">
-                <div class="settings-panel-title">
-                  <KeyRound :size="15" />
-                  安全密钥存储
-                </div>
-                <p class="settings-note">
-                  {{ settings.secretStatus?.available ? 'Windows Credential Manager 可用' : '当前运行环境未暴露安全存储' }}
-                  · {{ settings.secretStatus?.backend || '未检测' }}
-                </p>
-                <div class="secret-store-grid">
-                  <div
-                    v-for="record in settings.secretStatus?.records ?? []"
-                    :key="record.kind"
-                    class="secret-store-row"
-                    :data-secret-kind="record.kind"
-                    :data-secret-active-source="record.activeSource"
-                    :data-secret-stored="record.stored ? 'true' : 'false'"
-                  >
-                    <div class="secret-store-meta">
-                      <strong>{{ record.label }}</strong>
-                      <small>
-                        {{ record.stored ? '已保存' : '未保存' }}
-                        · {{ secretSourceLabel(record.activeSource) }}
-                      </small>
-                      <small class="secret-store-target">{{ record.targetName }}</small>
-                      <small v-if="record.envPresent">检测到环境变量：{{ record.envNames.join(' / ') }}</small>
-                      <small v-if="record.lastError" class="is-danger">{{ record.lastError }}</small>
-                    </div>
-                    <input
-                      v-model="settings.secretInputs[record.kind]"
-                      class="settings-input"
-                      type="password"
-                      autocomplete="off"
-                      placeholder="粘贴后保存到安全存储"
-                      :aria-label="`${record.label} 输入`"
-                      :data-secret-input="record.kind"
-                    />
-                    <div class="secret-store-actions">
-                      <AriButton
-                        size="sm"
-                        variant="secondary"
-                        :disabled="!canSaveSecret(record.kind)"
-                        :data-secret-save="record.kind"
-                        @click="settings.saveSecret(record.kind)"
-                      >
-                        <Save :size="14" />
-                        保存
-                      </AriButton>
-                      <AriButton
-                        size="sm"
-                        variant="ghost"
-                        :disabled="!canClearSecret(record.stored)"
-                        :data-secret-clear="record.kind"
-                        @click="settings.clearSecret(record.kind)"
-                      >
-                        <Trash2 :size="14" />
-                        {{ settings.secretClearArmedKind === record.kind ? '确认清除' : '清除' }}
-                      </AriButton>
-                    </div>
-                  </div>
-                </div>
-                <p
-                  v-if="settings.secretActionResult"
-                  class="settings-note"
-                  :class="{ 'is-danger': !settings.secretActionResult.ok && !settings.secretActionResult.requiresConfirmation }"
-                  data-secret-action-result
-                >
-                  {{ settings.secretActionResult.message }}
-                </p>
-              </div>
-            </section>
 
             <SearchSettingsPage v-if="activeSettingsPage === 'search'" />
 
+            <HistorySettingsPage v-if="activeSettingsPage === 'data'" />
             <section v-if="activeSettingsPage === 'data'" class="settings-panel settings-grid-panel">
               <div class="settings-panel-title">
                 <Database :size="15" />

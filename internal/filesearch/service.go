@@ -785,7 +785,6 @@ func fileToResult(raw rawResult, score float64) contracts.SearchResult {
 			},
 			{ID: "open_parent", Label: "打开所在文件夹", Icon: "folder", Kind: contracts.ActionOpenParent, Payload: map[string]interface{}{"path": fullPath}},
 			contracts.CopyAction("copy_path", "复制路径", fullPath, ""),
-			contracts.RememberAction("remember", "加入记忆", "file-ariadne-"+stableID(fullPath)),
 		},
 	}
 }

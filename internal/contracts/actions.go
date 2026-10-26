@@ -44,19 +44,6 @@ func PluginAction(id string, label string, command string) PreviewAction {
 	}
 }
 
-func RememberAction(id string, label string, targetID string) PreviewAction {
-	return PreviewAction{
-		ID:    id,
-		Label: label,
-		Icon:  "remember",
-		Kind:  ActionRemember,
-		Payload: map[string]interface{}{
-			"targetId": targetID,
-		},
-		Feedback: &ActionFeedback{SuccessLabel: "已加入", DurationMS: 1400},
-	}
-}
-
 func ValidateActionSurface(result SearchResult) error {
 	if result.ID == "" {
 		return fmt.Errorf("search result has empty id")

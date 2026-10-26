@@ -2,61 +2,6 @@ import type { SearchResult } from '../types/ariadne'
 
 export const seedResults: SearchResult[] = [
   {
-    id: 'memory-gateway',
-    type: 'memory',
-    title: '网关代理异常排查记录',
-    subtitle: '工作记忆 · 今天 14:21 · Windows Terminal',
-    detail: 'Cloudflare Tunnel 入口正常，OpenWrt 网关疑似仍指向 192.168.1.1。',
-    icon: 'memory',
-    tags: ['工作记忆', '网络', '证据'],
-    preview: {
-      kind: 'memory',
-      title: '网关代理异常排查记录',
-      subtitle: '今天 14:21 · Windows Terminal',
-      text: '用户复制过一段诊断结论：WiFi 代理失败优先确认默认网关是否仍为 192.168.1.1，而不是 OpenWrt 192.168.1.10。',
-      imageHint: '终端截图',
-      meta: [
-        { label: '来源', value: '剪贴板 + 窗口上下文' },
-        { label: '应用', value: 'Windows Terminal' },
-        { label: '类型', value: '问题处理记录' },
-      ],
-      evidence: [
-        { label: '命中', value: 'gateway, proxy, 192.168.1.10' },
-        { label: '隐私', value: '允许本地检索，未发送给 AI' },
-      ],
-    },
-    actions: [
-      {
-        id: 'copy_summary',
-        label: '复制摘要',
-        icon: 'copy',
-        kind: 'copy',
-        shortcut: 'Enter',
-        payload: { text: 'WiFi 代理失败时优先确认默认网关是否指向 OpenWrt 192.168.1.10。' },
-        feedback: { successLabel: '已复制' },
-      },
-      {
-        id: 'open_memory',
-        label: '打开记忆',
-        icon: 'open',
-        kind: 'open',
-        shortcut: '⌘O',
-      },
-      {
-        id: 'remember',
-        label: '加入复盘',
-        icon: 'remember',
-        kind: 'remember',
-      },
-      {
-        id: 'task',
-        label: '生成任务包',
-        icon: 'workflow',
-        kind: 'plugin',
-      },
-    ],
-  },
-  {
     id: 'file-readme',
     type: 'file',
     title: 'README.md',
@@ -68,7 +13,7 @@ export const seedResults: SearchResult[] = [
       kind: 'text',
       title: 'README.md',
       subtitle: '本地文件',
-      text: 'x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Ariadne 将继承搜索、截图、插件和工作记忆能力。',
+      text: 'x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Ariadne 将继承搜索、截图、插件和桌面工具。',
       meta: [
         { label: '路径', value: 'P:\\workspace\\glwlg\\app\\x-tools\\README.md' },
         { label: '默认操作', value: '打开文件 / 复制路径' },
@@ -85,7 +30,6 @@ export const seedResults: SearchResult[] = [
         payload: { text: 'P:\\workspace\\glwlg\\app\\x-tools\\README.md' },
         feedback: { successLabel: '已复制' },
       },
-      { id: 'remember', label: '加入记忆', icon: 'remember', kind: 'remember' },
     ],
   },
   {
@@ -125,29 +69,6 @@ export const seedResults: SearchResult[] = [
         payload: { text: 'uuid [count]' },
         feedback: { successLabel: '已复制' },
       },
-    ],
-  },
-  {
-    id: 'workflow-daily',
-    type: 'workflow',
-    title: '生成今日工作日报',
-    subtitle: '工作流 · mem daily',
-    detail: '汇总今天的截图、剪贴板、手动笔记和工作记忆。',
-    icon: 'workflow',
-    tags: ['工作流', '日报'],
-    preview: {
-      kind: 'workflow',
-      title: '生成今日工作日报',
-      subtitle: '基于本地工作记忆',
-      text: '这个工作流会检索今天的工作记忆，生成日报草稿，并保留引用来源。',
-      meta: [
-        { label: '输入', value: '今天的工作记忆' },
-        { label: '输出', value: '日报草稿 + 证据引用' },
-      ],
-    },
-    actions: [
-      { id: 'run_workflow', label: '运行工作流', icon: 'run', kind: 'run', shortcut: 'Enter' },
-      { id: 'open_editor', label: '编辑步骤', icon: 'settings', kind: 'plugin' },
     ],
   },
 ]

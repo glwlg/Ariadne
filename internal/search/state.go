@@ -62,10 +62,10 @@ func (s *StateStore) Get(resultID string) UsageRecord {
 	return s.records[resultID]
 }
 
-func (s *StateStore) RecordUse(resultID string) UsageRecord {
+func (s *StateStore) RecordUse(resultID string) (UsageRecord, error) {
 	resultID = strings.TrimSpace(resultID)
 	if resultID == "" {
-		return UsageRecord{}
+		return UsageRecord{}, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -73,28 +73,32 @@ func (s *StateStore) RecordUse(resultID string) UsageRecord {
 	record.ResultID = resultID
 	record.UseCount++
 	record.LastUsedAt = time.Now().UnixMilli()
+	if err := s.saveRecordLocked(record); err != nil {
+		return s.records[resultID], err
+	}
 	s.records[resultID] = record
-	_ = s.saveLocked()
-	return record
+	return record, nil
 }
 
-func (s *StateStore) SetFavorite(resultID string, favorite bool) UsageRecord {
+func (s *StateStore) SetFavorite(resultID string, favorite bool) (UsageRecord, error) {
 	resultID = strings.TrimSpace(resultID)
 	if resultID == "" {
-		return UsageRecord{}
+		return UsageRecord{}, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record := s.records[resultID]
 	record.ResultID = resultID
 	record.Favorite = favorite
+	if err := s.saveRecordLocked(record); err != nil {
+		return s.records[resultID], err
+	}
 	if isEmptyUsageRecord(record) {
 		delete(s.records, resultID)
 	} else {
 		s.records[resultID] = record
 	}
-	_ = s.saveLocked()
-	return record
+	return record, nil
 }
 
 func (s *StateStore) Status() UsageStatus {
@@ -192,6 +196,13 @@ func (s *StateStore) saveLocked() error {
 		return nil
 	}
 	return saveUsageRecordsToSQLite(s.path, s.records)
+}
+
+func (s *StateStore) saveRecordLocked(record UsageRecord) error {
+	if s.path == "" {
+		return nil
+	}
+	return saveUsageRecordToSQLite(s.path, record)
 }
 
 func normalizeUsageRecord(id string, record UsageRecord) UsageRecord {

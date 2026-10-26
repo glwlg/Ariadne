@@ -139,7 +139,7 @@ func Run(payload []byte, options Options) (Result, error) {
 		defer os.RemoveAll(tempDir)
 	}
 
-	packageRoot, err := ExtractPayload(payload, tempDir)
+	packageRoot, err := ExtractPayload(payload, tempDir, options.ProductName)
 	if err != nil {
 		return Result{}, err
 	}
@@ -386,7 +386,7 @@ func uninstall(options Options, command commandOptions) (Result, error) {
 	return Result{Action: ActionUninstall, InstallDir: installDir}, nil
 }
 
-func ExtractPayload(payload []byte, targetDir string) (string, error) {
+func ExtractPayload(payload []byte, targetDir string, productName string) (string, error) {
 	reader, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
 	if err != nil {
 		return "", fmt.Errorf("open installer payload: %w", err)
@@ -419,13 +419,13 @@ func ExtractPayload(payload []byte, targetDir string) (string, error) {
 		}
 
 		parts := strings.Split(filepath.ToSlash(entryName), "/")
-		if len(parts) >= 3 && strings.EqualFold(parts[len(parts)-2], "app") && strings.EqualFold(parts[len(parts)-1], "ariadne.exe") {
+		if len(parts) >= 3 && strings.EqualFold(parts[len(parts)-2], "app") && strings.EqualFold(parts[len(parts)-1], productName+".exe") {
 			appExe = targetPath
 		}
 	}
 
 	if appExe == "" {
-		return "", errors.New("installer payload is missing app/ariadne.exe")
+		return "", fmt.Errorf("installer payload is missing app/%s.exe", strings.ToLower(productName))
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(appExe), "..")), nil
 }

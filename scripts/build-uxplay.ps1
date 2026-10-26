@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $sourceCommit = '4e95a9ec013c52d8555d88dbc55abe346e94d56e'
-$bundleRevision = 9
+$bundleRevision = 11
 function Get-SHA256([string]$Path) {
     $stream = [IO.File]::OpenRead($Path)
     $algorithm = [Security.Cryptography.SHA256]::Create()
@@ -128,12 +128,15 @@ foreach ($patch in @(
 [IO.File]::WriteAllText($rendererSourcePath, $rendererSource, [Text.UTF8Encoding]::new($false))
 $rendererCmakePath = Join-Path $sourceDir 'renderers\CMakeLists.txt'
 $rendererCmake = [IO.File]::ReadAllText($rendererCmakePath).Replace("`r`n", "`n")
+$rendererCmake = $rendererCmake.Replace('target_link_libraries(renderers PUBLIC user32)',
+    'target_link_libraries(renderers PUBLIC user32 imm32)')
 $rendererTarget = 'target_link_libraries ( renderers PUBLIC airplay )'
-$nativeRendererTarget = $rendererTarget + "`nif (WIN32)`n  target_sources(renderers PRIVATE ariadne-window.c)`n  target_link_libraries(renderers PUBLIC user32)`nendif()"
+$nativeRendererTarget = $rendererTarget + "`nif (WIN32)`n  target_sources(renderers PRIVATE ariadne-window.c)`n  target_link_libraries(renderers PUBLIC user32 imm32)`nendif()"
 if (-not $rendererCmake.Contains($nativeRendererTarget)) {
     if (-not $rendererCmake.Contains($rendererTarget)) { throw 'UxPlay renderers target differs from the pinned version.' }
-    [IO.File]::WriteAllText($rendererCmakePath, $rendererCmake.Replace($rendererTarget, $nativeRendererTarget), [Text.UTF8Encoding]::new($false))
+    $rendererCmake = $rendererCmake.Replace($rendererTarget, $nativeRendererTarget)
 }
+[IO.File]::WriteAllText($rendererCmakePath, $rendererCmake, [Text.UTF8Encoding]::new($false))
 $clientSourcePath = Join-Path $sourceDir 'uxplay.cpp'
 $clientSource = [IO.File]::ReadAllText($clientSourcePath).Replace("`r`n", "`n")
 $metadataStart = 'static void process_metadata('
@@ -203,7 +206,7 @@ cmake --build "$source_dir/build" --parallel 4
 gcc -I "$source_dir" "$(cygpath -u "$ARIADNE_UXPLAY_TEST")" -o "$source_dir/build/test-mdns-windows.exe" -liphlpapi -lws2_32 -lpthread
 "$source_dir/build/test-mdns-windows.exe"
 windres -I "$source_dir" "$source_dir/ariadne.rc" -o "$source_dir/build/test-window-icon.o"
-gcc '-DARIADNE_CONTROL_TITLE=L"Ariadne.ScreenInput.Test"' -I "$source_dir/renderers" $(pkg-config --cflags gstreamer-app-1.0 gstreamer-video-1.0) "$(cygpath -u "$ARIADNE_UXPLAY_WINDOW_TEST")" "$source_dir/renderers/ariadne-window.c" "$source_dir/build/test-window-icon.o" -o "$source_dir/build/test-window-branding.exe" $(pkg-config --libs gstreamer-app-1.0 gstreamer-video-1.0) -luser32
+gcc '-DARIADNE_CONTROL_TITLE=L"Ariadne.ScreenInput.Test"' -I "$source_dir/renderers" $(pkg-config --cflags gstreamer-app-1.0 gstreamer-video-1.0) "$(cygpath -u "$ARIADNE_UXPLAY_WINDOW_TEST")" "$source_dir/renderers/ariadne-window.c" "$source_dir/build/test-window-icon.o" -o "$source_dir/build/test-window-branding.exe" $(pkg-config --libs gstreamer-app-1.0 gstreamer-video-1.0) -luser32 -limm32
 "$source_dir/build/test-window-branding.exe"
 mkdir -p "$output_dir/lib/gstreamer-1.0" "$output_dir/libexec" "$output_dir/share"
 cp "$source_dir/build/uxplay.exe" "$output_dir/"

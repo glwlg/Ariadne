@@ -9,12 +9,18 @@ import {
 import { connectNetworkTelemetry } from '../services/networkTelemetry'
 import type { NetworkTrafficSnapshot, ProcessNetworkSnapshot } from '../types/ariadne'
 
+type ConnectionState = 'stopped' | 'connecting' | 'connected' | 'disconnected'
+
 export const useNetworkMonitorStore = defineStore('network-monitor', () => {
   const snapshot = ref<NetworkTrafficSnapshot | null>(null)
   const processSnapshot = ref<ProcessNetworkSnapshot | null>(null)
   const feedback = ref('')
   const isLoading = ref(false)
-  const isPolling = ref(false)
+  const trafficConnection = ref<ConnectionState>('stopped')
+  const processConnection = ref<ConnectionState>('stopped')
+  const trafficError = ref('')
+  const processError = ref('')
+  const isPolling = computed(() => trafficConnection.value === 'connecting' || trafficConnection.value === 'connected')
   let stopTrafficStream: (() => void) | null = null
   let stopProcessStream: (() => void) | null = null
 
@@ -37,24 +43,32 @@ export const useNetworkMonitorStore = defineStore('network-monitor', () => {
   }
 
   async function refreshProcesses() {
-    processSnapshot.value = await getProcessNetworkSnapshot()
+    try {
+      processSnapshot.value = await getProcessNetworkSnapshot()
+    } catch {
+      showFeedback('进程网络刷新失败')
+    }
   }
 
   function startPolling() {
     if (stopTrafficStream !== null) return
-    isPolling.value = true
-    stopTrafficStream = connectNetworkTelemetry('traffic', (frame) => {
-      if (!frame.traffic) return
-      snapshot.value = normalizeSnapshot(frame.traffic)
-      if (snapshot.value.lastError) {
-        showFeedback(snapshot.value.lastError)
-      }
-    }, (message) => {
-      showFeedback(message)
-      if (snapshot.value === null) {
-        void refresh()
-      }
-    })
+    trafficConnection.value = 'connecting'
+    trafficError.value = ''
+    try {
+      stopTrafficStream = connectNetworkTelemetry('traffic', (frame) => {
+        if (!frame.traffic) return
+        snapshot.value = normalizeSnapshot(frame.traffic)
+        if (snapshot.value.lastError) showFeedback(snapshot.value.lastError)
+      }, trafficDisconnected, undefined, () => { trafficConnection.value = 'connected' })
+    } catch (error) {
+      trafficDisconnected(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  function trafficDisconnected(message: string) {
+    stopTrafficStream = null
+    trafficConnection.value = 'disconnected'
+    trafficError.value = message
   }
 
   function stopPolling() {
@@ -62,29 +76,36 @@ export const useNetworkMonitorStore = defineStore('network-monitor', () => {
       stopTrafficStream()
       stopTrafficStream = null
     }
-    isPolling.value = false
+    trafficConnection.value = 'stopped'
+    trafficError.value = ''
   }
 
   function startProcessPolling() {
     if (stopProcessStream !== null) return
-    stopProcessStream = connectNetworkTelemetry('processes', (frame) => {
-      if (!frame.processes) return
-      processSnapshot.value = normalizeProcessSnapshot(frame.processes)
-      if (processSnapshot.value.lastError) {
-        showFeedback(processSnapshot.value.lastError)
-      }
-    }, (message) => {
-      showFeedback(message)
-      if (processSnapshot.value === null) {
-        void refreshProcesses()
-      }
-    })
+    processConnection.value = 'connecting'
+    processError.value = ''
+    try {
+      stopProcessStream = connectNetworkTelemetry('processes', (frame) => {
+        if (!frame.processes) return
+        processSnapshot.value = normalizeProcessSnapshot(frame.processes)
+        if (processSnapshot.value.lastError) showFeedback(processSnapshot.value.lastError)
+      }, processDisconnected, undefined, () => { processConnection.value = 'connected' })
+    } catch (error) {
+      processDisconnected(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  function processDisconnected(message: string) {
+    stopProcessStream = null
+    processConnection.value = 'disconnected'
+    processError.value = message
   }
 
   function stopProcessPolling() {
-    if (stopProcessStream === null) return
-    stopProcessStream()
+    stopProcessStream?.()
     stopProcessStream = null
+    processConnection.value = 'stopped'
+    processError.value = ''
   }
 
   function showFeedback(message: string) {
@@ -104,6 +125,10 @@ export const useNetworkMonitorStore = defineStore('network-monitor', () => {
     feedback,
     isLoading,
     isPolling,
+    trafficConnection,
+    processConnection,
+    trafficError,
+    processError,
     hasError,
     refresh,
     refreshProcesses,

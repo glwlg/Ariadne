@@ -58,7 +58,6 @@ func saveSettingsToSQLite(path string, value AppSettings) error {
 		for _, stmt := range []string{
 			`DELETE FROM settings2_values WHERE scope = ?1`,
 			`DELETE FROM settings2_string_lists WHERE scope = ?1`,
-			`DELETE FROM settings2_app_capture_profiles WHERE scope = ?1`,
 			`DELETE FROM settings2_plugins WHERE scope = ?1`,
 		} {
 			if err := sqlitex.Execute(conn, stmt, &sqlitex.ExecOptions{Args: []any{settingsScope(path)}}); err != nil {
@@ -69,9 +68,6 @@ func saveSettingsToSQLite(path string, value AppSettings) error {
 			return err
 		}
 		if err := writeSettingsStringLists(conn, settingsScope(path), value); err != nil {
-			return err
-		}
-		if err := writeSettingsAppProfiles(conn, settingsScope(path), value.WorkMemory.AppCaptureProfiles); err != nil {
 			return err
 		}
 		return writeSettingsPlugins(conn, settingsScope(path), value.Plugins.Enabled)
@@ -96,17 +92,6 @@ CREATE TABLE IF NOT EXISTS settings2_string_lists(
   value TEXT NOT NULL,
   PRIMARY KEY(scope, path, position)
 );
-CREATE TABLE IF NOT EXISTS settings2_app_capture_profiles(
-  scope TEXT NOT NULL,
-  id TEXT NOT NULL,
-  display_name TEXT NOT NULL DEFAULT '',
-  process_name TEXT NOT NULL DEFAULT '',
-  icon TEXT NOT NULL DEFAULT '',
-  enabled INTEGER NOT NULL DEFAULT 0,
-  window_switch_delay_seconds INTEGER NOT NULL DEFAULT 0,
-  active_interval_seconds INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY(scope, id)
-);
 CREATE TABLE IF NOT EXISTS settings2_plugins(
   scope TEXT NOT NULL,
   plugin_id TEXT NOT NULL,
@@ -117,7 +102,7 @@ CREATE TABLE IF NOT EXISTS settings2_plugins(
 }
 
 func hasSettingsRows(conn *sqlite.Conn, scope string) (bool, error) {
-	for _, table := range []string{"settings2_values", "settings2_string_lists", "settings2_app_capture_profiles", "settings2_plugins"} {
+	for _, table := range []string{"settings2_values", "settings2_string_lists", "settings2_plugins"} {
 		count := 0
 		if err := sqlitex.Execute(conn, `SELECT count(*) FROM `+table+` WHERE scope = ?1`, &sqlitex.ExecOptions{
 			Args: []any{scope},
@@ -152,16 +137,11 @@ func writeSettingsScalars(conn *sqlite.Conn, scope string, value AppSettings) er
 
 func writeSettingsStringLists(conn *sqlite.Conn, scope string, value AppSettings) error {
 	lists := map[string][]string{
-		"screenshot.redactKeywords":         value.Screenshot.RedactKeywords,
-		"workMemory.excludeApps":            value.WorkMemory.ExcludeApps,
-		"workMemory.excludeWindowKeywords":  value.WorkMemory.ExcludeWindowKeywords,
-		"workMemory.excludePaths":           value.WorkMemory.ExcludePaths,
-		"workMemory.excludeUrls":            value.WorkMemory.ExcludeURLs,
-		"workMemory.excludeContentPatterns": value.WorkMemory.ExcludeContentPatterns,
-		"search.fileExcludeFolders":         value.Search.FileExcludeFolders,
-		"search.fileExcludePatterns":        value.Search.FileExcludePatterns,
-		"search.fileIncludeExtensions":      value.Search.FileIncludeExtensions,
-		"search.fileExcludeExtensions":      value.Search.FileExcludeExtensions,
+		"screenshot.redactKeywords":    value.Screenshot.RedactKeywords,
+		"search.fileExcludeFolders":    value.Search.FileExcludeFolders,
+		"search.fileExcludePatterns":   value.Search.FileExcludePatterns,
+		"search.fileIncludeExtensions": value.Search.FileIncludeExtensions,
+		"search.fileExcludeExtensions": value.Search.FileExcludeExtensions,
 	}
 	paths := make([]string, 0, len(lists))
 	for path := range lists {
@@ -175,21 +155,6 @@ func writeSettingsStringLists(conn *sqlite.Conn, scope string, value AppSettings
 			}); err != nil {
 				return err
 			}
-		}
-	}
-	return nil
-}
-
-func writeSettingsAppProfiles(conn *sqlite.Conn, scope string, profiles []WorkMemoryAppCaptureProfile) error {
-	for _, profile := range profiles {
-		if profile.ID == "" {
-			continue
-		}
-		if err := sqlitex.Execute(conn, `INSERT INTO settings2_app_capture_profiles(scope, id, display_name, process_name, icon, enabled, window_switch_delay_seconds, active_interval_seconds)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`, &sqlitex.ExecOptions{
-			Args: []any{scope, profile.ID, profile.DisplayName, profile.ProcessName, profile.Icon, appdb.BoolInt(profile.Enabled), profile.WindowSwitchDelaySeconds, profile.ActiveIntervalSeconds},
-		}); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -220,13 +185,32 @@ func insertSettingValue(conn *sqlite.Conn, scope string, path string, kind strin
 }
 
 func readSettingsRows(conn *sqlite.Conn, scope string, target *AppSettings) error {
-	if err := sqlitex.Execute(conn, `SELECT path, type, text_value, int_value, bool_value FROM settings2_values WHERE scope = ?1`, &sqlitex.ExecOptions{
+	legacyHistoryPaths := map[string]string{
+		"workMemory.sourceClipboard":      "history.clipboardEnabled",
+		"workMemory.privacyMode":          "history.privacyMode",
+		"workMemory.retentionDays":        "history.retentionDays",
+		"workMemory.maxStorageMb":         "history.maxStorageMb",
+		"workMemory.keepFavoritesForever": "history.keepFavoritesForever",
+	}
+	legacyBaseURL := ""
+	if err := sqlitex.Execute(conn, `SELECT path, type, text_value, int_value, bool_value FROM settings2_values WHERE scope = ?1
+ORDER BY CASE WHEN path LIKE 'workMemory.%' THEN 0 ELSE 1 END`, &sqlitex.ExecOptions{
 		Args: []any{scope},
 		ResultFunc: func(stmt *sqlite.Stmt) error {
-			return setSettingScalar(target, stmt.ColumnText(0), stmt.ColumnText(1), stmt.ColumnText(2), stmt.ColumnInt64(3), stmt.ColumnInt(4) != 0)
+			path := stmt.ColumnText(0)
+			if path == "ai.baseUrl" {
+				legacyBaseURL = stmt.ColumnText(2)
+			}
+			if migrated, ok := legacyHistoryPaths[path]; ok {
+				path = migrated
+			}
+			return setSettingScalar(target, path, stmt.ColumnText(1), stmt.ColumnText(2), stmt.ColumnInt64(3), stmt.ColumnInt(4) != 0)
 		},
 	}); err != nil {
 		return err
+	}
+	if target.AI.OCRBaseURL == "" && target.AI.OCRProvider != "ollama" && target.AI.OCRProvider != "ollama-generate" && target.AI.OCRProvider != "ollama_generate" {
+		target.AI.OCRBaseURL = legacyBaseURL
 	}
 	lists := map[string][]string{}
 	if err := sqlitex.Execute(conn, `SELECT path, value FROM settings2_string_lists WHERE scope = ?1 ORDER BY path, position`, &sqlitex.ExecOptions{
@@ -240,33 +224,10 @@ func readSettingsRows(conn *sqlite.Conn, scope string, target *AppSettings) erro
 		return err
 	}
 	target.Screenshot.RedactKeywords = lists["screenshot.redactKeywords"]
-	target.WorkMemory.ExcludeApps = lists["workMemory.excludeApps"]
-	target.WorkMemory.ExcludeWindowKeywords = lists["workMemory.excludeWindowKeywords"]
-	target.WorkMemory.ExcludePaths = lists["workMemory.excludePaths"]
-	target.WorkMemory.ExcludeURLs = lists["workMemory.excludeUrls"]
-	target.WorkMemory.ExcludeContentPatterns = lists["workMemory.excludeContentPatterns"]
 	target.Search.FileExcludeFolders = lists["search.fileExcludeFolders"]
 	target.Search.FileExcludePatterns = lists["search.fileExcludePatterns"]
 	target.Search.FileIncludeExtensions = lists["search.fileIncludeExtensions"]
 	target.Search.FileExcludeExtensions = lists["search.fileExcludeExtensions"]
-	target.WorkMemory.AppCaptureProfiles = nil
-	if err := sqlitex.Execute(conn, `SELECT id, display_name, process_name, icon, enabled, window_switch_delay_seconds, active_interval_seconds FROM settings2_app_capture_profiles WHERE scope = ?1 ORDER BY id`, &sqlitex.ExecOptions{
-		Args: []any{scope},
-		ResultFunc: func(stmt *sqlite.Stmt) error {
-			target.WorkMemory.AppCaptureProfiles = append(target.WorkMemory.AppCaptureProfiles, WorkMemoryAppCaptureProfile{
-				ID:                       stmt.ColumnText(0),
-				DisplayName:              stmt.ColumnText(1),
-				ProcessName:              stmt.ColumnText(2),
-				Icon:                     stmt.ColumnText(3),
-				Enabled:                  stmt.ColumnInt(4) != 0,
-				WindowSwitchDelaySeconds: stmt.ColumnInt(5),
-				ActiveIntervalSeconds:    stmt.ColumnInt(6),
-			})
-			return nil
-		},
-	}); err != nil {
-		return err
-	}
 	target.Plugins.Enabled = map[string]bool{}
 	return sqlitex.Execute(conn, `SELECT plugin_id, enabled FROM settings2_plugins WHERE scope = ?1`, &sqlitex.ExecOptions{
 		Args: []any{scope},

@@ -482,7 +482,7 @@ func (window *installerWindow) renderRail() {
 
 func (window *installerWindow) renderWelcomePage() {
 	window.addText("欢迎安装 Ariadne", 254, 42, 430, 38, window.titleFont, colorText, window.whiteBrush)
-	window.addText("把启动器、文件搜索、截图历史、剪贴板历史、工作记忆和桌面工具中心放到统一入口。", 256, 92, 430, 40, window.defaultFont, colorMuted, window.whiteBrush)
+	window.addText("把启动器、文件搜索、截图历史、剪贴板历史和桌面工具中心放到统一入口。", 256, 92, 430, 40, window.defaultFont, colorMuted, window.whiteBrush)
 
 	window.addPanel(256, 152, 430, 1, window.panelBrush)
 	window.addText("安装内容", 256, 180, 120, 24, window.headingFont, colorText, window.whiteBrush)
@@ -502,7 +502,7 @@ func (window *installerWindow) renderAgreementPage() {
 		"Ariadne 用户协议",
 		"",
 		"1. Ariadne 是本地优先的 Windows 桌面效率工具。应用数据默认保存在当前用户目录。",
-		"2. 截图、剪贴板、工作记忆、OCR、AI 和导出能力受应用内隐私设置与用户确认控制。",
+		"2. 截图、剪贴板、OCR 和导出能力受应用内隐私设置与用户确认控制。",
 		"3. 后台服务用于文件索引和进程网络统计；桌面应用仍以当前用户权限运行。",
 		"4. 使用外部 AI、远程接口或第三方服务时，请确认相关账号、数据和网络策略符合你的使用场景。",
 		"5. 除已明确授权内容外，复制、分发或二次开发请先取得维护者许可。",

@@ -205,7 +205,6 @@ type Service struct {
 	commandRunner     func(commandRunRequest) error
 	elevatedRunner    func(string, []string) error
 	applicationQuit   func()
-	rememberAction    func(contracts.PreviewAction) contracts.ActionResult
 }
 
 func NewService(options ...Option) *Service {
@@ -282,12 +281,6 @@ func WithApplicationQuit(handler func()) Option {
 	}
 }
 
-func WithRememberActionHandler(handler func(contracts.PreviewAction) contracts.ActionResult) Option {
-	return func(service *Service) {
-		service.rememberAction = handler
-	}
-}
-
 func (s *Service) Status() EnvironmentStatus {
 	diagnostics := runtimeDiagnostics()
 	shell := s.currentShellStatus()
@@ -301,7 +294,6 @@ func (s *Service) Status() EnvironmentStatus {
 		Capabilities: []Capability{
 			{ID: "preview_actions", Enabled: true, Provider: "Ariadne contracts", Note: "结果动作由后端显式声明，非文件结果不继承文件动作。"},
 			{ID: "settings", Enabled: true, Provider: "Ariadne settings service", Note: "支持旧配置安全导入、写后读回校验和 MSIX AppData virtualization 诊断。"},
-			{ID: "work_memory", Enabled: true, Provider: "Ariadne work memory", Note: "时间线、手动补记、手动笔记、删除/清理、可读数据包导出、后台屏幕时间机器、日报、知识草稿、外部代理任务包、SQLite FTS、本地语义检索、外部 embedding、内置向量缓存和 Milvus 向量存储已接入。"},
 			{ID: "file_search", Enabled: fileSearch.Ready || fileSearch.Indexing || fileSearch.ServiceRunning, Provider: firstNonEmpty(fileSearch.Provider, "Ariadne USN/MFT"), Note: fileSearchNote(fileSearch)},
 			{ID: "app_scan", Enabled: true, Provider: "Start Menu shortcuts", Note: "已接入用户和系统开始菜单 .lnk 扫描。"},
 			{ID: "custom_launchers", Enabled: true, Provider: "Ariadne launcher registry", Note: "自定义启动项已接入搜索 provider；支持应用、文件、文件夹、URL 和需要确认的命令。"},
@@ -505,12 +497,6 @@ func (s *Service) ExecuteAction(action contracts.PreviewAction) contracts.Action
 	}
 	if action.Kind == contracts.ActionCopy {
 		return contracts.ActionResult{OK: true, Message: "已复制"}
-	}
-	if action.Kind == contracts.ActionRemember {
-		if s.rememberAction == nil {
-			return contracts.ActionResult{OK: false, Message: "当前结果暂不支持加入工作记忆"}
-		}
-		return s.rememberAction(action)
 	}
 	if action.ID == "run_system" {
 		return s.executeSystemCommandAction(action)
@@ -844,7 +830,7 @@ func shellHotkeyNote(status ShellStatus) string {
 
 func shellTrayNote(status ShellStatus) string {
 	if status.TrayConfigured {
-		return "托盘菜单已接入启动器、工作记忆、剪贴板、截图、Hosts、网络监控、JSON 对比、工作流、设置和退出入口。"
+		return "托盘菜单已接入启动器、剪贴板、截图、Hosts、网络监控、JSON 对比、工作流、设置和退出入口。"
 	}
 	return "托盘菜单尚未在当前运行态创建。"
 }

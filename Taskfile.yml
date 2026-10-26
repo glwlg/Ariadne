@@ -66,6 +66,7 @@ tasks:
   windows:package:
     summary: Build Ariadne and create a user-level Windows setup exe plus updater checksum.
     cmds:
+      - wails3 task windows:verify
       - wails3 task windows:build
       - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/releasepack -version dev } else { go run ./cmd/releasepack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) }"
 
@@ -77,12 +78,14 @@ tasks:
   windows:msix:
     summary: Build Ariadne and create an unsigned MSIX layout.
     cmds:
+      - wails3 task windows:verify
       - wails3 task windows:build
       - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/msixpack -version dev } else { go run ./cmd/msixpack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) }"
 
   windows:msix-pack:
     summary: Build Ariadne and pack an unsigned MSIX with makeappx.exe.
     cmds:
+      - wails3 task windows:verify
       - wails3 task windows:build
       - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/msixpack -version dev -pack } else { go run ./cmd/msixpack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) -pack }"
 
@@ -109,8 +112,9 @@ tasks:
   test:
     summary: Run Ariadne backend and frontend checks.
     cmds:
-      - go test . ./cmd/... ./internal/...
-      - wails3 task native:capture-host
-      - powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-iphone-control.ps1 -Test
-      - wails3 generate bindings -clean=false
-      - powershell -NoProfile -Command "Set-Location frontend; pnpm build"
+      - wails3 task windows:verify
+
+  windows:verify:
+    summary: Run release checks including isolated setup upgrade, shortcuts and native input regressions.
+    cmds:
+      - powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1

@@ -69,11 +69,6 @@ export async function enableTaskbarToggle(view: AppToolView): Promise<ToolWindow
   return await binding.EnableTaskbarToggle(view)
 }
 
-export async function applyMainWindowPolicy(): Promise<ToolWindowOpenResult | null> {
-  const binding = await tryToolWindowBinding()
-  if (!binding?.ApplyMainWindowPolicy) return null
-  return await binding.ApplyMainWindowPolicy()
-}
 
 export async function getNetworkMiniStatus(): Promise<NetworkMiniStatus | null> {
   const binding = await tryToolWindowBinding()

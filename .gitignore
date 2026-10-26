@@ -3,6 +3,14 @@ build/
 dist/
 bin/
 app_archive.zip
+*.syso
+
+# Local debugging, audits, and generated design/wiki artifacts
+/.codex-tmp/
+/.codex-audit/
+/.qoder/repowiki/
+/.stitch/
+*.log
 
 # .NET build output
 **/bin/

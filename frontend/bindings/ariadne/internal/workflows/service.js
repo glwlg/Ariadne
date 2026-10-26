@@ -72,22 +72,12 @@ export function Run(request) {
 }
 
 /**
- * @param {$models.DraftSaveRequest} request
- * @returns {$CancellablePromise<$models.DraftSaveResult>}
- */
-export function SaveWorkflowDraft(request) {
-    return $Call.ByID(3839522082, request).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType6($result);
-    }));
-}
-
-/**
  * @param {string} query
  * @returns {$CancellablePromise<contracts$0.SearchResult[]>}
  */
 export function Search(query) {
     return $Call.ByID(2279789587, query).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType8($result);
+        return $$createType7($result);
     }));
 }
 
@@ -117,6 +107,5 @@ const $$createType2 = $models.Workflow.createFrom;
 const $$createType3 = $Create.Array($$createType2);
 const $$createType4 = $models.Status.createFrom;
 const $$createType5 = $models.RunResult.createFrom;
-const $$createType6 = $models.DraftSaveResult.createFrom;
-const $$createType7 = contracts$0.SearchResult.createFrom;
-const $$createType8 = $Create.Array($$createType7);
+const $$createType6 = contracts$0.SearchResult.createFrom;
+const $$createType7 = $Create.Array($$createType6);

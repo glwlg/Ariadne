@@ -19,11 +19,11 @@ import (
 	"ariadne/internal/appupdate"
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/captureoverlay"
-	"ariadne/internal/checklists"
+
 	"ariadne/internal/clipboardhistory"
-	"ariadne/internal/contracts"
+
 	"ariadne/internal/filesearch"
-	"ariadne/internal/flownotify"
+
 	"ariadne/internal/hosts"
 	"ariadne/internal/imageindex"
 	"ariadne/internal/jsoncompare"
@@ -41,14 +41,11 @@ import (
 	"ariadne/internal/secrets"
 	"ariadne/internal/settings"
 	"ariadne/internal/shell"
-	"ariadne/internal/skills"
+
 	"ariadne/internal/toolwindows"
 	"ariadne/internal/workflows"
-	"ariadne/internal/workmemory"
-	"ariadne/internal/workmemorycli"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 //go:embed all:frontend/dist
@@ -67,9 +64,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Ariadne restart replacement: %v\n", err)
 	}
 
-	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "workmemory") {
-		os.Exit(workmemorycli.Run(os.Args[2:], os.Stdout, os.Stderr))
-	}
 	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service") {
 		if err := filesearch.RunWindowsServiceWithPolicyProvider(os.Args[2:], fileSearchPolicyProvider(os.Args[2:])); err != nil {
 			fmt.Fprintf(os.Stderr, "Ariadne file search service: %v\n", err)
@@ -123,55 +117,12 @@ func main() {
 	airplayService := airplay.NewService()
 	pluginService := plugins.NewService()
 	workflowService := workflows.NewService(pluginService)
-	checklistService := checklists.NewService()
-	skillService := skills.NewService()
 	secretsService := secrets.NewService()
 	settingsService := settings.NewService()
 	pluginService.ApplyEnabled(settingsService.GetSettings().Plugins.Enabled)
-	workMemoryService := workmemory.NewService(captureService)
-	memorySinkJobs := make(chan func(), 256)
-	go func() {
-		for job := range memorySinkJobs {
-			func() {
-				defer func() {
-					if recovered := recover(); recovered != nil {
-						log.Printf("work memory sink panic: %v", recovered)
-					}
-				}()
-				job()
-			}()
-		}
-	}()
-	enqueueMemorySink := func(label string, job func()) {
-		select {
-		case memorySinkJobs <- job:
-		default:
-			log.Printf("work memory sink queue full, dropping %s", label)
-		}
-	}
-	clipboardhistory.RegisterEntryObserver(clipboardService, func(entry clipboardhistory.Entry) {
-		config := settingsService.GetSettings().WorkMemory
-		if !config.Enabled || config.PrivacyMode || !config.SourceClipboard {
-			return
-		}
-		captured := entry
-		enqueueMemorySink("clipboard entry", func() {
-			workMemoryService.RememberClipboardEntry(captured)
-		})
-	})
-	capturehistory.RegisterEntryObserver(captureService, func(entry capturehistory.Entry) {
-		config := settingsService.GetSettings().WorkMemory
-		if !config.Enabled || config.PrivacyMode || !config.SourceCaptureHistory {
-			return
-		}
-		captured := entry
-		enqueueMemorySink("capture history entry", func() {
-			workMemoryService.RememberCaptureHistoryEntry(captured)
-		})
-	})
-	migrationService := migration.NewService(clipboardService, captureService, workMemoryService)
+	migrationService := migration.NewService(clipboardService, captureService)
 	releaseService := release.NewService()
-	ocrService := ocr.NewService(captureService, clipboardService, workMemoryService)
+	ocrService := ocr.NewService(captureService, clipboardService)
 	ocr.RegisterAIClient(ocrService, aiclient.NewOpenAICompatibleImageOCR())
 	toolWindowService := toolwindows.NewService()
 	toolWindowService.SetWindowIcon(appIcon)
@@ -181,19 +132,6 @@ func main() {
 	}
 	captureOverlayService := captureoverlay.NewServiceWithNative(captureService, pinnedImageService, nativeCaptureManager, ocrService)
 	captureOverlayService.SetFocusSuspension(toolWindowService.SetCaptureFocusSuspended)
-	workmemory.RegisterAutoOCRProcessor(workMemoryService, func(entry workmemory.Entry) workmemory.Entry {
-		result := ocrService.RecognizeWorkMemory(entry.ID)
-		if result.WorkMemory == nil {
-			return entry
-		}
-		return *result.WorkMemory
-	})
-	workmemory.RegisterOCRSummarizer(workMemoryService, aiclient.NewOpenAICompatibleOCRSummarizer())
-	workmemory.RegisterDraftPolisher(workMemoryService, aiclient.NewOpenAICompatiblePolisher())
-	workmemory.RegisterFlowAgentRunner(workMemoryService, aiclient.NewFlowAgentRouter())
-	workmemory.RegisterFlowAutonomyAnalyzer(workMemoryService, aiclient.NewOpenAICompatibleFlowAutonomyAnalyzer())
-	workmemory.RegisterExperienceDiscoverer(workMemoryService, aiclient.NewOpenAICompatibleExperienceDiscoverer())
-	workmemory.RegisterEmbeddingClient(workMemoryService, aiclient.NewOpenAICompatibleEmbedder())
 	imageIndexService := imageindex.NewService(captureService, clipboardService, ocrService)
 	searchService := search.NewService(fileSearchService, appService, launcherService, captureService, imageIndexService, workflowService, pluginService)
 	initialHotkeys := settingsService.GetSettings().Hotkeys
@@ -223,9 +161,6 @@ func main() {
 		}),
 		platform.WithHotkeyRetry(func() platform.ShellStatus {
 			return platformShellStatus(shellManager.RetryHotkeyRegistration())
-		}),
-		platform.WithRememberActionHandler(func(action contracts.PreviewAction) contracts.ActionResult {
-			return rememberActionResult(action, clipboardService, captureService, workMemoryService)
 		}),
 		platform.WithSearchPerformance(func() platform.SearchPerformanceStatus {
 			status := searchService.PerformanceStatus()
@@ -272,16 +207,10 @@ func main() {
 			shellManager.Quit()
 		}),
 	)
-	notificationService := notifications.New()
-	flowNotificationDispatcher := flownotify.New(workMemoryService, notificationService, func() {
-		if result := toolWindowService.Open("work-memory"); !result.OK {
-			log.Printf("open flow from notification: %s", result.Message)
-		}
-	})
 
 	app := application.New(application.Options{
 		Name:        "Ariadne",
-		Description: "Ariadne command launcher and work memory center",
+		Description: "Ariadne desktop productivity tools",
 		Icon:        appIcon,
 		Windows: application.WindowsOptions{
 			DisableQuitOnLastWindowClosed: true,
@@ -303,7 +232,6 @@ func main() {
 			}
 			fileSearchService.Close()
 			clipboardService.StopWatcher()
-			workMemoryService.Stop()
 			if err := logService.Stop(); err != nil {
 				log.Printf("stop app log: %v", err)
 			}
@@ -325,16 +253,12 @@ func main() {
 			application.NewService(ocrService),
 			application.NewService(imageIndexService),
 			application.NewService(workflowService),
-			application.NewService(checklistService),
-			application.NewService(skillService),
 			application.NewService(secretsService),
 			application.NewService(migrationService),
 			application.NewService(releaseService),
 			application.NewService(toolWindowService),
 			application.NewService(settingsService),
-			application.NewService(workMemoryService),
 			application.NewService(platformService),
-			application.NewService(notificationService),
 		},
 		Assets: application.AssetOptions{
 			Handler: captureoverlay.CaptureOverlayAssetHandler(captureOverlayService, fileSearchService.FileIconAssetHandler(application.AssetFileServerFS(assets))),
@@ -354,11 +278,10 @@ func main() {
 	app.HandleStream(networkmonitor.TelemetryStreamName, func(connection *application.StreamConn) {
 		networkmonitor.HandleTelemetryStream(networkMonitorService, connection)
 	})
-	workmemory.RegisterChangeObserver(workMemoryService, func(event workmemory.ChangeEvent) {
-		app.Event.Emit("ariadne:work-memory-changed", event)
-		flowNotificationDispatcher.HandleWorkMemoryEvent(event)
-	})
 	captureOverlayService.Attach(app)
+	search.RegisterProgressHandler(searchService, func(progress search.Progress) {
+		app.Event.Emit("ariadne:search-progress", progress)
+	})
 	pinnedImageService.Attach(app)
 	toolWindowService.Attach(app)
 
@@ -369,10 +292,8 @@ func main() {
 		}
 		applyCaptureOverlayRuntime(captureOverlayService, next.Screenshot)
 		applyOCRAIRuntime(ocrService, next.AI)
-		applyWorkMemoryRuntime(workMemoryService, next.WorkMemory)
-		applyWorkMemoryAIRuntime(workMemoryService, next.AI, next.WorkMemory)
-		applyRetentionPolicies(workMemoryService, captureService, clipboardService, imageIndexService, next.WorkMemory)
-		clipboardService.ApplyWatcherSettings(next.WorkMemory.PrivacyMode, next.WorkMemory.SourceClipboard)
+		applyRetentionPolicies(captureService, clipboardService, imageIndexService, next.History)
+		clipboardService.ApplyWatcherSettings(next.History.PrivacyMode, next.History.ClipboardEnabled)
 		pluginService.ApplyEnabled(next.Plugins.Enabled)
 		applyFileSearchRuntime(fileSearchService, next.Search)
 	})
@@ -380,7 +301,6 @@ func main() {
 	applyFileSearchRuntime(fileSearchService, initialSettings.Search)
 	applyCaptureOverlayRuntime(captureOverlayService, initialSettings.Screenshot)
 	applyOCRAIRuntime(ocrService, initialSettings.AI)
-	applyWorkMemoryAIRuntime(workMemoryService, initialSettings.AI, initialSettings.WorkMemory)
 	if nativeCaptureManager != nil {
 		if err := nativeCaptureManager.Start(); err != nil {
 			log.Printf("start native capture host: %v", err)
@@ -394,10 +314,8 @@ func main() {
 	deferStartupMaintenance(func() {
 		latest := settingsService.GetSettings()
 		applyOCRAIRuntime(ocrService, latest.AI)
-		applyWorkMemoryRuntime(workMemoryService, latest.WorkMemory)
-		applyWorkMemoryAIRuntime(workMemoryService, latest.AI, latest.WorkMemory)
-		applyRetentionPolicies(workMemoryService, captureService, clipboardService, imageIndexService, latest.WorkMemory)
-		clipboardService.ApplyWatcherSettings(latest.WorkMemory.PrivacyMode, latest.WorkMemory.SourceClipboard)
+		applyRetentionPolicies(captureService, clipboardService, imageIndexService, latest.History)
+		clipboardService.ApplyWatcherSettings(latest.History.PrivacyMode, latest.History.ClipboardEnabled)
 		fileSearchService.StartIndexing()
 	})
 
@@ -449,13 +367,11 @@ func deferStartupMaintenance(fn func()) {
 }
 
 func applyRetentionPolicies(
-	workMemoryService *workmemory.Service,
 	captureService *capturehistory.Service,
 	clipboardService *clipboardhistory.Service,
 	imageIndexService *imageindex.Service,
-	config settings.WorkMemorySettings,
+	config settings.HistorySettings,
 ) {
-	workMemoryService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
 	captureService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
 	captureService.ApplyStoragePolicy(config.MaxStorageMB, config.KeepFavoritesForever)
 	clipboardService.ApplyRetentionPolicy(config.RetentionDays, config.KeepFavoritesForever)
@@ -528,20 +444,13 @@ func applyOCRAIRuntime(service *ocr.Service, config settings.AISettings) {
 		BaseURL:  ocrAIBaseURL(provider, config),
 		Model:    firstNonEmpty(config.OCRModel, os.Getenv("ARIADNE_OCR_MODEL")),
 	})
-	pinnedProvider := firstNonEmpty(config.PinnedOCRProvider, "openai-compatible")
-	service.ApplyPinnedAIOCRPolicy(ocr.AIOCRPolicy{
-		Enabled:  config.PinnedOCRModelEnabled,
-		Provider: pinnedProvider,
-		BaseURL:  strings.TrimSpace(config.PinnedOCRBaseURL),
-		Model:    strings.TrimSpace(config.PinnedOCRModel),
-	})
 }
 
 func ocrAIBaseURL(provider string, config settings.AISettings) string {
 	if isOllamaOCRProvider(provider) {
 		return firstNonEmpty(config.OCRBaseURL, os.Getenv("ARIADNE_OCR_BASE_URL"))
 	}
-	return firstNonEmpty(config.OCRBaseURL, os.Getenv("ARIADNE_OCR_BASE_URL"), config.BaseURL, os.Getenv("OPENAI__BASE_URL"))
+	return firstNonEmpty(config.OCRBaseURL, os.Getenv("ARIADNE_OCR_BASE_URL"), os.Getenv("OPENAI__BASE_URL"))
 }
 
 func isOllamaOCRProvider(provider string) bool {
@@ -553,139 +462,6 @@ func isOllamaOCRProvider(provider string) bool {
 	}
 }
 
-func applyWorkMemoryRuntime(service *workmemory.Service, config settings.WorkMemorySettings) {
-	service.ApplyCapturePolicy(workmemory.CapturePolicy{
-		ExcludeApps:              config.ExcludeApps,
-		ExcludeWindowKeywords:    config.ExcludeWindowKeywords,
-		ExcludePaths:             config.ExcludePaths,
-		ExcludeURLs:              config.ExcludeURLs,
-		ExcludeContentPatterns:   config.ExcludeContentPatterns,
-		SensitiveRulesEnabled:    config.SensitiveRulesEnabled,
-		SensitiveRulesConfigured: true,
-		AppCaptureProfiles:       workMemoryAppProfiles(config.AppCaptureProfiles),
-		AutoOCR:                  config.AutoOCR,
-		CaptureScope:             config.CaptureScope,
-		MultiMonitor:             config.MultiMonitor,
-		CaptureOnWindowChange:    config.WindowSwitchCaptureEnabled,
-		WindowChangeCooldown:     config.WindowSwitchCooldownSecs,
-		PauseOnIdle:              config.PauseOnIdle,
-		IdlePauseSeconds:         config.IdlePauseSeconds,
-		PauseOnLock:              config.PauseOnLock,
-	})
-	service.ApplySettings(
-		config.Enabled,
-		config.PrivacyMode,
-		config.TimeMachineEnabled,
-		config.AutoCaptureIntervalSeconds,
-	)
-	service.ApplyDraftSchedule(workmemory.DraftSchedulePolicy{
-		Enabled:                 config.DraftScheduleEnabled,
-		IntervalMinutes:         config.DraftScheduleIntervalMin,
-		DailyDraftEnabled:       config.DailyDraftScheduleEnabled,
-		RetrospectiveEnabled:    config.RetroDraftScheduleEnabled,
-		ExperienceReportEnabled: config.ExperienceScheduleEnabled,
-		ExperiencePeriodDays:    config.ExperienceDiscoveryDays,
-	})
-	service.ApplyFlowAutonomyPolicy(workmemory.FlowAutonomyPolicy{
-		Enabled:                      config.FlowAutonomyEnabled,
-		CommunicationAssistEnabled:   config.FlowCommunicationAssist,
-		TextQualityAssistEnabled:     config.FlowTextQualityAssist,
-		CandidateTTLHours:            config.FlowCandidateTTLHours,
-		CandidateCooldownMinutes:     config.FlowCandidateCooldownMin,
-		DefaultSnoozeMinutes:         config.FlowDefaultSnoozeMin,
-		NotifyLowRiskAutomaticAction: config.FlowNotifyLowRiskAutomatic,
-	})
-}
-
-func workMemoryAppProfiles(config []settings.WorkMemoryAppCaptureProfile) []workmemory.AppCaptureProfile {
-	profiles := make([]workmemory.AppCaptureProfile, 0, len(config))
-	for _, profile := range config {
-		profiles = append(profiles, workmemory.AppCaptureProfile{
-			ID:                       profile.ID,
-			DisplayName:              profile.DisplayName,
-			ProcessName:              profile.ProcessName,
-			Icon:                     profile.Icon,
-			Enabled:                  profile.Enabled,
-			WindowSwitchDelaySeconds: profile.WindowSwitchDelaySeconds,
-			ActiveIntervalSeconds:    profile.ActiveIntervalSeconds,
-		})
-	}
-	return profiles
-}
-
-func applyWorkMemoryAIRuntime(service *workmemory.Service, config settings.AISettings, memory settings.WorkMemorySettings) {
-	service.ApplyDraftPolishPolicy(workmemory.DraftPolishPolicy{
-		Enabled:  config.Enabled,
-		Provider: firstNonEmpty(config.Provider, "openai-compatible"),
-		BaseURL:  firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
-		Model:    firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL")),
-	})
-	service.ApplyOCRSummaryPolicy(workmemory.OCRSummaryPolicy{
-		Enabled:  config.Enabled,
-		Provider: firstNonEmpty(config.Provider, "openai-compatible"),
-		BaseURL:  firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
-		Model:    firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL")),
-	})
-	service.ApplyFlowAgentPolicy(workmemory.FlowAgentPolicy{
-		Enabled:      flowAgentEnabled(config, memory),
-		Runner:       flowAgentRunner(config),
-		Provider:     firstNonEmpty(config.Provider, "openai-compatible"),
-		BaseURL:      firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
-		Model:        flowAgentModel(config),
-		NativeSkills: config.AgentResponsesEnabled,
-	})
-	service.ApplyExperienceDiscoveryPolicy(workmemory.ExperienceDiscoveryPolicy{
-		Enabled:  config.Enabled && memory.ExperienceDiscoveryEnabled,
-		Provider: firstNonEmpty(config.Provider, "openai-compatible"),
-		BaseURL:  firstNonEmpty(config.BaseURL, os.Getenv("OPENAI__BASE_URL")),
-		Model:    firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL")),
-	})
-	service.ApplyEmbeddingPolicy(workmemory.EmbeddingPolicy{
-		Enabled:          config.EmbeddingEnabled,
-		Provider:         firstNonEmpty(config.EmbeddingProvider, "openai-compatible"),
-		BaseURL:          firstNonEmpty(config.EmbeddingBaseURL, os.Getenv("EMBED__BASE_URL")),
-		Model:            firstNonEmpty(config.EmbeddingModel, os.Getenv("EMBED__MODEL")),
-		VectorStoreType:  config.VectorStoreType,
-		VectorStoreURI:   config.VectorStoreURI,
-		VectorCollection: config.VectorCollection,
-	})
-}
-
-func flowAgentEnabled(config settings.AISettings, memory settings.WorkMemorySettings) bool {
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("ARIADNE_FLOW_AGENT")))
-	switch env {
-	case "off", "none", "disabled":
-		return false
-	case "codex", "openai-agent", "agent", "agents-sdk", "openai-agents-sdk":
-		return memory.Enabled
-	}
-	return memory.Enabled && (config.Enabled || config.AgentsSDKEnabled || config.CodexCollaborationEnabled)
-}
-
-func flowAgentRunner(config settings.AISettings) string {
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("ARIADNE_FLOW_AGENT")))
-	if env == "codex" {
-		return "codex"
-	}
-	if env == "openai-agent" || env == "agent" || env == "agents-sdk" || env == "openai-agents-sdk" {
-		return "openai-agent"
-	}
-	if config.CodexCollaborationEnabled {
-		return "codex"
-	}
-	if config.Enabled || config.AgentsSDKEnabled {
-		return "openai-agent"
-	}
-	return "disabled"
-}
-
-func flowAgentModel(config settings.AISettings) string {
-	if runner := strings.ToLower(strings.TrimSpace(os.Getenv("ARIADNE_FLOW_AGENT"))); runner == "codex" {
-		return strings.TrimSpace(os.Getenv("ARIADNE_FLOW_CODEX_MODEL"))
-	}
-	return firstNonEmpty(config.Model, os.Getenv("OPENAI__MODEL"))
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -693,60 +469,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func rememberActionResult(
-	action contracts.PreviewAction,
-	clipboardService *clipboardhistory.Service,
-	captureService *capturehistory.Service,
-	workMemoryService *workmemory.Service,
-) contracts.ActionResult {
-	targetID := actionPayloadString(action.Payload, "targetId")
-	if targetID == "" {
-		return contracts.ActionResult{OK: false, Message: "缺少加入记忆目标"}
-	}
-	switch {
-	case strings.HasPrefix(targetID, "clipboard-"):
-		clipboardID := strings.TrimPrefix(targetID, "clipboard-")
-		entry := clipboardService.Entry(clipboardID)
-		if entry.ID == "" {
-			return contracts.ActionResult{OK: false, Message: "未找到剪贴板记录"}
-		}
-		memory := workMemoryService.RememberClipboardEntry(entry)
-		return rememberMemoryResult(memory, workMemoryService.Status())
-	case strings.HasPrefix(targetID, "capture-"):
-		captureID := strings.TrimPrefix(targetID, "capture-")
-		entry := captureService.Entry(captureID)
-		if entry.ID == "" {
-			return contracts.ActionResult{OK: false, Message: "未找到截图记录"}
-		}
-		memory := workMemoryService.RememberCaptureHistoryEntry(entry)
-		return rememberMemoryResult(memory, workMemoryService.Status())
-	default:
-		return contracts.ActionResult{OK: false, Message: "当前结果暂不支持加入工作记忆"}
-	}
-}
-
-func rememberMemoryResult(memory workmemory.Entry, status workmemory.Status) contracts.ActionResult {
-	if memory.ID != "" {
-		return contracts.ActionResult{OK: true, Message: "已加入工作记忆"}
-	}
-	if !status.Enabled {
-		return contracts.ActionResult{OK: false, Message: "工作记忆已停用"}
-	}
-	if status.PrivacyMode {
-		return contracts.ActionResult{OK: false, Message: "隐私模式已开启，已阻断加入记忆"}
-	}
-	return contracts.ActionResult{OK: false, Message: "未能加入工作记忆"}
-}
-
-func actionPayloadString(payload map[string]interface{}, key string) string {
-	if payload == nil {
-		return ""
-	}
-	value, ok := payload[key]
-	if !ok || value == nil {
-		return ""
-	}
-	return strings.TrimSpace(strings.Trim(fmt.Sprint(value), `"`))
 }

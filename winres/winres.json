@@ -13,7 +13,7 @@
           "name": "Ariadne",
           "version": "0.0.0.0"
         },
-        "description": "Ariadne command launcher and work memory center",
+        "description": "Ariadne desktop productivity tools",
         "minimum-os": "win10",
         "execution-level": "as invoker",
         "ui-access": false,
@@ -41,7 +41,7 @@
         "info": {
           "0409": {
             "CompanyName": "Ariadne",
-            "FileDescription": "Ariadne command launcher and work memory center",
+            "FileDescription": "Ariadne desktop productivity tools",
             "FileVersion": "0.0.0.0",
             "InternalName": "ariadne",
             "LegalCopyright": "Ariadne contributors",

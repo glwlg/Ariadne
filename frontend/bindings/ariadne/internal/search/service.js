@@ -53,6 +53,17 @@ export function Search(query) {
 }
 
 /**
+ * @param {string} query
+ * @param {string} requestID
+ * @returns {$CancellablePromise<contracts$0.SearchResponse>}
+ */
+export function SearchProgressively(query, requestID) {
+    return $Call.ByID(3176771731, query, requestID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType3($result);
+    }));
+}
+
+/**
  * @param {string} resultID
  * @param {boolean} favorite
  * @returns {$CancellablePromise<$models.UsageRecord>}

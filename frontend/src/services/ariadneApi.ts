@@ -1,4 +1,5 @@
 import { seedResults } from '../data/seed'
+import { Events } from '@wailsio/runtime'
 import type { ActionResult, PreviewAction, SearchResponse } from '../types/ariadne'
 import type { SearchResult } from '../types/ariadne'
 
@@ -161,14 +162,7 @@ function copyResult(id: string, title: string, subtitle: string, text: string, d
       text,
       meta: [{ label: '结果动作', value: '复制结果' }],
     },
-    actions: [copyAction('copy_value', '复制结果', text), {
-      id: 'remember',
-      label: '加入记忆',
-      icon: 'remember',
-      kind: 'remember',
-      payload: { targetId: id },
-      feedback: { successLabel: '已加入' },
-    }],
+    actions: [copyAction('copy_value', '复制结果', text)],
   }
 }
 
@@ -237,9 +231,11 @@ async function tryWailsSetFavorite(resultId: string, favorite: boolean): Promise
   }
 }
 
-export function createAriadneSearchRequest(query: string): AriadneSearchRequest {
+export function createAriadneSearchRequest(query: string, onProgress?: (response: SearchResponse) => void): AriadneSearchRequest {
   let cancelled = false
   let activePromise: CancellableSearchPromise | null = null
+  const requestId = crypto.randomUUID()
+  let unsubscribe = () => {}
 
   const promise = (async () => {
     try {
@@ -248,7 +244,11 @@ export function createAriadneSearchRequest(query: string): AriadneSearchRequest 
       if (cancelled) {
         throw new SearchCancelledError()
       }
-      const request = binding.Search(query) as CancellableSearchPromise
+      unsubscribe = Events.On('ariadne:search-progress', (event) => {
+        const progress = event.data as { requestId: string; response: SearchResponse }
+        if (!cancelled && progress.requestId === requestId) onProgress?.(progress.response)
+      })
+      const request = binding.SearchProgressively(query, requestId) as CancellableSearchPromise
       activePromise = request
       if (cancelled) {
         cancelQuietly(request, 'superseded')
@@ -260,6 +260,8 @@ export function createAriadneSearchRequest(query: string): AriadneSearchRequest 
         throw new SearchCancelledError()
       }
       return fallbackSearch(query)
+    } finally {
+      unsubscribe()
     }
   })()
 
@@ -267,6 +269,7 @@ export function createAriadneSearchRequest(query: string): AriadneSearchRequest 
     promise,
     cancel(cause?: unknown) {
       cancelled = true
+      unsubscribe()
       if (activePromise) {
         cancelQuietly(activePromise, cause ?? 'superseded')
       }

@@ -56,6 +56,26 @@ internal static class BridgeTests
             Check(reject.Handle(first, header, ref handled) == IntPtr.Zero,
                 "Unapproved process must not control the selected phone.");
 
+            received.Clear();
+            bridge.ClearSource();
+            Check(Dispatch(ScreenPointerKind.KeyboardQuery, first) == 0 &&
+                Dispatch(ScreenPointerKind.KeyDown, first, x: 4, y: 0) == 0,
+                "Mouse readiness alone must not accept keys.");
+            bridge.KeyboardReady = true;
+            Check(Dispatch(ScreenPointerKind.KeyboardQuery, first) == 1,
+                "Keyboard subscription must be queried separately.");
+            Check(Dispatch(ScreenPointerKind.KeyDown, first, x: 4, y: 0) == 1 &&
+                Dispatch(ScreenPointerKind.KeyUp, first, x: 4, y: 0) == 1 && received.Count == 0,
+                "Keyboard reports must be deferred outside synchronous IPC.");
+            bridge.DispatchPendingAsync().GetAwaiter().GetResult();
+            Check(received.Select(p => p.Kind).SequenceEqual(new[] { ScreenPointerKind.KeyDown, ScreenPointerKind.KeyUp }),
+                "Key press and release must retain order.");
+            Check(Dispatch(ScreenPointerKind.KeyDown, first, x: 102, y: 0) == 0,
+                "Unsupported keyboard usages must be rejected at the IPC boundary.");
+            Dispatch(ScreenPointerKind.Cancel, first);
+            bridge.DispatchPendingAsync().GetAwaiter().GetResult();
+            Check(received[^1].Kind == ScreenPointerKind.Cancel, "Keyboard cancellation must release the source.");
+
             // Real transport backpressure: enqueue a complete drag while the first BLE position is blocked.
             var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var events = new List<(string Kind, MouseButtons Buttons, int X, int Y)>();

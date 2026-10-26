@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"ariadne/internal/contracts"
-	"ariadne/internal/workmemory"
 )
 
 type fakeExecutor struct{}
@@ -231,70 +230,6 @@ func TestWorkflowExportAndImportData(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected exported workflow after import, got %#v", result.Status.Workflows)
-	}
-}
-
-func TestSaveWorkflowDraftRequiresConfirmationAndPersists(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "workflows.json")
-	service := NewServiceWithPaths(path, "", fakeExecutor{})
-	draft := workmemory.WorkflowDraft{
-		ID:        "workflow-draft-20260614132000",
-		Title:     "Hosts 切换草稿",
-		Trigger:   "需要切换 Hosts 时从经验发现触发",
-		Input:     "目标环境和 Hosts 片段",
-		Output:    "Hosts 差异预览",
-		RiskLevel: "high",
-		Evidence:  []string{"memory-a", "memory-b"},
-		Steps: []workmemory.WorkflowDraftStep{
-			{ID: "preview", Label: "生成预览", Command: "hosts preview {input}"},
-			{ID: "apply", Label: "应用 Hosts", Command: "hosts apply {prev}", RequiresConfirm: true},
-		},
-		RequiresReview: true,
-		CreatedAt:      1781414000,
-	}
-
-	preview := service.SaveWorkflowDraft(DraftSaveRequest{Draft: draft})
-	if preview.OK || !preview.RequiresConfirmation {
-		t.Fatalf("draft save should require confirmation, got %#v", preview)
-	}
-	if len(preview.RiskReasons) == 0 || preview.Status.Count != len(defaultWorkflows()) {
-		t.Fatalf("confirmation preview should include risks without saving, got %#v", preview)
-	}
-
-	result := service.SaveWorkflowDraft(DraftSaveRequest{Draft: draft, Confirmed: true})
-	if !result.OK {
-		t.Fatalf("confirmed draft save failed: %#v", result)
-	}
-	if result.Workflow.ID != "memory-20260614132000" {
-		t.Fatalf("unexpected workflow id: %#v", result.Workflow)
-	}
-	if !strings.Contains(result.Workflow.Description, "memory-a") || !strings.Contains(result.Workflow.Description, "Hosts 差异预览") {
-		t.Fatalf("workflow description should preserve evidence and output: %q", result.Workflow.Description)
-	}
-
-	reloaded := NewServiceWithPaths(path, "", fakeExecutor{})
-	found := false
-	for _, workflow := range reloaded.List() {
-		if workflow.ID == result.Workflow.ID && len(workflow.Steps) == 2 {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("saved workflow should reload from disk: %#v", reloaded.List())
-	}
-}
-
-func TestSaveWorkflowDraftRejectsInvalidDraft(t *testing.T) {
-	service := NewServiceWithPaths(filepath.Join(t.TempDir(), "workflows.json"), "", fakeExecutor{})
-	result := service.SaveWorkflowDraft(DraftSaveRequest{
-		Draft: workmemory.WorkflowDraft{
-			ID:    "workflow-draft-empty",
-			Title: "空草稿",
-		},
-		Confirmed: true,
-	})
-	if result.OK || !strings.Contains(result.Message, "无效") {
-		t.Fatalf("expected invalid draft rejection, got %#v", result)
 	}
 }
 

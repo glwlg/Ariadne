@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { installSystemThemeListener, syncThemeFromSettings } from './lib/theme'
-import { applyMainWindowPolicy, enableTaskbarToggle } from './services/toolWindowsApi'
+import { enableTaskbarToggle } from './services/toolWindowsApi'
 import { useAppShellStore, type AppToolView } from './stores/appShell'
+import { isToolView, toolViews } from './lib/toolWindows'
 import { Window } from '@wailsio/runtime'
 import { defineAsyncComponent, onMounted, onUnmounted } from 'vue'
 
@@ -17,7 +18,6 @@ const NetworkMonitorCenter = defineAsyncComponent(() => import('./components/net
 const NetworkMiniWindow = defineAsyncComponent(() => import('./components/network/NetworkMiniWindow.vue'))
 const PinnedImageWindow = defineAsyncComponent(() => import('./components/pinned/PinnedImageWindow.vue'))
 const SettingsCenter = defineAsyncComponent(() => import('./components/settings/SettingsCenter.vue'))
-const WorkMemoryCenter = defineAsyncComponent(() => import('./components/workmemory/WorkMemoryCenter.vue'))
 const WorkflowCenter = defineAsyncComponent(() => import('./components/workflows/WorkflowCenter.vue'))
 
 const appShell = useAppShellStore()
@@ -27,7 +27,7 @@ const isLauncherWindow = routeView === 'launcher'
 const isPinnedImageWindow = routeView === 'pinned-image'
 const isPinnedImageWarmWindow = isPinnedImageWindow && routeParams.get('warm') === '1'
 const isCaptureOverlayWindow = routeView === 'capture-overlay'
-const standaloneToolView = isStandaloneToolView(routeView) ? routeView : ''
+const standaloneToolView = isToolView(routeView) ? routeView : ''
 const pinId = routeParams.get('pinId') ?? ''
 const captureOverlaySessionId = routeParams.get('sessionId') ?? ''
 const documentClass = isPinnedImageWindow
@@ -72,7 +72,7 @@ onMounted(() => {
   void syncThemeFromSettings()
   uninstallThemeEvents = installSystemThemeListener()
   uninstallShellEvents = appShell.installShellEventListeners()
-  appShell.activateMainView('work-memory')
+  appShell.activateMainView('launcher')
 })
 
 onUnmounted(() => {
@@ -96,16 +96,16 @@ async function ensureMainWindow() {
   try {
     await Window.SetFrameless(false)
     await Window.SetResizable(true)
-    await Window.SetMinSize(1040, 640)
+    await Window.SetMinSize(toolViews['settings'].minWidth, toolViews['settings'].minHeight)
     await Window.SetAlwaysOnTop(false)
     await Window.SetBackgroundColour(244, 244, 245, 255)
-    void applyMainWindowPolicy()
   } catch {
     // Runtime calls are unavailable in browser-only dev mode.
   }
 }
 
 async function ensureToolWindowMode(view: AppToolView) {
+  document.title = toolViews[view].title
   const compactUtility = view === 'network-mini'
   await ensureUtilityWindow({
     alwaysOnTop: compactUtility,
@@ -113,8 +113,8 @@ async function ensureToolWindowMode(view: AppToolView) {
     frameless: true,
     syncFrameless: compactUtility,
     resizable: !compactUtility,
-    minWidth: view === 'work-memory' ? 1040 : 820,
-    minHeight: view === 'work-memory' ? 640 : 560,
+    minWidth: toolViews[view].minWidth,
+    minHeight: toolViews[view].minHeight,
   })
   if (!compactUtility) {
     void enableTaskbarToggle(view)
@@ -158,10 +158,6 @@ async function ensureUtilityWindow(options: {
   }
 }
 
-function isStandaloneToolView(view: string): view is AppToolView {
-  return ['work-memory', 'clipboard', 'capture', 'hosts', 'workflow', 'json-compare', 'api-testing', 'airplay', 'network-monitor', 'network-mini', 'settings'].includes(view)
-}
-
 function shouldRenderToolView(view: AppToolView) {
   return standaloneToolView ? standaloneToolView === view : appShell.activeView === view
 }
@@ -171,7 +167,6 @@ function shouldRenderToolView(view: AppToolView) {
   <PinnedImageWindow v-if="isPinnedImageWindow" :pin-id="pinId" :warm="isPinnedImageWarmWindow" />
   <CaptureOverlayWindow v-else-if="isCaptureOverlayWindow" :session-id="captureOverlaySessionId" />
   <AriadneLauncher v-else-if="isLauncherWindow || (!standaloneToolView && appShell.activeView === 'launcher')" />
-  <WorkMemoryCenter v-else-if="shouldRenderToolView('work-memory')" />
   <ClipboardCenter v-else-if="shouldRenderToolView('clipboard')" />
   <CaptureHistoryCenter v-else-if="shouldRenderToolView('capture')" />
   <HostsCenter v-else-if="shouldRenderToolView('hosts')" />
@@ -182,5 +177,5 @@ function shouldRenderToolView(view: AppToolView) {
   <NetworkMonitorCenter v-else-if="shouldRenderToolView('network-monitor')" />
   <NetworkMiniWindow v-else-if="shouldRenderToolView('network-mini')" />
   <SettingsCenter v-else-if="shouldRenderToolView('settings')" />
-  <WorkMemoryCenter v-else />
+  <AriadneLauncher v-else />
 </template>

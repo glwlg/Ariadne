@@ -63,11 +63,6 @@ export async function recognizePinnedClipboardImageOCR(clipboardId: string): Pro
   return normalizeResult(await binding.RecognizePinnedClipboardImage(clipboardId))
 }
 
-export async function recognizeWorkMemoryOCR(memoryId: string): Promise<OCRResult> {
-  const binding = await tryOCRBinding()
-  if (!binding) return unavailableResult('work_memory')
-  return normalizeResult(await binding.RecognizeWorkMemory(memoryId))
-}
 
 function normalizeStatus(value: Partial<OCRStatus> | null | undefined): OCRStatus {
   return {
@@ -89,7 +84,6 @@ function normalizeResult(value: Partial<OCRResult> | null | undefined): OCRResul
     source: value?.source || '',
     captureId: value?.captureId || '',
     clipboardId: value?.clipboardId || '',
-    memoryId: value?.memoryId || '',
     imagePath: value?.imagePath || '',
     width: Number(value?.width || 0),
     height: Number(value?.height || 0),
@@ -98,7 +92,6 @@ function normalizeResult(value: Partial<OCRResult> | null | undefined): OCRResul
     sensitive: Boolean(value?.sensitive),
     error: value?.error || '',
     recognizedAt: Number(value?.recognizedAt || 0),
-    workMemory: value?.workMemory,
   }
 }
 

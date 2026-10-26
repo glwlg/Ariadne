@@ -17,7 +17,6 @@ import (
 
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
-	"ariadne/internal/workmemory"
 )
 
 const localOCRProvider = "rapidocr_onnxruntime"
@@ -33,11 +32,6 @@ type CaptureProvider interface {
 
 type ClipboardProvider interface {
 	Entry(id string) clipboardhistory.Entry
-}
-
-type WorkMemoryProvider interface {
-	Entry(id string) workmemory.Entry
-	ApplyOCRText(id string, text string, provider string) workmemory.Entry
 }
 
 type Rect struct {
@@ -64,22 +58,20 @@ type Status struct {
 }
 
 type Result struct {
-	OK           bool              `json:"ok"`
-	Text         string            `json:"text,omitempty"`
-	Lines        []Line            `json:"lines,omitempty"`
-	Source       string            `json:"source,omitempty"`
-	CaptureID    string            `json:"captureId,omitempty"`
-	ClipboardID  string            `json:"clipboardId,omitempty"`
-	MemoryID     string            `json:"memoryId,omitempty"`
-	ImagePath    string            `json:"imagePath,omitempty"`
-	Width        int               `json:"width,omitempty"`
-	Height       int               `json:"height,omitempty"`
-	Provider     string            `json:"provider,omitempty"`
-	ElapsedMs    int               `json:"elapsedMs,omitempty"`
-	Sensitive    bool              `json:"sensitive"`
-	Error        string            `json:"error,omitempty"`
-	RecognizedAt int64             `json:"recognizedAt,omitempty"`
-	WorkMemory   *workmemory.Entry `json:"workMemory,omitempty"`
+	OK           bool   `json:"ok"`
+	Text         string `json:"text,omitempty"`
+	Lines        []Line `json:"lines,omitempty"`
+	Source       string `json:"source,omitempty"`
+	CaptureID    string `json:"captureId,omitempty"`
+	ClipboardID  string `json:"clipboardId,omitempty"`
+	ImagePath    string `json:"imagePath,omitempty"`
+	Width        int    `json:"width,omitempty"`
+	Height       int    `json:"height,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	ElapsedMs    int    `json:"elapsedMs,omitempty"`
+	Sensitive    bool   `json:"sensitive"`
+	Error        string `json:"error,omitempty"`
+	RecognizedAt int64  `json:"recognizedAt,omitempty"`
 }
 
 type bridgeOutput struct {
@@ -119,24 +111,21 @@ type AIClient interface {
 }
 
 type Service struct {
-	mu             sync.RWMutex
-	captures       CaptureProvider
-	clipboard      ClipboardProvider
-	memory         WorkMemoryProvider
-	runner         bridgeRunner
-	aiClient       AIClient
-	aiPolicy       AIOCRPolicy
-	pinnedAIPolicy AIOCRPolicy
-	last           Result
-	status         Status
-	now            func() time.Time
+	mu        sync.RWMutex
+	captures  CaptureProvider
+	clipboard ClipboardProvider
+	runner    bridgeRunner
+	aiClient  AIClient
+	aiPolicy  AIOCRPolicy
+	last      Result
+	status    Status
+	now       func() time.Time
 }
 
-func NewService(captures CaptureProvider, clipboard ClipboardProvider, memory WorkMemoryProvider) *Service {
+func NewService(captures CaptureProvider, clipboard ClipboardProvider) *Service {
 	service := &Service{
 		captures:  captures,
 		clipboard: clipboard,
-		memory:    memory,
 		now:       time.Now,
 	}
 	service.runner = service.runLocalOCRBridge
@@ -156,12 +145,6 @@ func (s *Service) ApplyAIOCRPolicy(policy AIOCRPolicy) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.aiPolicy = normalizeAIOCRPolicy(policy)
-}
-
-func (s *Service) ApplyPinnedAIOCRPolicy(policy AIOCRPolicy) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.pinnedAIPolicy = normalizeAIOCRPolicy(policy)
 }
 
 func (s *Service) Status() Status {
@@ -257,7 +240,7 @@ func (s *Service) RecognizePinnedCapture(captureID string) Result {
 	if entry.ID == "" || strings.TrimSpace(entry.ImagePath) == "" {
 		return s.record(Result{OK: false, Source: "pinned_capture", CaptureID: captureID, Error: "未找到截图记录"})
 	}
-	result := s.recognizeImageWithPolicy(entry.ImagePath, "pinned_capture", s.pinnedPolicy())
+	result := s.recognizeImage(entry.ImagePath, "pinned_capture")
 	result.CaptureID = entry.ID
 	result.Width = entry.Width
 	result.Height = entry.Height
@@ -276,46 +259,20 @@ func (s *Service) RecognizePinnedClipboardImage(clipboardID string) Result {
 	if entry.ID == "" || entry.Type != clipboardhistory.EntryImage || strings.TrimSpace(entry.ImagePath) == "" {
 		return s.record(Result{OK: false, Source: "pinned_clipboard", ClipboardID: clipboardID, Error: "未找到剪贴板图片"})
 	}
-	result := s.recognizeImageWithPolicy(entry.ImagePath, "pinned_clipboard", s.pinnedPolicy())
+	result := s.recognizeImage(entry.ImagePath, "pinned_clipboard")
 	result.ClipboardID = entry.ID
 	result.Width = entry.Width
 	result.Height = entry.Height
 	return s.record(result)
 }
 
-func (s *Service) RecognizeWorkMemory(memoryID string) Result {
-	memoryID = strings.TrimSpace(memoryID)
-	if memoryID == "" {
-		return s.record(Result{OK: false, Source: "work_memory", Error: "缺少工作记忆 ID"})
-	}
-	if s.memory == nil {
-		return s.record(Result{OK: false, Source: "work_memory", MemoryID: memoryID, Error: "工作记忆服务不可用"})
-	}
-	entry := s.memory.Entry(memoryID)
-	if entry.ID == "" || strings.TrimSpace(entry.ImagePath) == "" {
-		return s.record(Result{OK: false, Source: "work_memory", MemoryID: memoryID, Error: "该工作记忆没有图片证据"})
-	}
-	if entry.Sensitive {
-		updated := s.memory.ApplyOCRText(memoryID, "", "blocked_sensitive")
-		return s.record(Result{OK: false, Source: "work_memory", MemoryID: memoryID, ImagePath: entry.ImagePath, Error: "敏感条目默认不执行 OCR", WorkMemory: &updated})
-	}
-	result := s.recognizeImage(entry.ImagePath, "work_memory")
-	result.MemoryID = entry.ID
-	result.Width = entry.Width
-	result.Height = entry.Height
-	if result.OK {
-		updated := s.memory.ApplyOCRText(entry.ID, result.Text, result.Provider)
-		result.WorkMemory = &updated
-		result.Sensitive = updated.Sensitive
-	} else {
-		updated := s.memory.ApplyOCRText(entry.ID, "", "failed: "+result.Error)
-		result.WorkMemory = &updated
-	}
-	return s.record(result)
-}
-
 func (s *Service) RecognizeImagePath(path string) Result {
 	return s.record(s.recognizeImage(path, "image_path"))
+}
+
+func (s *Service) RecognizeImageRegions(path string) Result {
+	// Redaction needs pixel coordinates; the vision model returns plain text.
+	return s.record(s.recognizeImageWithPolicy(path, "image_regions", AIOCRPolicy{}))
 }
 
 func (s *Service) recognizeImage(path string, source string) Result {
@@ -345,7 +302,7 @@ func (s *Service) recognizeImageWithPolicy(path string, source string, policy AI
 		RecognizedAt: s.now().Unix(),
 	}
 	if result.OK {
-		result.Sensitive = workmemory.LooksSensitiveText(result.Text)
+		result.Sensitive = looksSensitiveText(result.Text)
 		if result.Text == "" {
 			result.Error = ""
 		}
@@ -418,12 +375,6 @@ func (s *Service) defaultPolicy() AIOCRPolicy {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.aiPolicy
-}
-
-func (s *Service) pinnedPolicy() AIOCRPolicy {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.pinnedAIPolicy
 }
 
 func (s *Service) runLocalOCRBridge(ctx context.Context, imagePath string) (bridgeOutput, Status) {
@@ -733,12 +684,12 @@ func firstNonEmpty(values ...string) string {
 }
 
 func RuntimeAvailable() bool {
-	service := NewService(nil, nil, nil)
+	service := NewService(nil, nil)
 	return service.detectStatus().Available
 }
 
 func RuntimeNote() string {
-	service := NewService(nil, nil, nil)
+	service := NewService(nil, nil)
 	status := service.detectStatus()
 	if status.Available {
 		return fmt.Sprintf("使用 Ariadne 本地 RapidOCR bridge，Python=%s；图片不外发。", status.PythonPath)

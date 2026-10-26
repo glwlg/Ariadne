@@ -44,6 +44,7 @@ type PinService interface {
 
 type OCRProvider interface {
 	RecognizeImagePath(path string) ocr.Result
+	RecognizeImageRegions(path string) ocr.Result
 }
 
 type PositionedPinService interface {
@@ -1015,7 +1016,7 @@ func (s *Service) redactionRectsForPNG(data []byte, policy ScreenshotPolicy) ([]
 		return nil, false, err
 	}
 
-	result := provider.RecognizeImagePath(tempPath)
+	result := provider.RecognizeImageRegions(tempPath)
 	if !result.OK {
 		return nil, false, errors.New(firstNonEmpty(result.Error, "OCR 识别失败"))
 	}

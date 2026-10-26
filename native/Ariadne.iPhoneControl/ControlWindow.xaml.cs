@@ -14,12 +14,15 @@ public partial class ControlWindow : Window
 {
     private readonly BleHidPeripheral _peripheral = new();
     private readonly MouseInput _input;
+    private readonly KeyboardInput _keyboard;
     private readonly ScreenControlBridge _screenBridge;
+    private readonly ControlStatusServer _statusServer;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(25) };
     private readonly Process? _owner;
+    private readonly ControlTargetPreference _target = new(Path.Combine(App.DataDirectory, "control-target.txt"));
     private Point? _lastPoint;
     private int _dx, _dy, _ticks;
-    private bool _movePending, _ready, _closing, _closed, _refreshingDevices, _swiping, _ownerMissing;
+    private bool _movePending, _ready, _closing, _closed, _refreshingDevices, _swiping, _ownerMissing, _exitRequested;
     private Task? _startupTask;
     private long _inputEpoch;
     private DateTime _nextMove;
@@ -35,7 +38,11 @@ public partial class ControlWindow : Window
         _peripheral.SelectLocal();
         _peripheral.Log += ((App)Application.Current).Log;
         _input = new MouseInput(SendAsync, PositionAsync);
+        _keyboard = new KeyboardInput(SendKeyboardAsync);
         _screenBridge = new ScreenControlBridge(IsReceiver, OnScreenInput);
+        _statusServer = new ControlStatusServer(
+            $"ariadne-iphone-control-{Process.GetCurrentProcess().SessionId}",
+            new ControlStatus("starting", Environment.ProcessId), ((App)Application.Current).Log);
         if (ownerPid is { } pid)
         {
             try { _owner = Process.GetProcessById(pid); }
@@ -44,12 +51,13 @@ public partial class ControlWindow : Window
         _timer.Tick += OnTick;
     }
 
-    private async void OnLoaded(object sender, RoutedEventArgs e)
+    internal async Task StartAsync()
     {
-        if (_ownerMissing) { Close(); return; }
+        if (_ownerMissing) { _exitRequested = true; Close(); return; }
         _timer.Start();
         try
         {
+            _target.Load();
             _startupTask = _peripheral.StartAsync();
             await _startupTask;
             var failure = _peripheral.Diagnostics.FirstOrDefault(d => !d.Ok);
@@ -62,6 +70,7 @@ public partial class ControlWindow : Window
         }
         catch (Exception ex)
         {
+            _ready = false;
             StatusText.Text = "蓝牙控制启动失败";
             ShowError(ex);
             await _peripheral.DisposeAsync();
@@ -83,6 +92,22 @@ public partial class ControlWindow : Window
         !_peripheral.IsLocalTarget && _peripheral.SelectedHostId == _hostId &&
         _peripheral.HasMouseSubscription(_hostId)
             ? _peripheral.HasAbsoluteSubscription(_hostId) ? 2 : 1 : 0;
+
+    private async Task SendKeyboardAsync(KeyModifiers modifiers, byte[] keys)
+    {
+        if (_hostId is null || _peripheral.IsLocalTarget ||
+            _peripheral.SelectedHostId != _hostId || !_peripheral.HasKeyboardSubscription(_hostId))
+        {
+            if (modifiers == KeyModifiers.None && keys.Length == 0)
+            {
+                // A reconnect must not read a previously held key from the GATT report cache.
+                _peripheral.ClearKeyboardReport();
+                return;
+            }
+            throw new InvalidOperationException("手机键盘连接已断开，请重新连接蓝牙。");
+        }
+        await _peripheral.SendKeyboardAsync(modifiers, keys);
+    }
 
     private static bool IsReceiver(int pid)
     {
@@ -107,11 +132,17 @@ public partial class ControlWindow : Window
 
     private async Task OnScreenInput(ScreenPointerPacket packet)
     {
-        if (packet.Kind != ScreenPointerKind.Move)
+        // Key values can contain private input; never write them to the control log.
+        if (packet.Kind != ScreenPointerKind.Move && !packet.IsKeyboard)
             ((App)Application.Current).Log($"[screen] {packet.Kind}");
         if (packet.Kind == ScreenPointerKind.Cancel)
         {
             await SafeAsync(() => ResetAsync(clearSource: false));
+            return;
+        }
+        if (packet.IsKeyboard)
+        {
+            await SafeAsync(() => _keyboard.KeyAsync(packet.X, packet.Kind == ScreenPointerKind.KeyDown));
             return;
         }
         if (_swiping) return;
@@ -142,6 +173,12 @@ public partial class ControlWindow : Window
 
     private async void OnTick(object? sender, EventArgs e)
     {
+        if (_owner is not null && _owner.HasExited)
+        {
+            _exitRequested = true;
+            Close();
+            return;
+        }
         if (!_screenBridge.SourceAlive)
         {
             await SafeAsync(ResetAsync);
@@ -150,7 +187,6 @@ public partial class ControlWindow : Window
         await _screenBridge.DispatchPendingAsync();
         if (++_ticks % 40 == 0)
         {
-            if (_owner is not null && _owner.HasExited) { Close(); return; }
             if (_ready) await RefreshDevicesAsync();
         }
         if (_hostId is null || _movePending || _swiping || _input.GestureRunning) return;
@@ -172,6 +208,7 @@ public partial class ControlWindow : Window
         try
         {
             await _peripheral.RefreshHostNamesAsync();
+            if (_closing) return;
             var hosts = _peripheral.Hosts().Where(h => _peripheral.HasMouseSubscription(h.DeviceId)).ToList();
             var selected = hosts.FirstOrDefault(h => h.DeviceId == _hostId);
             if (_hostId is not null && (selected is null || _peripheral.IsLocalTarget ||
@@ -182,7 +219,23 @@ public partial class ControlWindow : Window
                 selected = null;
                 _peripheral.SelectLocal();
             }
-            // Preserve explicit selection; never choose a different phone after disconnecting.
+            if (_hostId is null && _target.Choose(hosts.Select(h => h.DeviceId).ToList()) is { } deviceId)
+            {
+                _changingTarget = true;
+                try
+                {
+                    await ResetAsync();
+                    if (_closing) return;
+                    if (_peripheral.SelectMouseHost(deviceId))
+                    {
+                        _hostId = deviceId;
+                        selected = hosts.First(h => h.DeviceId == deviceId);
+                        _target.Remember(deviceId);
+                        ErrorText.Text = "";
+                    }
+                }
+                finally { _changingTarget = false; }
+            }
             var previous = (Devices.ItemsSource as List<HostTarget>) ?? [];
             if (!hosts.SequenceEqual(previous))
             {
@@ -191,8 +244,12 @@ public partial class ControlWindow : Window
             Devices.SelectedItem = selected;
             InputPanel.IsEnabled = _ready && _hostId is not null;
             _screenBridge.Readiness = ScreenReadiness();
+            var keyboardReady = _hostId is not null && _peripheral.HasKeyboardSubscription(_hostId);
+            if (_screenBridge.KeyboardReady && !keyboardReady) await _keyboard.ResetAsync();
+            _screenBridge.KeyboardReady = keyboardReady;
             StatusText.Text = _hostId is not null ? ScreenStatus() :
                 hosts.Count > 0 ? "已连接，请选择控制设备" : $"等待 iPhone 鼠标控制连接 · {Environment.MachineName}";
+            PublishStatus(hosts, selected);
         }
         catch (Exception ex) { _screenBridge.Readiness = 0; ShowError(ex); }
         finally { _refreshingDevices = false; }
@@ -212,19 +269,27 @@ public partial class ControlWindow : Window
             _peripheral.SelectLocal();
             if (target is not null)
             {
-                if (_peripheral.SelectMouseHost(target.DeviceId)) _hostId = target.DeviceId;
+                if (_peripheral.SelectMouseHost(target.DeviceId))
+                {
+                    _hostId = target.DeviceId;
+                    _target.Remember(target.DeviceId);
+                }
             }
             _changingTarget = false;
             _screenBridge.Readiness = ScreenReadiness();
+            _screenBridge.KeyboardReady = _hostId is not null && _peripheral.HasKeyboardSubscription(_hostId);
         });
         _changingTarget = false;
         InputPanel.IsEnabled = _hostId is not null;
         StatusText.Text = _hostId is not null ? ScreenStatus() : "请选择控制设备";
         if (_hostId is not null) ErrorText.Text = "";
+        await RefreshDevicesAsync();
     }
 
     private string ScreenStatus() => _screenBridge.Readiness == 2
-        ? "已连接，可直接在投屏画面点击、拖动和滚动"
+        ? _screenBridge.KeyboardReady
+            ? "已连接，可在投屏画面使用鼠标和键盘"
+            : "鼠标已连接；键盘未连接，请在 iPhone 重新配对电脑"
         : "触控板已连接；直接操作画面需在 iPhone 重新配对电脑";
 
     private void OnPointerEnter(object sender, MouseEventArgs e) => _lastPoint = e.GetPosition(Touchpad);
@@ -327,7 +392,7 @@ public partial class ControlWindow : Window
 
     private Task ResetAsync() => ResetAsync(clearSource: true);
 
-    private Task ResetAsync(bool clearSource)
+    private async Task ResetAsync(bool clearSource)
     {
         _inputEpoch++;
         _nextMove = DateTime.MinValue;
@@ -336,7 +401,8 @@ public partial class ControlWindow : Window
         _screenPressed = false;
         _screenDragging = false;
         if (clearSource) _screenBridge.ClearSource();
-        return _input.ResetAsync();
+        try { await _input.ResetAsync(); }
+        finally { await _keyboard.ResetAsync(); }
     }
 
     private async Task SafeAsync(Func<Task> action)
@@ -353,7 +419,24 @@ public partial class ControlWindow : Window
     private void ShowError(Exception ex)
     {
         ErrorText.Text = ex.Message;
+        _statusServer.Update(new ControlStatus("error", Environment.ProcessId, LastError: ex.Message,
+            Diagnostics: DiagnosticText()));
         ((App)Application.Current).Log(ex.ToString());
+    }
+
+    private string DiagnosticText() => string.Join("\n",
+        _peripheral.Diagnostics.Select(d => $"{d.Step}: {d.Detail} ({(d.Ok ? "OK" : "FAIL")})"));
+
+    private void PublishStatus(List<HostTarget> hosts, HostTarget? selected)
+    {
+        var advertising = _peripheral.AdvertisementStatus == GattServiceProviderAdvertisementStatus.Started;
+        var readiness = _screenBridge.Readiness;
+        var phase = !advertising ? "error" : readiness == 2 ? "direct" : readiness == 1 ? "touchpad" :
+            hosts.Count > 0 ? "select-device" : "waiting";
+        _statusServer.Update(new ControlStatus(phase, Environment.ProcessId, advertising,
+            hosts.Count, selected?.Display ?? "", readiness,
+            !advertising ? "蓝牙广播已停止，请检查电脑蓝牙后重新打开控制窗口。" : ErrorText.Text,
+            DiagnosticText()));
     }
 
     private void OnBluetoothSettings(object sender, RoutedEventArgs e)
@@ -382,8 +465,15 @@ public partial class ControlWindow : Window
     {
         if (_closed) return;
         e.Cancel = true;
+        if (!_exitRequested)
+        {
+            Hide();
+            await SafeAsync(ResetAsync);
+            return;
+        }
         if (_closing) return;
         _closing = true;
+        _statusServer.Update(new ControlStatus("closing", Environment.ProcessId));
         _screenBridge.Readiness = 0;
         _timer.Stop();
         InputPanel.IsEnabled = false;
@@ -396,9 +486,16 @@ public partial class ControlWindow : Window
         _hostId = null;
         _peripheral.SelectLocal();
         await _peripheral.DisposeAsync();
+        await _statusServer.DisposeAsync();
         _owner?.Dispose();
         _closed = true;
         // Cleanup can finish synchronously inside Closing; close on the next dispatch.
-        _ = Dispatcher.BeginInvoke(Close);
+        _ = Dispatcher.BeginInvoke(() => Application.Current.Shutdown());
+    }
+
+    private void OnStopControl(object sender, RoutedEventArgs e)
+    {
+        _exitRequested = true;
+        Close();
     }
 }

@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Clipboard } from '@wailsio/runtime'
-import { executeAirPlay, getAirPlayStatus } from '../services/airplayApi'
+import { executeAirPlay, getAirPlayDiagnostics, getAirPlayStatus } from '../services/airplayApi'
 import type { ActionResult } from '../types/ariadne'
 import type { AirPlayCommand, AirPlayStatus } from '../types/airplay'
 
@@ -10,6 +10,7 @@ export function useAirPlay() {
   const pending = ref<AirPlayCommand | ''>('')
   const refreshing = ref(false)
   const feedback = ref<ActionResult | null>(null)
+  const copyingDiagnostics = ref(false)
   let disposed = false
   let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -60,6 +61,18 @@ export function useAirPlay() {
     }
   }
 
+  async function copyDiagnostics() {
+    if (copyingDiagnostics.value) return
+    copyingDiagnostics.value = true
+    try {
+      await copy(await getAirPlayDiagnostics(), '投屏诊断')
+    } catch (cause) {
+      feedback.value = { ok: false, message: `读取诊断失败：${String(cause)}` }
+    } finally {
+      copyingDiagnostics.value = false
+    }
+  }
+
   async function poll() {
     if (disposed) return
     if (!document.hidden && !pending.value) await refresh()
@@ -72,5 +85,5 @@ export function useAirPlay() {
     clearTimeout(timer)
   })
 
-  return { status, error, pending, refreshing, feedback, stateLabel, refresh, run, copy }
+  return { status, error, pending, refreshing, feedback, stateLabel, refresh, run, copy, copyingDiagnostics, copyDiagnostics }
 }

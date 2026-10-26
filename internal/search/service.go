@@ -16,10 +16,22 @@ const searchResultLimit = 40
 const searchProviderResultLimit = 60
 
 type Service struct {
-	results     []contracts.SearchResult
-	providers   []ResultProvider
-	state       *StateStore
-	performance searchPerformanceRecorder
+	results       []contracts.SearchResult
+	providers     []ResultProvider
+	providerSlots []chan struct{}
+	state         *StateStore
+	performance   searchPerformanceRecorder
+	onProgress    func(Progress)
+}
+
+type Progress struct {
+	RequestID string                   `json:"requestId"`
+	Response  contracts.SearchResponse `json:"response"`
+}
+
+// RegisterProgressHandler is called during startup before requests are accepted.
+func RegisterProgressHandler(service *Service, handler func(Progress)) {
+	service.onProgress = handler
 }
 
 type ResultProvider interface {
@@ -60,10 +72,26 @@ func NewService(providers ...ResultProvider) *Service {
 }
 
 func NewServiceWithState(state *StateStore, providers ...ResultProvider) *Service {
-	return &Service{results: seedResults(), providers: providers, state: state}
+	slots := make([]chan struct{}, len(providers))
+	for i := range slots {
+		slots[i] = make(chan struct{}, 1)
+	}
+	return &Service{results: seedResults(), providers: providers, providerSlots: slots, state: state}
 }
 
 func (s *Service) Search(ctx context.Context, query string) contracts.SearchResponse {
+	return s.search(ctx, query, nil)
+}
+
+func (s *Service) SearchProgressively(ctx context.Context, query, requestID string) contracts.SearchResponse {
+	return s.search(ctx, query, func(response contracts.SearchResponse) {
+		if s.onProgress != nil {
+			s.onProgress(Progress{RequestID: requestID, Response: response})
+		}
+	})
+}
+
+func (s *Service) search(ctx context.Context, query string, progress func(contracts.SearchResponse)) contracts.SearchResponse {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -86,37 +114,66 @@ func (s *Service) Search(ctx context.Context, query string) contracts.SearchResp
 			results = appendUnique(results, result)
 		}
 	}
-	for _, provider := range s.providers {
-		if ctx.Err() != nil {
-			return newSearchResponse(query, results, started)
-		}
-		providerResults := searchProvider(ctx, provider, query)
-		if ctx.Err() != nil {
-			return newSearchResponse(query, results, started)
-		}
-		providerResults = limitSearchResults(providerResults, searchProviderResultLimit)
-		for _, result := range providerResults {
-			if ctx.Err() != nil {
-				return newSearchResponse(query, results, started)
+	seedMatches := append([]contracts.SearchResult(nil), results...)
+	if progress != nil {
+		progress(s.rankedResponse(query, results, started))
+	}
+	type providerResponse struct {
+		index   int
+		results []contracts.SearchResult
+	}
+	completed := make(chan providerResponse, len(s.providers))
+	for i, provider := range s.providers {
+		go func() {
+			// One active call per provider also bounds legacy providers that cannot be cancelled.
+			select {
+			case s.providerSlots[i] <- struct{}{}:
+			case <-ctx.Done():
+				return
 			}
-			results = appendUnique(results, result)
+			defer func() { <-s.providerSlots[i] }()
+			providerResults := searchProvider(ctx, provider, query)
+			completed <- providerResponse{i, limitSearchResults(providerResults, searchProviderResultLimit)}
+		}()
+	}
+	providerResults := make([][]contracts.SearchResult, len(s.providers))
+	for range s.providers {
+		select {
+		case <-ctx.Done():
+			return newSearchResponse(query, nil, started)
+		case response := <-completed:
+			providerResults[response.index] = response.results
+		}
+		if ctx.Err() != nil {
+			return newSearchResponse(query, nil, started)
+		}
+		results = append([]contracts.SearchResult(nil), seedMatches...)
+		// Preserve provider order so completion timing never changes duplicate selection or score ties.
+		for _, batch := range providerResults {
+			for _, result := range batch {
+				results = appendUnique(results, result)
+			}
+		}
+		if progress != nil {
+			progress(s.rankedResponse(query, results, started))
 		}
 	}
+	if ctx.Err() != nil {
+		return newSearchResponse(query, nil, started)
+	}
+	response := s.rankedResponse(query, results, started)
+	s.recordPerformance(query, response.Elapsed, len(response.Results))
+	return response
+}
+
+func (s *Service) rankedResponse(query string, results []contracts.SearchResult, started time.Time) contracts.SearchResponse {
+	results = append([]contracts.SearchResult{}, results...)
 	results = s.applyUsageState(results)
 	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
 
-	totalResults := len(results)
-	results = limitSearchResults(results, searchResultLimit)
-	elapsed := time.Since(started).Milliseconds()
-	s.recordPerformance(query, elapsed, len(results))
-	return contracts.SearchResponse{
-		Query:        query,
-		Results:      results,
-		Elapsed:      elapsed,
-		TotalResults: totalResults,
-	}
+	return newSearchResponse(query, results, started)
 }
 
 func searchProvider(ctx context.Context, provider ResultProvider, query string) []contracts.SearchResult {
@@ -157,16 +214,16 @@ func (s *Service) PerformanceStatus() PerformanceStatus {
 	return s.performance.status()
 }
 
-func (s *Service) RecordUse(resultID string) UsageRecord {
+func (s *Service) RecordUse(resultID string) (UsageRecord, error) {
 	if s.state == nil {
-		return UsageRecord{}
+		return UsageRecord{}, nil
 	}
 	return s.state.RecordUse(resultID)
 }
 
-func (s *Service) SetFavorite(resultID string, favorite bool) UsageRecord {
+func (s *Service) SetFavorite(resultID string, favorite bool) (UsageRecord, error) {
 	if s.state == nil {
-		return UsageRecord{}
+		return UsageRecord{}, nil
 	}
 	return s.state.SetFavorite(resultID, favorite)
 }
@@ -279,6 +336,8 @@ func (s *Service) applyUsageState(results []contracts.SearchResult) []contracts.
 	for i := range results {
 		record := s.state.Get(results[i].ID)
 		results[i].Score += usageBoost(record, now)
+		results[i].Actions = append([]contracts.PreviewAction(nil), results[i].Actions...)
+		results[i].Tags = append([]string(nil), results[i].Tags...)
 		results[i].Actions = appendFavoriteAction(results[i].Actions, results[i].ID, record.Favorite)
 		if record.Favorite {
 			results[i].Tags = appendTag(results[i].Tags, "收藏")
@@ -340,7 +399,7 @@ func seedResults() []contracts.SearchResult {
 				Kind:     contracts.PreviewText,
 				Title:    "README.md",
 				Subtitle: "本地文件",
-				Text:     "x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Ariadne 将继承搜索、截图、插件和工作记忆能力。",
+				Text:     "x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Ariadne 将继承搜索、截图、插件和桌面工具。",
 				Meta: []contracts.LabelValue{
 					{Label: "路径", Value: "P:\\workspace\\glwlg\\app\\x-tools\\README.md"},
 					{Label: "默认操作", Value: "打开文件 / 复制路径"},
@@ -350,7 +409,6 @@ func seedResults() []contracts.SearchResult {
 				{ID: "open", Label: "打开文件", Icon: "open", Kind: contracts.ActionOpen, Shortcut: "Enter", Payload: map[string]interface{}{"path": "P:\\workspace\\glwlg\\app\\x-tools\\README.md"}},
 				{ID: "open_parent", Label: "打开所在文件夹", Icon: "folder", Kind: contracts.ActionOpenParent, Payload: map[string]interface{}{"path": "P:\\workspace\\glwlg\\app\\x-tools\\README.md"}},
 				contracts.CopyAction("copy_path", "复制路径", "P:\\workspace\\glwlg\\app\\x-tools\\README.md", ""),
-				{ID: "remember", Label: "加入记忆", Icon: "remember", Kind: contracts.ActionRemember},
 			},
 		},
 		{
@@ -388,34 +446,11 @@ func seedResults() []contracts.SearchResult {
 			},
 		},
 		{
-			ID:       "workflow-daily",
-			Type:     contracts.ResultWorkflow,
-			Title:    "生成今日工作日报",
-			Subtitle: "工作流 · mem daily",
-			Detail:   "汇总今天的截图、剪贴板、手动笔记和工作记忆。",
-			Icon:     "workflow",
-			Tags:     []string{"工作流", "日报"},
-			Preview: contracts.PreviewDescriptor{
-				Kind:     contracts.PreviewWorkflow,
-				Title:    "生成今日工作日报",
-				Subtitle: "基于本地工作记忆",
-				Text:     "这个工作流会检索今天的工作记忆，生成日报草稿，并保留引用来源。",
-				Meta: []contracts.LabelValue{
-					{Label: "输入", Value: "今天的工作记忆"},
-					{Label: "输出", Value: "日报草稿 + 证据引用"},
-				},
-			},
-			Actions: []contracts.PreviewAction{
-				contracts.RunAction("run_workflow", "运行工作流", "mem daily", "Enter"),
-				contracts.PluginAction("open_editor", "编辑步骤", "workflow:daily"),
-			},
-		},
-		{
 			ID:       "settings-center",
 			Type:     contracts.ResultSettings,
 			Title:    "设置中心",
 			Subtitle: "配置 / 主题 / 快捷键",
-			Detail:   "打开设置中心，管理浅色/深色模式、快捷键、旧版配置迁移、启动项和工作记忆策略。",
+			Detail:   "打开设置中心，管理浅色/深色模式、快捷键、旧版配置迁移、启动项和截图设置。",
 			Icon:     "settings",
 			Score:    120,
 			Tags:     []string{"设置", "配置", "偏好", "theme", "hotkey", "settings", "config"},

@@ -3,61 +3,29 @@ import { defineStore } from 'pinia'
 import { Events, Window } from '@wailsio/runtime'
 import { launcherGeometry } from '../lib/launcherGeometry'
 import { enableTaskbarToggle, openToolWindow, showLauncherWindow } from '../services/toolWindowsApi'
-
-export type AppToolView =
-  | 'work-memory'
-  | 'clipboard'
-  | 'capture'
-  | 'hosts'
-  | 'workflow'
-  | 'json-compare'
-  | 'api-testing'
-  | 'airplay'
-  | 'network-monitor'
-  | 'network-mini'
-  | 'settings'
+import { isToolView, toolViews, type AppToolView } from '../lib/toolWindows'
+export type { AppToolView } from '../lib/toolWindows'
 export type AppView = 'launcher' | AppToolView
 
-const viewSizes: Record<AppView, { width: number; height: number }> = {
-  launcher: { width: launcherGeometry.width, height: launcherGeometry.collapsedHeight },
-  'work-memory': { width: 1120, height: 720 },
-  clipboard: { width: 1120, height: 720 },
-  capture: { width: 1120, height: 720 },
-  hosts: { width: 1120, height: 720 },
-  workflow: { width: 1120, height: 720 },
-  'json-compare': { width: 1180, height: 760 },
-  'api-testing': { width: 1240, height: 780 },
-  airplay: { width: 1080, height: 760 },
-  'network-monitor': { width: 1240, height: 760 },
-  'network-mini': { width: 318, height: 168 },
-  settings: { width: 1120, height: 720 },
+const viewSizes = {
+  launcher: { width: launcherGeometry.width, height: launcherGeometry.collapsedHeight, minWidth: 0, minHeight: 0 },
+  ...toolViews,
 }
 
-const viewTitles: Record<AppView, string> = {
-  launcher: 'Ariadne',
-  'work-memory': 'Ariadne - 心流',
-  clipboard: 'Ariadne - 剪贴板历史',
-  capture: 'Ariadne - 捕获历史',
-  hosts: 'Ariadne - Hosts',
-  workflow: 'Ariadne - 工作流',
-  'json-compare': 'Ariadne - JSON 对比',
-  'api-testing': 'Ariadne - API 测试',
-  airplay: 'Ariadne - iPhone 投屏',
-  'network-monitor': 'Ariadne - 进程网络',
-  'network-mini': 'Ariadne - 网速小窗',
-  settings: 'Ariadne - 设置',
+function viewTitle(view: AppView) {
+  return view === 'launcher' ? 'Ariadne' : toolViews[view].title
 }
 
 export const useAppShellStore = defineStore('app-shell', () => {
-  const activeView = ref<AppView>('work-memory')
+  const activeView = ref<AppView>('launcher')
 
-  async function setWindowSize(width: number, height: number, resizable = true, frameless = true) {
+  async function setWindowSize(width: number, height: number, resizable = true, frameless = true, minWidth = 900, minHeight = 620) {
     try {
       await Window.Restore()
       await Window.SetFrameless(frameless)
       await Window.SetResizable(resizable)
       if (resizable) {
-        await Window.SetMinSize(Math.min(width, 900), Math.min(height, 620))
+        await Window.SetMinSize(minWidth, minHeight)
       }
       await Window.SetSize(width, height)
       await Window.Center()
@@ -69,7 +37,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
   function openLauncher() {
     if (isLauncherWindow()) {
       activeView.value = 'launcher'
-      document.title = viewTitles.launcher
+      document.title = viewTitle('launcher')
       window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { selectAll: true } })), 0)
       return
     }
@@ -78,12 +46,9 @@ export const useAppShellStore = defineStore('app-shell', () => {
 
   function activateMainView(view: AppView) {
     activeView.value = view
-    document.title = viewTitles[activeView.value]
+    document.title = viewTitle(activeView.value)
   }
 
-  function openWorkMemory() {
-    return openView('work-memory')
-  }
 
   function openClipboard() {
     return openView('clipboard')
@@ -163,9 +128,9 @@ export const useAppShellStore = defineStore('app-shell', () => {
 
   function openViewFallback(view: AppView) {
     activeView.value = view
-    document.title = viewTitles[view]
+    document.title = viewTitle(view)
     const size = viewSizes[view]
-    void setWindowSize(size.width, size.height, view !== 'network-mini', view === 'launcher' || view === 'network-mini').then(() => {
+    void setWindowSize(size.width, size.height, view !== 'network-mini', view === 'launcher' || view === 'network-mini', size.minWidth, size.minHeight).then(() => {
       if (view !== 'launcher' && view !== 'network-mini') {
         void enableTaskbarToggle(view)
       }
@@ -177,8 +142,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
       if (!isAppView(view)) return
       if (view === 'launcher') {
         openLauncher()
-      } else if (view === 'work-memory' && !isStandaloneToolWindow()) {
-        activateMainView('work-memory')
+
       } else {
         void openToolView(view)
       }
@@ -204,7 +168,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
   }
 
   function isAppView(view: string): view is AppView {
-    return view in viewSizes
+    return view === 'launcher' || isToolView(view)
   }
 
   function isStandaloneToolWindow() {
@@ -223,7 +187,6 @@ export const useAppShellStore = defineStore('app-shell', () => {
     activateMainView,
     openView,
     openLauncher,
-    openWorkMemory,
     openClipboard,
     openCaptureHistory,
     openHosts,

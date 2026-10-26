@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Ariadne.iPhoneControl;
 
-// WM_COPYDATA only transports coordinates; the selected HID host remains owned by the control window.
+// WM_COPYDATA transports input; the selected HID host remains owned by the control window.
 internal sealed class ScreenControlBridge(
     Func<int, bool> isReceiver,
     Func<ScreenPointerPacket, Task> receive)
@@ -14,6 +14,7 @@ internal sealed class ScreenControlBridge(
 
     // WM_COPYDATA is input-synchronous: neither COM queries nor Bluetooth sends are allowed here.
     public int Readiness { get; set; }
+    public bool KeyboardReady { get; set; }
 
     public async Task DispatchPendingAsync()
     {
@@ -53,12 +54,15 @@ internal sealed class ScreenControlBridge(
             if (_source != IntPtr.Zero && SourceAlive) return IntPtr.Zero;
         }
         if (packet.Kind == ScreenPointerKind.Query) return new IntPtr(Readiness);
+        if (packet.Kind == ScreenPointerKind.KeyboardQuery)
+            return new IntPtr(Readiness == 2 && KeyboardReady ? 1 : 0);
         if (packet.Kind == ScreenPointerKind.Cancel)
         {
             if (source == _source) { ClearSource(); _pending.AddLast(packet); }
             return new IntPtr(1);
         }
         if (Readiness != 2) return IntPtr.Zero;
+        if (packet.IsKeyboard && !KeyboardReady) return IntPtr.Zero;
         _source = source;
         _processId = pid;
         // Coalesce movement only within one press/release segment, including under BLE backpressure.

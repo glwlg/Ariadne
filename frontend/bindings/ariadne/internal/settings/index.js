@@ -11,12 +11,11 @@ export {
     AISettings,
     AppSettings,
     GeneralSettings,
+    HistorySettings,
     Hotkeys,
     LegacyConfigStatus,
     PluginSettings,
     ScreenshotSettings,
     SearchSettings,
-    StorageStatus,
-    WorkMemoryAppCaptureProfile,
-    WorkMemorySettings
+    StorageStatus
 } from "./models.js";

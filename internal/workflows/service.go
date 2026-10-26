@@ -16,7 +16,6 @@ import (
 
 	"ariadne/internal/appdb"
 	"ariadne/internal/contracts"
-	"ariadne/internal/workmemory"
 )
 
 var workflowIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -107,20 +106,6 @@ type ImportResult struct {
 	Message       string `json:"message"`
 	ImportedCount int    `json:"importedCount"`
 	Status        Status `json:"status"`
-}
-
-type DraftSaveRequest struct {
-	Draft     workmemory.WorkflowDraft `json:"draft"`
-	Confirmed bool                     `json:"confirmed"`
-}
-
-type DraftSaveResult struct {
-	OK                   bool     `json:"ok"`
-	Message              string   `json:"message"`
-	Workflow             Workflow `json:"workflow,omitempty"`
-	Status               Status   `json:"status"`
-	RequiresConfirmation bool     `json:"requiresConfirmation,omitempty"`
-	RiskReasons          []string `json:"riskReasons,omitempty"`
 }
 
 type Service struct {
@@ -354,32 +339,6 @@ func (s *Service) ImportData(raw string) ImportResult {
 		return ImportResult{OK: false, Message: "导入后保存失败: " + err.Error(), ImportedCount: imported, Status: s.statusLocked()}
 	}
 	return ImportResult{OK: true, Message: fmt.Sprintf("已导入 %d 个工作流", imported), ImportedCount: imported, Status: s.statusLocked()}
-}
-
-func (s *Service) SaveWorkflowDraft(request DraftSaveRequest) DraftSaveResult {
-	workflow, ok := workflowFromDraft(request.Draft)
-	if !ok {
-		return DraftSaveResult{OK: false, Message: "候选工作流草稿无效", Status: s.Status()}
-	}
-	riskReasons := draftRiskReasons(request.Draft, workflow)
-	if !request.Confirmed {
-		if len(riskReasons) == 0 {
-			riskReasons = []string{"候选工作流来自工作记忆经验发现，保存为正式工作流前需要用户确认"}
-		}
-		return DraftSaveResult{
-			OK:                   false,
-			Message:              "保存候选工作流需要确认",
-			Workflow:             workflow,
-			Status:               s.Status(),
-			RequiresConfirmation: true,
-			RiskReasons:          riskReasons,
-		}
-	}
-	status := s.Upsert(workflow)
-	if status.LastSaveError != "" {
-		return DraftSaveResult{OK: false, Message: "候选工作流保存失败: " + status.LastSaveError, Workflow: workflow, Status: status}
-	}
-	return DraftSaveResult{OK: true, Message: "候选工作流已保存为正式工作流", Workflow: workflow, Status: status, RiskReasons: riskReasons}
 }
 
 func (s *Service) Run(request RunRequest) RunResult {
@@ -620,84 +579,6 @@ func normalizeWorkflow(workflow Workflow) (Workflow, bool) {
 		Steps:       steps,
 		UpdatedAt:   workflow.UpdatedAt,
 	}, true
-}
-
-func workflowFromDraft(draft workmemory.WorkflowDraft) (Workflow, bool) {
-	id := workflowIDFromDraft(draft)
-	name := strings.TrimSpace(draft.Title)
-	if name == "" {
-		name = "工作记忆候选工作流"
-	}
-	steps := make([]Step, 0, len(draft.Steps))
-	for _, step := range draft.Steps {
-		command := strings.TrimSpace(step.Command)
-		if command == "" {
-			continue
-		}
-		steps = append(steps, Step{Command: command})
-	}
-	descriptionParts := []string{
-		"由工作记忆经验发现生成，保存前需要用户审阅。",
-	}
-	if trigger := strings.TrimSpace(draft.Trigger); trigger != "" {
-		descriptionParts = append(descriptionParts, "触发: "+trigger)
-	}
-	if input := strings.TrimSpace(draft.Input); input != "" {
-		descriptionParts = append(descriptionParts, "输入: "+input)
-	}
-	if output := strings.TrimSpace(draft.Output); output != "" {
-		descriptionParts = append(descriptionParts, "输出: "+output)
-	}
-	if risk := strings.TrimSpace(draft.RiskLevel); risk != "" {
-		descriptionParts = append(descriptionParts, "风险: "+risk)
-	}
-	if len(draft.Evidence) > 0 {
-		descriptionParts = append(descriptionParts, "证据: "+strings.Join(cleanDraftStrings(draft.Evidence), ", "))
-	}
-	return normalizeWorkflow(Workflow{
-		ID:          id,
-		Name:        name,
-		Description: strings.Join(descriptionParts, "\n"),
-		Steps:       steps,
-		UpdatedAt:   time.Now().Unix(),
-	})
-}
-
-func workflowIDFromDraft(draft workmemory.WorkflowDraft) string {
-	id := strings.ToLower(strings.TrimSpace(draft.ID))
-	id = strings.TrimPrefix(id, "workflow-draft-")
-	id = strings.Trim(id, "-")
-	if id != "" {
-		candidate := "memory-" + slugIDPart(id)
-		if workflowIDPattern.MatchString(candidate) {
-			return candidate
-		}
-	}
-	base := "memory-" + stableID(strings.Join([]string{draft.Title, draft.Trigger, strconv.FormatInt(draft.CreatedAt, 10)}, "\n"))
-	if workflowIDPattern.MatchString(base) {
-		return base
-	}
-	return "memory-workflow"
-}
-
-func draftRiskReasons(draft workmemory.WorkflowDraft, workflow Workflow) []string {
-	reasons := []string{}
-	if risk := strings.ToLower(strings.TrimSpace(draft.RiskLevel)); risk != "" && risk != "low" {
-		reasons = append(reasons, "草稿风险等级: "+risk)
-	}
-	for _, step := range draft.Steps {
-		if step.RequiresConfirm {
-			label := strings.TrimSpace(step.Label)
-			if label == "" {
-				label = strings.TrimSpace(step.Command)
-			}
-			if label != "" {
-				reasons = append(reasons, "步骤需要确认: "+label)
-			}
-		}
-	}
-	reasons = append(reasons, workflowRiskReasons(workflow, map[string]string{"clipboard": "", "input": "", "prev": ""})...)
-	return uniqueStrings(reasons)
 }
 
 func slugIDPart(value string) string {

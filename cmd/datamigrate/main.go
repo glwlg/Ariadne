@@ -6,7 +6,6 @@ import (
 
 	"ariadne/internal/appdb"
 	"ariadne/internal/capturehistory"
-	"ariadne/internal/checklists"
 	"ariadne/internal/clipboardhistory"
 	"ariadne/internal/hosts"
 	"ariadne/internal/imageindex"
@@ -14,10 +13,8 @@ import (
 	"ariadne/internal/plugins"
 	"ariadne/internal/search"
 	"ariadne/internal/settings"
-	"ariadne/internal/skills"
 	"ariadne/internal/toolwindows"
 	"ariadne/internal/workflows"
-	"ariadne/internal/workmemory"
 
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
@@ -27,14 +24,10 @@ func main() {
 	settingsService := settings.NewService()
 	captureService := capturehistory.NewService()
 	clipboardService := clipboardhistory.NewService(captureService)
-	workMemoryService := workmemory.NewService(captureService)
-	defer workMemoryService.Stop()
 
 	searchService := search.NewService()
 	pluginService := plugins.NewService()
 	workflowService := workflows.NewService(pluginService)
-	checklistService := checklists.NewService()
-	skillService := skills.NewService()
 	launcherService := launchers.NewService()
 	hostsService := hosts.NewService()
 	imageIndexService := imageindex.NewService(captureService, clipboardService, nil)
@@ -47,12 +40,8 @@ func main() {
 	fmt.Fprintf(os.Stdout, "launchers: %s (%d items)\n", launcherService.Status().Path, launcherService.Status().Count)
 	fmt.Fprintf(os.Stdout, "capture_history: %s (%d entries)\n", captureService.Status().Path, captureService.Status().Count)
 	fmt.Fprintf(os.Stdout, "clipboard_history: %s (%d entries)\n", clipboardService.Status().Path, clipboardService.Status().Count)
-	workMemoryStatus := workMemoryService.Status()
-	fmt.Fprintf(os.Stdout, "work_memory: %s (%d entries)\n", workMemoryStatus.StoragePath, workMemoryStatus.EntryCount)
 	fmt.Fprintf(os.Stdout, "hosts: %s (%d profiles)\n", hostsService.Status().ConfigPath, hostsService.Status().Count)
 	fmt.Fprintf(os.Stdout, "workflows: %s (%d workflows)\n", workflowService.Status().Path, workflowService.Status().Count)
-	fmt.Fprintf(os.Stdout, "checklists: %s (%d checklists)\n", checklistService.Status().Path, checklistService.Status().Count)
-	fmt.Fprintf(os.Stdout, "skills: %s (%d skills)\n", skillService.Status().Path, skillService.Status().Count)
 	fmt.Fprintf(os.Stdout, "image_index: %s (%d entries)\n", imageIndexService.Status().Path, imageIndexService.Status().Count)
 	fmt.Fprintf(os.Stdout, "network_mini: %s\n", toolWindowService.NetworkMiniStatus().ConfigPath)
 	if counts, err := sqliteCounts(storage.Path); err == nil {
@@ -74,20 +63,11 @@ func sqliteCounts(path string) ([]tableCount, error) {
 	tables := []string{
 		"settings2_values",
 		"settings2_string_lists",
-		"settings2_app_capture_profiles",
 		"settings2_plugins",
 		"capture_entries",
 		"clipboard_entries",
-		"work_memory_entries",
-		"work_memory_frames",
-		"work_memory_decisions",
-		"work_memory_autonomous_artifacts",
-		"work_memory_embedding_records",
-		"work_memory_embedding_vector_values",
 		"search_usage",
 		"launchers",
-		"checklists",
-		"skills",
 		"workflows",
 		"hosts_profiles",
 		"image_index_entries",

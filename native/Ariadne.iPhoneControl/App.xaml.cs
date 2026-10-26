@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Interop;
 using BleHid.Core;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 
@@ -27,7 +28,8 @@ public partial class App : Application
         if (!_ownsMutex)
         {
             var existing = FindWindow(null, WindowTitle);
-            if (existing != IntPtr.Zero) PostMessage(existing, ActivateMessage, IntPtr.Zero, IntPtr.Zero);
+            if (existing != IntPtr.Zero && !e.Args.Contains("--background"))
+                PostMessage(existing, ActivateMessage, IntPtr.Zero, IntPtr.Zero);
             Shutdown(e.Args.Contains("--probe") ? 2 : 0);
             return;
         }
@@ -57,10 +59,11 @@ public partial class App : Application
             return;
         }
         int? ownerPid = null;
-        if (e.Args.Length != 0)
+        var args = e.Args.Where(arg => arg != "--background").ToArray();
+        if (args.Length != 0)
         {
-            if (e.Args.Length != 2 || e.Args[0] != "--owner-pid" ||
-                !int.TryParse(e.Args[1], out var pid) || pid <= 0)
+            if (args.Length != 2 || args[0] != "--owner-pid" ||
+                !int.TryParse(args[1], out var pid) || pid <= 0)
             {
                 Shutdown(2);
                 return;
@@ -69,7 +72,10 @@ public partial class App : Application
         }
         var window = new ControlWindow(ownerPid);
         MainWindow = window;
-        window.Show();
+        // Create the input IPC endpoint without flashing a taskbar window.
+        new WindowInteropHelper(window).EnsureHandle();
+        if (!e.Args.Contains("--background")) window.Show();
+        await window.StartAsync();
     }
 
     public void Log(string line)

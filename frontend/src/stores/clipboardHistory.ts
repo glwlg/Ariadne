@@ -32,11 +32,17 @@ export const useClipboardHistoryStore = defineStore('clipboard-history', () => {
   const isLoading = ref(false)
   const isRecognizingOCR = ref(false)
   const ocrSelection = createOCRSelection(ocrResult)
+  let loadSequence = 0
+  let imageSequence = 0
+  let loadedImageId = ''
+  let pendingImageId = ''
+  let pendingImage: Promise<void> | null = null
 
   const selectedEntry = computed(() => entries.value.find((entry) => entry.id === selectedId.value) ?? entries.value[0] ?? null)
   const pinnedCount = computed(() => status.value?.pinnedCount ?? entries.value.filter((entry) => entry.pinned).length)
 
   async function load(nextQuery = query.value) {
+    const sequence = ++loadSequence
     isLoading.value = true
     try {
       query.value = nextQuery
@@ -44,6 +50,7 @@ export const useClipboardHistoryStore = defineStore('clipboard-history', () => {
         getClipboardStatus(),
         listClipboardEntries(nextQuery, 300),
       ])
+      if (sequence !== loadSequence) return
       status.value = nextStatus
       entries.value = nextEntries
       if (!entries.value.some((entry) => entry.id === selectedId.value)) {
@@ -51,9 +58,9 @@ export const useClipboardHistoryStore = defineStore('clipboard-history', () => {
       }
       await loadImage(selectedId.value)
     } catch {
-      showFeedback('剪贴板历史加载失败')
+      if (sequence === loadSequence) showFeedback('剪贴板历史加载失败')
     } finally {
-      isLoading.value = false
+      if (sequence === loadSequence) isLoading.value = false
     }
   }
 
@@ -200,7 +207,35 @@ export const useClipboardHistoryStore = defineStore('clipboard-history', () => {
 
   async function loadImage(id: string) {
     const entry = entries.value.find((item) => item.id === id)
-    imageDataUrl.value = entry?.type === 'image' ? await getClipboardThumbnailDataURL(id) : ''
+    if (pendingImage && pendingImageId === id) return pendingImage
+    const sequence = ++imageSequence
+    pendingImageId = ''
+    pendingImage = null
+    if (entry?.type !== 'image') {
+      loadedImageId = ''
+      imageDataUrl.value = ''
+      return
+    }
+    if (loadedImageId === id) return
+    loadedImageId = ''
+    imageDataUrl.value = ''
+    pendingImageId = id
+    pendingImage = (async () => {
+      try {
+        const image = await getClipboardThumbnailDataURL(id)
+        if (sequence !== imageSequence || selectedId.value !== id) return
+        imageDataUrl.value = image
+        loadedImageId = id
+      } catch {
+        if (sequence === imageSequence) showFeedback('剪贴板图片加载失败')
+      } finally {
+        if (sequence === imageSequence) {
+          pendingImage = null
+          pendingImageId = ''
+        }
+      }
+    })()
+    return pendingImage
   }
 
   function showFeedback(message: string) {

@@ -18,20 +18,21 @@ import (
 )
 
 type Status struct {
-	Ready        bool   `json:"ready"`
-	ControlReady bool   `json:"controlReady"`
-	Running      bool   `json:"running"`
-	ReceiverName string `json:"receiverName"`
-	PIN          string `json:"pin"`
-	ProcessID    int    `json:"processId"`
-	LogPath      string `json:"logPath"`
-	LastError    string `json:"lastError"`
-	Phase        string `json:"phase"`
-	FrameRate    int    `json:"frameRate"`
-	Width        int    `json:"width"`
-	Height       int    `json:"height"`
-	ContentTitle string `json:"contentTitle"`
-	ClientName   string `json:"clientName"`
+	Ready        bool          `json:"ready"`
+	ControlReady bool          `json:"controlReady"`
+	Running      bool          `json:"running"`
+	ReceiverName string        `json:"receiverName"`
+	PIN          string        `json:"pin"`
+	ProcessID    int           `json:"processId"`
+	LogPath      string        `json:"logPath"`
+	LastError    string        `json:"lastError"`
+	Phase        string        `json:"phase"`
+	FrameRate    int           `json:"frameRate"`
+	Width        int           `json:"width"`
+	Height       int           `json:"height"`
+	ContentTitle string        `json:"contentTitle"`
+	ClientName   string        `json:"clientName"`
+	Control      ControlStatus `json:"control"`
 }
 
 type receiverProcess struct {
@@ -55,6 +56,9 @@ type Service struct {
 	frameRate        int
 	command          func(string, ...string) *exec.Cmd
 	elevate          func(string, []string) error
+	queryControl     func() (ControlStatus, error)
+	controlProcess   *controlProcess
+	controlError     string
 }
 
 func NewService() *Service {
@@ -74,13 +78,14 @@ func newService(runtimeDir, dataDir string) *Service {
 		initError = err.Error()
 	}
 	s := &Service{
-		runtimeDir: runtimeDir,
-		dataDir:    dataDir,
-		name:       "Ariadne · " + hostname,
-		initError:  initError,
-		command:    exec.Command,
-		elevate:    elevation.RunasWait,
-		frameRate:  30,
+		runtimeDir:   runtimeDir,
+		dataDir:      dataDir,
+		name:         "Ariadne · " + hostname,
+		initError:    initError,
+		command:      exec.Command,
+		elevate:      elevation.RunasWait,
+		frameRate:    30,
+		queryControl: queryControlStatus,
 	}
 	if err := s.loadPreferences(); err != nil {
 		s.preferencesError = err.Error()
@@ -90,7 +95,6 @@ func newService(runtimeDir, dataDir string) *Service {
 
 func (s *Service) Status() Status {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	info, err := os.Stat(filepath.Join(s.runtimeDir, "uxplay.exe"))
 	status := Status{
 		Ready:        s.initError == "" && s.preferencesError == "" && err == nil && !info.IsDir(),
@@ -116,6 +120,8 @@ func (s *Service) Status() Status {
 		status.Width, status.Height = p.stream.Width, p.stream.Height
 		status.ContentTitle, status.ClientName = p.stream.Title, p.stream.Client
 	}
+	s.mu.Unlock()
+	status.Control = s.controlStatus(status.ControlReady)
 	return status
 }
 
@@ -204,9 +210,7 @@ func (s *Service) startLocked() contracts.ActionResult {
 	cmd.Env = s.environment()
 	p := &receiverProcess{cmd: cmd, done: make(chan struct{}), pin: pin, stream: videoEvent{Phase: "waiting"}}
 	events := &videoEventWriter{accept: func(event videoEvent) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		p.stream = event
+		s.acceptVideoEvent(p, event)
 	}}
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(logFile, events), logFile
 	hideConsole(cmd)
@@ -238,6 +242,26 @@ func (s *Service) startLocked() contracts.ActionResult {
 		return contracts.ActionResult{Message: s.Status().LastError + "，请查看投屏日志。"}
 	case <-time.After(time.Second):
 		return contracts.ActionResult{OK: true, Message: "接收服务已启动，配对码 " + pin + "；在 iPhone「屏幕镜像」中选择 " + s.name}
+	}
+}
+
+func (s *Service) acceptVideoEvent(p *receiverProcess, event videoEvent) {
+	s.mu.Lock()
+	connected := event.Phase == "mirroring" && p.stream.Phase != "mirroring"
+	p.stream = event
+	s.mu.Unlock()
+	if connected {
+		// Do not block UxPlay's output pipe while starting Bluetooth.
+		go func() {
+			s.operations.Lock()
+			defer s.operations.Unlock()
+			s.mu.Lock()
+			active := s.process == p && !p.stopping && p.stream.Phase == "mirroring"
+			s.mu.Unlock()
+			if active {
+				s.startControlLocked(true)
+			}
+		}()
 	}
 }
 

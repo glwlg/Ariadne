@@ -13,7 +13,9 @@ void ariadne_video_stopped(void);
 #ifndef ARIADNE_CONTROL_TITLE
 #define ARIADNE_CONTROL_TITLE L"Ariadne · iPhone 控制"
 #endif
-enum { POINTER_QUERY, POINTER_MOVE, POINTER_DOWN, POINTER_UP, POINTER_WHEEL, POINTER_CANCEL };
+enum { POINTER_QUERY, POINTER_MOVE, POINTER_DOWN, POINTER_UP, POINTER_WHEEL, POINTER_CANCEL,
+       KEY_DOWN, KEY_UP, KEYBOARD_QUERY };
 typedef struct { int version, kind, x, y, delta; } AriadnePointerPacket;
 gboolean ariadne_map_pointer(int cw, int ch, int vw, int vh, int par_n, int par_d,
                             int x, int y, gboolean clamp, POINT *point);
+int ariadne_key_usage(WPARAM key, LPARAM flags);

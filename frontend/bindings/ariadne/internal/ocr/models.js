@@ -6,10 +6,6 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
-import * as workmemory$0 from "../workmemory/models.js";
-
 export class AIOCRPolicy {
     /**
      * Creates a new AIOCRPolicy instance.
@@ -207,13 +203,6 @@ export class Result {
              * @member
              * @type {string | undefined}
              */
-            this["memoryId"] = undefined;
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {string | undefined}
-             */
             this["imagePath"] = undefined;
         }
         if (/** @type {any} */(false)) {
@@ -265,13 +254,6 @@ export class Result {
              */
             this["recognizedAt"] = undefined;
         }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {workmemory$0.Entry | null | undefined}
-             */
-            this["workMemory"] = undefined;
-        }
 
         Object.assign(this, $$source);
     }
@@ -283,13 +265,9 @@ export class Result {
      */
     static createFrom($$source = {}) {
         const $$createField2_0 = $$createType2;
-        const $$createField15_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("lines" in $$parsedSource) {
             $$parsedSource["lines"] = $$createField2_0($$parsedSource["lines"]);
-        }
-        if ("workMemory" in $$parsedSource) {
-            $$parsedSource["workMemory"] = $$createField15_0($$parsedSource["workMemory"]);
         }
         return new Result(/** @type {Partial<Result>} */($$parsedSource));
     }
@@ -369,5 +347,3 @@ export class Status {
 const $$createType0 = Rect.createFrom;
 const $$createType1 = Line.createFrom;
 const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = workmemory$0.Entry.createFrom;
-const $$createType4 = $Create.Nullable($$createType3);

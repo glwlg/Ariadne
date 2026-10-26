@@ -143,6 +143,9 @@ Assert(screenReleaseAttempted && !failedScreen.GestureRunning,
 Console.WriteLine("PASS absolute transmission failure releases button");
 if (OperatingSystem.IsWindows())
 {
+    await StatusTests.RunAsync();
     BridgeTests.Run();
     SynchronousMessageTests.Run();
 }
+TargetPreferenceTests.Run();
+await KeyboardTests.RunAsync();

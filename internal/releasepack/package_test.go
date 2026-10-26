@@ -30,7 +30,7 @@ func TestWindowsResourceConfigUsesAriadneBrand(t *testing.T) {
 	}
 
 	manifest := config["RT_MANIFEST"].(map[string]interface{})["#1"].(map[string]interface{})["0409"].(map[string]interface{})
-	if manifest["description"] != "Ariadne command launcher and work memory center" || manifest["long-path-aware"] != true {
+	if manifest["description"] != "Ariadne desktop productivity tools" || manifest["long-path-aware"] != true {
 		t.Fatalf("Windows manifest should expose Ariadne description and long-path support, got %#v", manifest)
 	}
 

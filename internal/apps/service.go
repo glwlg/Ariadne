@@ -145,7 +145,6 @@ func shortcutToResult(shortcut Shortcut, score float64) contracts.SearchResult {
 				Feedback: &contracts.ActionFeedback{SuccessLabel: "已启动", DurationMS: 1400},
 			},
 			contracts.CopyAction("copy_shortcut", "复制快捷方式路径", shortcut.Path, ""),
-			contracts.RememberAction("remember_app", "加入记忆", "app-"+stableID(shortcut.Path)),
 		},
 	}
 }

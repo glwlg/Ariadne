@@ -7,9 +7,12 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Ariadne.iPhoneControl\MouseInput.cs" Link="MouseInput.cs" />
+    <Compile Include="..\Ariadne.iPhoneControl\KeyboardInput.cs" Link="KeyboardInput.cs" />
     <Compile Include="..\Ariadne.iPhoneControl\Vendor\BleHid\HidReports.cs" Link="HidReports.cs" />
     <Compile Include="..\Ariadne.iPhoneControl\Vendor\BleHid\HidDescriptors.cs" Link="HidDescriptors.cs" />
     <Compile Include="..\Ariadne.iPhoneControl\ScreenPointerPacket.cs" Link="ScreenPointerPacket.cs" />
     <Compile Include="..\Ariadne.iPhoneControl\ScreenControlBridge.cs" Link="ScreenControlBridge.cs" />
+    <Compile Include="..\Ariadne.iPhoneControl\ControlStatusServer.cs" Link="ControlStatusServer.cs" />
+    <Compile Include="..\Ariadne.iPhoneControl\ControlTargetPreference.cs" Link="ControlTargetPreference.cs" />
   </ItemGroup>
 </Project>

@@ -19,14 +19,6 @@ export function ApplyAIOCRPolicy(policy) {
 }
 
 /**
- * @param {$models.AIOCRPolicy} policy
- * @returns {$CancellablePromise<void>}
- */
-export function ApplyPinnedAIOCRPolicy(policy) {
-    return $Call.ByID(3968532963, policy);
-}
-
-/**
  * @returns {$CancellablePromise<$models.Result>}
  */
 export function LastResult() {
@@ -75,6 +67,16 @@ export function RecognizeImagePath(path) {
 }
 
 /**
+ * @param {string} path
+ * @returns {$CancellablePromise<$models.Result>}
+ */
+export function RecognizeImageRegions(path) {
+    return $Call.ByID(1610481453, path).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {string} captureID
  * @returns {$CancellablePromise<$models.Result>}
  */
@@ -90,16 +92,6 @@ export function RecognizePinnedCapture(captureID) {
  */
 export function RecognizePinnedClipboardImage(clipboardID) {
     return $Call.ByID(1802634382, clipboardID).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
-    }));
-}
-
-/**
- * @param {string} memoryID
- * @returns {$CancellablePromise<$models.Result>}
- */
-export function RecognizeWorkMemory(memoryID) {
-    return $Call.ByID(2338712697, memoryID).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
     }));
 }

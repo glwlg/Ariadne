@@ -6,6 +6,90 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+export class ControlStatus {
+    /**
+     * Creates a new ControlStatus instance.
+     * @param {Partial<ControlStatus>} [$$source = {}] - The source object to create the ControlStatus.
+     */
+    constructor($$source = {}) {
+        if (!("phase" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["phase"] = "";
+        }
+        if (!("running" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["running"] = false;
+        }
+        if (!("processId" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["processId"] = 0;
+        }
+        if (!("advertising" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["advertising"] = false;
+        }
+        if (!("connectedDevices" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["connectedDevices"] = 0;
+        }
+        if (!("targetName" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["targetName"] = "";
+        }
+        if (!("readiness" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["readiness"] = 0;
+        }
+        if (!("lastError" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["lastError"] = "";
+        }
+        if (!("diagnostics" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["diagnostics"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ControlStatus instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {ControlStatus}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ControlStatus(/** @type {Partial<ControlStatus>} */($$parsedSource));
+    }
+}
+
 export class Status {
     /**
      * Creates a new Status instance.
@@ -110,6 +194,13 @@ export class Status {
              */
             this["clientName"] = "";
         }
+        if (!("control" in $$source)) {
+            /**
+             * @member
+             * @type {ControlStatus}
+             */
+            this["control"] = (new ControlStatus());
+        }
 
         Object.assign(this, $$source);
     }
@@ -120,7 +211,14 @@ export class Status {
      * @returns {Status}
      */
     static createFrom($$source = {}) {
+        const $$createField14_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("control" in $$parsedSource) {
+            $$parsedSource["control"] = $$createField14_0($$parsedSource["control"]);
+        }
         return new Status(/** @type {Partial<Status>} */($$parsedSource));
     }
 }
+
+// Private type creation functions
+const $$createType0 = ControlStatus.createFrom;

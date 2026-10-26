@@ -5,8 +5,78 @@
 static PVOID volatile video_window;
 static HANDLE control_started;
 static HWND control_window;
-static volatile LONG control_ready = 2, packet_count;
+static volatile LONG control_ready = 2, packet_count, reject_press;
+static volatile LONG keyboard_ready = 1;
 static AriadnePointerPacket packets[64];
+static WNDPROC resize_original;
+#define TEST_SYSTEM_RESIZE (WM_APP + 301)
+#define TEST_FOCUS (WM_APP + 302)
+
+static LRESULT CALLBACK test_resize_proc(HWND window, UINT message, WPARAM wp, LPARAM lp)
+{
+    if (message == TEST_FOCUS) {
+        SetFocus(wp ? window : NULL);
+        return GetFocus() == window;
+    }
+    if (message == TEST_SYSTEM_RESIZE) {
+        RECT client;
+        GetClientRect(window, &client);
+        SendMessageW(window, WM_ENTERSIZEMOVE, 0, 0);
+        SetCapture(window);
+        if (GetCapture() != window) return -1;
+        SendMessageW(window, WM_SIZE, SIZE_RESTORED, MAKELPARAM(client.right, client.bottom));
+        int captured = GetCapture() == window;
+        SendMessageW(window, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(client.right / 2, client.bottom / 2));
+        SendMessageW(window, WM_KEYDOWN, 'A', 0x1e0001);
+        ReleaseCapture();
+        SendMessageW(window, WM_EXITSIZEMOVE, 0, 0);
+        return captured;
+    }
+    return CallWindowProcW(resize_original, window, message, wp, lp);
+}
+
+static gboolean test_focus(HWND window, gboolean focus)
+{
+    resize_original = (WNDPROC)SetWindowLongPtrW(window, GWLP_WNDPROC, (LONG_PTR)test_resize_proc);
+    LRESULT result = SendMessageW(window, TEST_FOCUS, focus, 0);
+    SetWindowLongPtrW(window, GWLP_WNDPROC, (LONG_PTR)resize_original);
+    return !!result == focus;
+}
+
+static gboolean test_resize_capture(HWND window)
+{
+    resize_original = (WNDPROC)SetWindowLongPtrW(window, GWLP_WNDPROC, (LONG_PTR)test_resize_proc);
+    LRESULT result = SendMessageW(window, TEST_SYSTEM_RESIZE, 0, 0);
+    SetWindowLongPtrW(window, GWLP_WNDPROC, (LONG_PTR)resize_original);
+    return result == 1;
+}
+
+static gboolean window_has_capture(HWND window)
+{
+    GUITHREADINFO info = {.cbSize = sizeof(info)};
+    return GetGUIThreadInfo(GetWindowThreadProcessId(window, NULL), &info) && info.hwndCapture == window;
+}
+
+static gboolean test_resize_borders(HWND window)
+{
+    RECT rect;
+    GetWindowRect(window, &rect);
+    int cx = (rect.left + rect.right) / 2, cy = (rect.top + rect.bottom) / 2;
+    const int points[][3] = {
+        {rect.left + 1, cy, HTLEFT}, {rect.right - 2, cy, HTRIGHT},
+        {cx, rect.top + 1, HTTOP}, {cx, rect.bottom - 2, HTBOTTOM},
+        {rect.left + 1, rect.top + 1, HTTOPLEFT}, {rect.right - 2, rect.top + 1, HTTOPRIGHT},
+        {rect.left + 1, rect.bottom - 2, HTBOTTOMLEFT}, {rect.right - 2, rect.bottom - 2, HTBOTTOMRIGHT}
+    };
+    for (int i = 0; i < G_N_ELEMENTS(points); i++) {
+        LRESULT hit = SendMessageW(window, WM_NCHITTEST, 0, MAKELPARAM(points[i][0], points[i][1]));
+        if (hit != points[i][2]) {
+            fprintf(stderr, "Resize border %d: expected %d, got %lld\n", i, points[i][2], (long long)hit);
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
 
 static LRESULT CALLBACK test_control_proc(HWND window, UINT message, WPARAM wp, LPARAM lp)
 {
@@ -16,6 +86,8 @@ static LRESULT CALLBACK test_control_proc(HWND window, UINT message, WPARAM wp, 
         AriadnePointerPacket *packet = data->lpData;
         if (packet->version != 1) return 0;
         if (packet->kind == POINTER_QUERY) return control_ready;
+        if (packet->kind == KEYBOARD_QUERY) return keyboard_ready;
+        if (packet->kind == POINTER_DOWN && reject_press) return 0;
         LONG count = InterlockedCompareExchange(&packet_count, 0, 0);
         if (count < 64) {
             packets[count] = *packet;
@@ -53,6 +125,28 @@ static int test_pointer_mapping(void)
     return 0;
 }
 
+static int test_key_mapping(void)
+{
+    // Letters follow physical scan codes even when the desktop layout changes their virtual key.
+    if (ariadne_key_usage('Q', 0x1e0001) != 4 ||
+        ariadne_key_usage(VK_SHIFT, 0x2a0001) != 225 ||
+        ariadne_key_usage(VK_SHIFT, 0x360001) != 229 ||
+        ariadne_key_usage(VK_CONTROL, 0x011d0001) != 228 ||
+        ariadne_key_usage(VK_MENU, 0x01380001) != 230 ||
+        ariadne_key_usage(VK_RETURN, 0x1c0001) != 40 ||
+        ariadne_key_usage(VK_RETURN, 0x011c0001) != 88 ||
+        ariadne_key_usage(VK_INSERT, 0x520001) != 98 ||
+        ariadne_key_usage(VK_INSERT, 0x01520001) != 73 ||
+        ariadne_key_usage(VK_OEM_1, 0x270001) != 51 ||
+        ariadne_key_usage(VK_F12, 0x580001) != 69 ||
+        ariadne_key_usage(VK_PAUSE, 0x450001) != 72 ||
+        ariadne_key_usage(VK_VOLUME_UP, 0x01300001) != 0) {
+        fprintf(stderr, "Keyboard scan code mapping failed\n");
+        return 1;
+    }
+    return 0;
+}
+
 static int test_direct_input(HWND window)
 {
     int failed = 0;
@@ -71,6 +165,9 @@ static int test_direct_input(HWND window)
     RECT rect;
     GetClientRect(window, &rect);
     int x = rect.right / 2, y = rect.bottom / 2;
+    INPUT_CHECK(test_resize_borders(window), "All eight resize borders remain native with direct control enabled");
+    INPUT_CHECK(test_resize_capture(window) && packet_count == 0,
+        "Native resize must retain its mouse capture and must not send phone input");
     SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
     SendMessageW(window, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(x + 20, y + 20));
     Sleep(80);
@@ -99,16 +196,73 @@ static int test_direct_input(HWND window)
     SendMessageW(window, WM_CANCELMODE, 0, 0);
     INPUT_CHECK(packet_count == 2 && packets[1].kind == POINTER_CANCEL, "Cancel release");
 
+    InterlockedExchange(&packet_count, 0);
+    SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+    INPUT_CHECK(window_has_capture(window), "Phone drag must own mouse capture");
+    SendMessageW(window, WM_ENTERSIZEMOVE, 0, 0);
+    SendMessageW(window, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(x + 10, y + 10));
+    SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+    SendMessageW(window, WM_TIMER, 4107, 0);
+    INPUT_CHECK(packet_count == 2 && packets[1].kind == POINTER_CANCEL && !window_has_capture(window),
+        "Entering native move/resize cancels a phone drag and suppresses new input");
+    SendMessageW(window, WM_EXITSIZEMOVE, 0, 0);
+    InterlockedExchange(&packet_count, 0);
+    InterlockedExchange(&reject_press, 1);
+    SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+    INPUT_CHECK(!window_has_capture(window), "A failed phone press must release its capture");
+    InterlockedExchange(&reject_press, 0);
+
     POINT screen = {x, y};
     ClientToScreen(window, &screen);
     InterlockedExchange(&packet_count, 0);
     SendMessageW(window, WM_MOUSEWHEEL, MAKEWPARAM(0, -WHEEL_DELTA), MAKELPARAM(screen.x, screen.y));
     INPUT_CHECK(packet_count == 1 && packets[0].kind == POINTER_WHEEL && packets[0].delta == -1, "Wheel");
 
+    SendMessageW(window, WM_CANCELMODE, 0, 0);
+    InterlockedExchange(&packet_count, 0);
+    SendMessageW(window, WM_KEYDOWN, VK_CONTROL, 0x1d0001);
+    SendMessageW(window, WM_KEYDOWN, 'A', 0x1e0001);
+    SendMessageW(window, WM_KEYDOWN, 'A', 0x401e0001);
+    SendMessageW(window, WM_KEYUP, 'A', (LPARAM)0xc01e0001);
+    SendMessageW(window, WM_KEYUP, VK_CONTROL, (LPARAM)0xc01d0001);
+    INPUT_CHECK(packet_count == 4 && packets[0].kind == KEY_DOWN && packets[0].x == 224 &&
+        packets[1].kind == KEY_DOWN && packets[1].x == 4 && packets[2].kind == KEY_UP &&
+        packets[2].x == 4 && packets[3].kind == KEY_UP && packets[3].x == 224,
+        "Keyboard combo, physical key mapping, held-key repeat and release");
+    InterlockedExchange(&packet_count, 0);
+    SendMessageW(window, WM_KEYDOWN, VK_SHIFT, 0x360001);
+    SendMessageW(window, WM_KILLFOCUS, 0, 0);
+    SendMessageW(window, WM_KEYUP, VK_SHIFT, (LPARAM)0xc0360001);
+    INPUT_CHECK(packet_count == 2 && packets[0].kind == KEY_DOWN && packets[0].x == 229 &&
+        packets[1].kind == POINTER_CANCEL, "Focus loss releases keys and ignores stale key-up");
+    InterlockedExchange(&packet_count, 0);
+    SendMessageW(window, WM_KEYDOWN, VK_SHIFT, 0x40360001);
+    INPUT_CHECK(packet_count == 0, "Held keys must not revive from desktop repeat after cancellation");
+    INPUT_CHECK(test_focus(window, FALSE), "Test can remove keyboard focus on the native owner thread");
+    SendMessageW(window, WM_KEYDOWN, 'A', 0x1e0001);
+    INPUT_CHECK(packet_count == 0, "Unfocused video must not forward keyboard input");
+    INPUT_CHECK(test_focus(window, TRUE), "Test can restore video focus");
+    InterlockedExchange(&packet_count, 0);
+    SendMessageW(window, WM_SYSKEYDOWN, VK_MENU, 0x380001);
+    SendMessageW(window, WM_SYSKEYDOWN, VK_RETURN, 0x201c0001);
+    INPUT_CHECK(!(GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) && packet_count == 2 &&
+        packets[0].kind == KEY_DOWN && packets[1].kind == POINTER_CANCEL,
+        "Alt+Enter stays local and releases the phone's Alt key");
+    SendMessageW(window, WM_KEYDOWN, VK_ESCAPE, 0x010001);
+    INPUT_CHECK(GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION, "Esc exits fullscreen locally");
+    InterlockedExchange(&keyboard_ready, 0);
+    InterlockedExchange(&packet_count, 0);
+    SendMessageW(window, WM_KEYDOWN, 'A', 0x1e0001);
+    SendMessageW(window, WM_KEYUP, 'A', (LPARAM)0xc01e0001);
+    INPUT_CHECK(packet_count == 0, "Missing keyboard subscription must not forward keys");
+    InterlockedExchange(&keyboard_ready, 1);
+
     SendMessageW(window, WM_COMMAND, 4106, 0);
     InterlockedExchange(&packet_count, 0);
     SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
     SendMessageW(window, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
+    SendMessageW(window, WM_KEYDOWN, 'A', 0x1e0001);
+    SendMessageW(window, WM_KEYUP, 'A', (LPARAM)0xc01e0001);
     INPUT_CHECK(packet_count == 0, "Disabled direct control");
     SendMessageW(window, WM_COMMAND, 4106, 0);
 
@@ -116,6 +270,7 @@ static int test_direct_input(HWND window)
     InterlockedExchange(&packet_count, 0);
     SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
     SendMessageW(window, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
+    SendMessageW(window, WM_KEYDOWN, 'A', 0x1e0001);
     INPUT_CHECK(packet_count == 0, "Relative-only host");
     InterlockedExchange(&control_ready, 2);
 
@@ -323,6 +478,7 @@ int main(int argc, char **argv)
 {
     gst_init(&argc, &argv);
     if (test_pointer_mapping()) { fprintf(stderr, "Pointer mapping failed\n"); return 1; }
+    if (test_key_mapping()) return 1;
     GError *error = NULL;
     gchar *directory = g_dir_make_tmp("ariadne-video-test-XXXXXX", &error);
     if (!directory || !SetCurrentDirectoryA(directory)) return 1;
@@ -333,7 +489,7 @@ int main(int argc, char **argv)
     SetCurrentDirectoryW(L"..");
     RemoveDirectoryA(directory);
     g_free(directory);
-    puts("PASS Ariadne icons, rotation, remembered sizes, metadata, topmost, fullscreen, direct pointer input and reconnect");
+    puts("PASS Ariadne icons, rotation, remembered sizes, metadata, topmost, fullscreen, resize capture, direct pointer input, keyboard and reconnect");
     gst_deinit();
     return 0;
 }

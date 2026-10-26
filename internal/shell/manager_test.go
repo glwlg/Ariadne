@@ -24,20 +24,6 @@ func TestSecondInstanceLaunchDoesNotOpenWindow(t *testing.T) {
 	}
 }
 
-func TestOpenWorkMemoryUsesToolOpenerWithoutStartupWindow(t *testing.T) {
-	opened := []string{}
-	manager := NewManager("", "", "", func(view string) bool {
-		opened = append(opened, view)
-		return true
-	}, nil, nil)
-
-	manager.OpenWorkMemory()
-
-	if len(opened) != 1 || opened[0] != "work-memory" {
-		t.Fatalf("work memory should open through tool opener, got %v", opened)
-	}
-}
-
 func TestManagerUsesWailsRegistryForDynamicGlobalShortcuts(t *testing.T) {
 	registry := newFakeShortcutRegistry()
 	opened := []string{}

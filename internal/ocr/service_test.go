@@ -3,6 +3,7 @@ package ocr
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,14 +11,12 @@ import (
 
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
-	"ariadne/internal/workmemory"
 )
 
 func TestRecognizeCaptureUsesExplicitCaptureImage(t *testing.T) {
 	imagePath := testImage(t)
 	service := NewService(
 		fakeCaptures{entry: capturehistory.Entry{ID: "cap-1", ImagePath: imagePath, Width: 120, Height: 80}},
-		nil,
 		nil,
 	)
 	service.runner = func(_ context.Context, path string) (bridgeOutput, Status) {
@@ -35,7 +34,7 @@ func TestRecognizeCaptureUsesExplicitCaptureImage(t *testing.T) {
 }
 
 func TestRecognizeClipboardImageRejectsTextEntries(t *testing.T) {
-	service := NewService(nil, fakeClipboard{entry: clipboardhistory.Entry{ID: "clip-1", Type: clipboardhistory.EntryText, Text: "not image"}}, nil)
+	service := NewService(nil, fakeClipboard{entry: clipboardhistory.Entry{ID: "clip-1", Type: clipboardhistory.EntryText, Text: "not image"}})
 
 	result := service.RecognizeClipboardImage("clip-1")
 
@@ -44,36 +43,9 @@ func TestRecognizeClipboardImageRejectsTextEntries(t *testing.T) {
 	}
 }
 
-func TestRecognizeWorkMemoryWritesOCRText(t *testing.T) {
-	imagePath := testImage(t)
-	memory := &fakeMemory{entry: workmemory.Entry{
-		ID:        "memory-1",
-		ImagePath: imagePath,
-		Width:     32,
-		Height:    16,
-		Tags:      []string{"截图"},
-	}}
-	service := NewService(nil, nil, memory)
-	service.runner = func(_ context.Context, path string) (bridgeOutput, Status) {
-		if path != imagePath {
-			t.Fatalf("expected image path %q, got %q", imagePath, path)
-		}
-		return bridgeOutput{OK: true, Provider: "test-ocr", Text: "gateway error"}, Status{Available: true, Provider: "test-ocr"}
-	}
-
-	result := service.RecognizeWorkMemory("memory-1")
-
-	if !result.OK || result.WorkMemory == nil {
-		t.Fatalf("expected OCR result with updated memory entry: %#v", result)
-	}
-	if memory.entry.OCRText != "gateway error" || memory.entry.OCRStatus != "done:test-ocr" || memory.entry.ContentType != "ocr_text" {
-		t.Fatalf("OCR was not written back to memory: %#v", memory.entry)
-	}
-}
-
 func TestRecognizeImagePrefersConfiguredAIOCR(t *testing.T) {
 	imagePath := testImage(t)
-	service := NewService(nil, nil, nil)
+	service := NewService(nil, nil)
 	service.runner = func(_ context.Context, _ string) (bridgeOutput, Status) {
 		t.Fatal("local OCR runner should not run when AI OCR succeeds")
 		return bridgeOutput{}, Status{}
@@ -93,31 +65,88 @@ func TestRecognizeImagePrefersConfiguredAIOCR(t *testing.T) {
 	}
 }
 
-func TestRecognizePinnedCaptureUsesPinnedAIOCRPolicy(t *testing.T) {
+func TestRecognizeImageRegionsUsesLocalOCREvenWhenAIIsConfigured(t *testing.T) {
+	for _, localOK := range []bool{true, false} {
+		t.Run(fmt.Sprint(localOK), func(t *testing.T) {
+			imagePath := testImage(t)
+			service := NewService(nil, nil)
+			rect := Rect{X: 10, Y: 20, Width: 100, Height: 30}
+			service.runner = func(_ context.Context, path string) (bridgeOutput, Status) {
+				if path != imagePath {
+					t.Fatalf("unexpected image path %q", path)
+				}
+				return bridgeOutput{OK: localOK, Text: "local text", Lines: []Line{{Text: "local text", Rect: rect}}, Error: "local error"}, Status{Provider: localOCRProvider}
+			}
+			client := &fakeAIClient{result: AIResult{Text: "text without coordinates"}}
+			RegisterAIClient(service, client)
+			service.ApplyAIOCRPolicy(AIOCRPolicy{Enabled: true, Provider: "openai-compatible", Model: "vision-model"})
+
+			result := service.RecognizeImageRegions(imagePath)
+
+			if len(client.jobs) != 0 || result.OK != localOK || result.Provider != localOCRProvider {
+				t.Fatalf("region recognition must use local OCR: %#v, AI calls=%d", result, len(client.jobs))
+			}
+			if localOK && (len(result.Lines) != 1 || result.Lines[0].Rect != rect) {
+				t.Fatalf("OCR must preserve pixel coordinates: %#v", result)
+			}
+			if !localOK && result.Error != "local error" {
+				t.Fatalf("local failure must remain visible: %#v", result)
+			}
+		})
+	}
+}
+
+func TestRecognitionEntryPointsShareOCRPolicy(t *testing.T) {
 	imagePath := testImage(t)
 	service := NewService(
 		fakeCaptures{entry: capturehistory.Entry{ID: "cap-1", ImagePath: imagePath, Width: 120, Height: 80}},
-		nil,
-		nil,
+		fakeClipboard{entry: clipboardhistory.Entry{ID: "clip-1", Type: clipboardhistory.EntryImage, ImagePath: imagePath, Width: 120, Height: 80}},
 	)
-	client := &fakeAIClient{result: AIResult{Provider: "vision:pinned-model", Text: "贴图文字"}}
+	client := &fakeAIClient{result: AIResult{Text: "共用模型文字"}}
 	RegisterAIClient(service, client)
-	service.ApplyAIOCRPolicy(AIOCRPolicy{Enabled: true, Provider: "openai-compatible", BaseURL: "http://flow.test/v1", Model: "flow-model"})
-	service.ApplyPinnedAIOCRPolicy(AIOCRPolicy{Enabled: true, Provider: "openai-compatible", BaseURL: "http://pinned.test/v1", Model: "pinned-model"})
-
-	result := service.RecognizePinnedCapture("cap-1")
-
-	if !result.OK || result.Text != "贴图文字" {
-		t.Fatalf("expected pinned OCR result, got %#v", result)
+	service.runner = func(_ context.Context, _ string) (bridgeOutput, Status) {
+		return bridgeOutput{OK: true, Text: "本地文字"}, Status{Provider: localOCRProvider}
 	}
-	if len(client.jobs) != 1 || client.jobs[0].BaseURL != "http://pinned.test/v1" || client.jobs[0].Model != "pinned-model" {
-		t.Fatalf("expected pinned policy job, got %#v", client.jobs)
+	for _, enabled := range []bool{true, false} {
+		service.ApplyAIOCRPolicy(AIOCRPolicy{Enabled: enabled, Provider: "openai-compatible", BaseURL: "http://shared.test/v1", Model: "shared-model"})
+		for _, entry := range []struct {
+			source string
+			call   func() Result
+		}{
+			{"capture_history", func() Result { return service.RecognizeCapture("cap-1") }},
+			{"current_screen", service.RecognizeCurrentScreen},
+			{"clipboard_history", func() Result { return service.RecognizeClipboardImage("clip-1") }},
+			{"pinned_capture", func() Result { return service.RecognizePinnedCapture("cap-1") }},
+			{"pinned_clipboard", func() Result { return service.RecognizePinnedClipboardImage("clip-1") }},
+			{"image_path", func() Result { return service.RecognizeImagePath(imagePath) }},
+		} {
+			t.Run(fmt.Sprintf("%s/model=%t", entry.source, enabled), func(t *testing.T) {
+				client.jobs = nil
+				result := entry.call()
+				if !result.OK || result.Source != entry.source {
+					t.Fatalf("recognition failed: %#v", result)
+				}
+				if enabled {
+					if result.Text != "共用模型文字" || len(client.jobs) != 1 || client.jobs[0] != (AIOCRJob{Provider: "openai-compatible", BaseURL: "http://shared.test/v1", Model: "shared-model", ImagePath: imagePath}) {
+						t.Fatalf("entry point must use shared model: result=%#v jobs=%#v", result, client.jobs)
+					}
+				} else if result.Text != "本地文字" || len(client.jobs) != 0 {
+					t.Fatalf("shared model switch must disable AI for all entry points: result=%#v jobs=%#v", result, client.jobs)
+				}
+				if strings.Contains(entry.source, "capture") && (result.CaptureID != "cap-1" || result.Width != 120 || result.Height != 80) {
+					t.Fatalf("capture metadata changed: %#v", result)
+				}
+				if strings.Contains(entry.source, "clipboard") && (result.ClipboardID != "clip-1" || result.Width != 120 || result.Height != 80) {
+					t.Fatalf("clipboard metadata changed: %#v", result)
+				}
+			})
+		}
 	}
 }
 
 func TestRecognizeImageFallsBackToLocalOCRWhenAIFails(t *testing.T) {
 	imagePath := testImage(t)
-	service := NewService(nil, nil, nil)
+	service := NewService(nil, nil)
 	localCalled := false
 	service.runner = func(_ context.Context, path string) (bridgeOutput, Status) {
 		localCalled = true
@@ -138,7 +167,7 @@ func TestRecognizeImageFallsBackToLocalOCRWhenAIFails(t *testing.T) {
 
 func TestRecognizeImageUsesLocalOCRWhenAIOCRIsNotConfigured(t *testing.T) {
 	imagePath := testImage(t)
-	service := NewService(nil, nil, nil)
+	service := NewService(nil, nil)
 	localCalled := false
 	service.runner = func(_ context.Context, _ string) (bridgeOutput, Status) {
 		localCalled = true
@@ -158,7 +187,7 @@ func TestRecognizeImageUsesLocalOCRWhenAIOCRIsNotConfigured(t *testing.T) {
 
 func TestRecognizeImageSensitiveFlagRequiresCredentialShape(t *testing.T) {
 	imagePath := testImage(t)
-	service := NewService(nil, nil, nil)
+	service := NewService(nil, nil)
 	service.runner = func(_ context.Context, _ string) (bridgeOutput, Status) {
 		return bridgeOutput{OK: true, Provider: "test-ocr", Text: "登录页包含密码输入框、验证码按钮和 token 配置说明"}, Status{Available: true, Provider: "test-ocr"}
 	}
@@ -174,25 +203,6 @@ func TestRecognizeImageSensitiveFlagRequiresCredentialShape(t *testing.T) {
 	secret := service.RecognizeImagePath(imagePath)
 	if !secret.OK || !secret.Sensitive {
 		t.Fatalf("credential-shaped OCR text should be sensitive: %#v", secret)
-	}
-}
-
-func TestRecognizeWorkMemoryBlocksSensitiveEntries(t *testing.T) {
-	imagePath := testImage(t)
-	memory := &fakeMemory{entry: workmemory.Entry{ID: "memory-secret", ImagePath: imagePath, Sensitive: true}}
-	service := NewService(nil, nil, memory)
-	service.runner = func(_ context.Context, _ string) (bridgeOutput, Status) {
-		t.Fatal("sensitive entries must not run OCR")
-		return bridgeOutput{}, Status{}
-	}
-
-	result := service.RecognizeWorkMemory("memory-secret")
-
-	if result.OK || result.Error != "敏感条目默认不执行 OCR" {
-		t.Fatalf("expected sensitive entry to be blocked: %#v", result)
-	}
-	if memory.entry.OCRStatus != "blocked_sensitive" {
-		t.Fatalf("expected blocked status, got %#v", memory.entry)
 	}
 }
 
@@ -225,13 +235,13 @@ func TestDetectStatusDoesNotUseRepoVenvUnlessOptedIn(t *testing.T) {
 	t.Setenv("ARIADNE_OCR_PYTHON", "")
 	t.Setenv("ARIADNE_OCR_ALLOW_REPO_PYTHON", "")
 
-	status := NewService(nil, nil, nil).detectStatus()
+	status := NewService(nil, nil).detectStatus()
 	if status.Available || strings.EqualFold(status.PythonPath, repoPython) {
 		t.Fatalf("repo .venv should not be used by default, got %#v", status)
 	}
 
 	t.Setenv("ARIADNE_OCR_ALLOW_REPO_PYTHON", "1")
-	status = NewService(nil, nil, nil).detectStatus()
+	status = NewService(nil, nil).detectStatus()
 	if !status.Available || !strings.EqualFold(status.PythonPath, repoPython) {
 		t.Fatalf("repo .venv should be used only when explicitly enabled, got %#v want %s", status, repoPython)
 	}
@@ -252,7 +262,7 @@ func TestDetectStatusPrefersAriadneOCRRuntime(t *testing.T) {
 	t.Setenv("ARIADNE_OCR_PYTHON", "")
 	t.Setenv("ARIADNE_OCR_ALLOW_REPO_PYTHON", "1")
 
-	status := NewService(nil, nil, nil).detectStatus()
+	status := NewService(nil, nil).detectStatus()
 	if !status.Available || !strings.EqualFold(status.PythonPath, localPython) {
 		t.Fatalf("Ariadne OCR runtime should be preferred, got %#v want %s", status, localPython)
 	}
@@ -330,10 +340,6 @@ func (f fakeClipboard) Entry(id string) clipboardhistory.Entry {
 	return clipboardhistory.Entry{}
 }
 
-type fakeMemory struct {
-	entry workmemory.Entry
-}
-
 type fakeAIClient struct {
 	result AIResult
 	err    error
@@ -343,30 +349,4 @@ type fakeAIClient struct {
 func (f *fakeAIClient) RecognizeImageOCR(_ context.Context, job AIOCRJob) (AIResult, error) {
 	f.jobs = append(f.jobs, job)
 	return f.result, f.err
-}
-
-func (f *fakeMemory) Entry(id string) workmemory.Entry {
-	if id == f.entry.ID {
-		return f.entry
-	}
-	return workmemory.Entry{}
-}
-
-func (f *fakeMemory) ApplyOCRText(id string, text string, provider string) workmemory.Entry {
-	if id != f.entry.ID {
-		return workmemory.Entry{}
-	}
-	if provider == "blocked_sensitive" || strings.HasPrefix(provider, "failed:") {
-		f.entry.OCRStatus = provider
-		return f.entry
-	}
-	f.entry.OCRText = text
-	if text == "" {
-		f.entry.OCRStatus = "empty"
-		return f.entry
-	}
-	f.entry.OCRStatus = "done:" + provider
-	f.entry.ContentType = "ocr_text"
-	f.entry.Summary = text
-	return f.entry
 }

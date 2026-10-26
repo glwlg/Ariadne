@@ -153,11 +153,6 @@ func NewService() *Service {
 			Examples: []string{"wf clip-md5", "workflow now-timestamp", "flow"},
 			Params:   []CommandParam{{Name: "workflow_id", Label: "工作流 ID", Placeholder: "输入工作流 ID 或留空打开管理", Required: false}},
 		}, executeWorkflow),
-		manifest("work_memory", "工作记忆", "检索、补记、日报、复盘和知识草稿", []string{"mem", "memory", "wm", "记忆"}, []string{"clipboard", "open_path", "screenshot"}, CommandSchema{
-			Usage:    "mem <query|daily|capture|pause|resume>",
-			Examples: []string{"mem gateway", "mem daily", "mem capture"},
-			Params:   []CommandParam{{Name: "query", Label: "记忆查询或命令", Placeholder: "gateway / daily / capture", Required: false}},
-		}, executeWorkMemory),
 	}
 	return s
 }
@@ -636,44 +631,6 @@ func executeWorkflow(query string) []contracts.SearchResult {
 	return nil
 }
 
-func executeWorkMemory(query string) []contracts.SearchResult {
-	query = strings.ToLower(strings.TrimSpace(query))
-	switch query {
-	case "", "center":
-		return []contracts.SearchResult{toolWindowResult("work-memory-center", "打开工作记忆中心", "工作记忆", "时间线、截图历史、剪贴板、日报、知识草稿和经验发现。", "open_work_memory_center")}
-	case "daily", "day", "日报":
-		return []contracts.SearchResult{{
-			ID:       "work-memory-daily",
-			Type:     contracts.ResultWorkflow,
-			Title:    "生成今日工作日报",
-			Subtitle: "工作记忆 · 日报草稿",
-			Detail:   "基于本地工作记忆生成可编辑草稿，并保留证据引用。",
-			Icon:     "workflow",
-			Tags:     []string{"工作记忆", "日报"},
-			Preview:  contracts.PreviewDescriptor{Kind: contracts.PreviewWorkflow, Title: "生成今日工作日报", Subtitle: "本地草稿", Text: "不会自动发布或同步；所有外发处理都需要配置和确认。"},
-			Actions:  []contracts.PreviewAction{contracts.RunAction("generate_daily", "生成草稿", "mem daily", "Enter")},
-		}}
-	case "capture", "shot", "补记", "截图":
-		return []contracts.SearchResult{{
-			ID:       "work-memory-capture-now",
-			Type:     contracts.ResultMemory,
-			Title:    "手动补记当前屏幕",
-			Subtitle: "屏幕时间机器",
-			Detail:   "把当前屏幕写入工作记忆时间线。",
-			Icon:     "memory",
-			Tags:     []string{"工作记忆", "截图"},
-			Preview:  contracts.PreviewDescriptor{Kind: contracts.PreviewMemory, Title: "手动补记当前屏幕", Subtitle: "用户主动触发", Text: "受隐私模式和排除规则约束；不会绕过敏感内容策略。"},
-			Actions:  []contracts.PreviewAction{contracts.RunAction("capture_now", "立即补记", "mem capture", "Enter")},
-		}}
-	case "pause", "暂停":
-		return []contracts.SearchResult{messageResult("work-memory-pause", "暂停工作记忆", "工作记忆", "会暂停屏幕时间机器和自动处理任务。", "memory")}
-	case "resume", "恢复":
-		return []contracts.SearchResult{messageResult("work-memory-resume", "恢复工作记忆", "工作记忆", "恢复前仍会检查隐私模式和排除规则。", "memory")}
-	default:
-		return []contracts.SearchResult{copyResult("work-memory-query", "搜索工作记忆: "+query, "工作记忆", query, "将查询发送到本地工作记忆索引。", []string{"工作记忆"})}
-	}
-}
-
 func copyResult(id string, title string, subtitle string, text string, detail string, tags []string) contracts.SearchResult {
 	return contracts.SearchResult{
 		ID:       id,
@@ -695,7 +652,6 @@ func copyResult(id string, title string, subtitle string, text string, detail st
 		},
 		Actions: []contracts.PreviewAction{
 			contracts.CopyAction("copy_value", "复制结果", text, "Enter"),
-			contracts.RememberAction("remember", "加入记忆", id),
 		},
 	}
 }

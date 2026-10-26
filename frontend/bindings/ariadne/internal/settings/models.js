@@ -12,34 +12,6 @@ export class AISettings {
      * @param {Partial<AISettings>} [$$source = {}] - The source object to create the AISettings.
      */
     constructor($$source = {}) {
-        if (!("enabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["enabled"] = false;
-        }
-        if (!("provider" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["provider"] = "";
-        }
-        if (!("baseUrl" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["baseUrl"] = "";
-        }
-        if (!("model" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["model"] = "";
-        }
         if (!("ocrModelEnabled" in $$source)) {
             /**
              * @member
@@ -67,132 +39,6 @@ export class AISettings {
              * @type {string}
              */
             this["ocrModel"] = "";
-        }
-        if (!("pinnedOcrModelEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["pinnedOcrModelEnabled"] = false;
-        }
-        if (!("pinnedOcrProvider" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["pinnedOcrProvider"] = "";
-        }
-        if (!("pinnedOcrBaseUrl" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["pinnedOcrBaseUrl"] = "";
-        }
-        if (!("pinnedOcrModel" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["pinnedOcrModel"] = "";
-        }
-        if (!("embeddingEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["embeddingEnabled"] = false;
-        }
-        if (!("embeddingProvider" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["embeddingProvider"] = "";
-        }
-        if (!("embeddingBaseUrl" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["embeddingBaseUrl"] = "";
-        }
-        if (!("embeddingModel" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["embeddingModel"] = "";
-        }
-        if (!("vectorStoreType" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["vectorStoreType"] = "";
-        }
-        if (!("vectorStoreUri" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["vectorStoreUri"] = "";
-        }
-        if (!("vectorCollection" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["vectorCollection"] = "";
-        }
-        if (!("agentsSdkEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["agentsSdkEnabled"] = false;
-        }
-        if (!("agentResponsesEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["agentResponsesEnabled"] = false;
-        }
-        if (!("traceMode" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["traceMode"] = "";
-        }
-        if (!("opscoreSyncEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["opscoreSyncEnabled"] = false;
-        }
-        if (!("externalAgentEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["externalAgentEnabled"] = false;
-        }
-        if (!("codexCollaborationEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["codexCollaborationEnabled"] = false;
-        }
-        if (!("externalAgentTaskDirectory" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["externalAgentTaskDirectory"] = "";
         }
 
         Object.assign(this, $$source);
@@ -243,12 +89,12 @@ export class AppSettings {
              */
             this["screenshot"] = (new ScreenshotSettings());
         }
-        if (!("workMemory" in $$source)) {
+        if (!("history" in $$source)) {
             /**
              * @member
-             * @type {WorkMemorySettings}
+             * @type {HistorySettings}
              */
-            this["workMemory"] = (new WorkMemorySettings());
+            this["history"] = (new HistorySettings());
         }
         if (!("ai" in $$source)) {
             /**
@@ -298,8 +144,8 @@ export class AppSettings {
         if ("screenshot" in $$parsedSource) {
             $$parsedSource["screenshot"] = $$createField3_0($$parsedSource["screenshot"]);
         }
-        if ("workMemory" in $$parsedSource) {
-            $$parsedSource["workMemory"] = $$createField4_0($$parsedSource["workMemory"]);
+        if ("history" in $$parsedSource) {
+            $$parsedSource["history"] = $$createField4_0($$parsedSource["history"]);
         }
         if ("ai" in $$parsedSource) {
             $$parsedSource["ai"] = $$createField5_0($$parsedSource["ai"]);
@@ -353,6 +199,62 @@ export class GeneralSettings {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new GeneralSettings(/** @type {Partial<GeneralSettings>} */($$parsedSource));
+    }
+}
+
+export class HistorySettings {
+    /**
+     * Creates a new HistorySettings instance.
+     * @param {Partial<HistorySettings>} [$$source = {}] - The source object to create the HistorySettings.
+     */
+    constructor($$source = {}) {
+        if (!("clipboardEnabled" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["clipboardEnabled"] = false;
+        }
+        if (!("privacyMode" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["privacyMode"] = false;
+        }
+        if (!("retentionDays" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["retentionDays"] = 0;
+        }
+        if (!("maxStorageMb" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["maxStorageMb"] = 0;
+        }
+        if (!("keepFavoritesForever" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["keepFavoritesForever"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new HistorySettings instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {HistorySettings}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new HistorySettings(/** @type {Partial<HistorySettings>} */($$parsedSource));
     }
 }
 
@@ -805,452 +707,13 @@ export class StorageStatus {
     }
 }
 
-export class WorkMemoryAppCaptureProfile {
-    /**
-     * Creates a new WorkMemoryAppCaptureProfile instance.
-     * @param {Partial<WorkMemoryAppCaptureProfile>} [$$source = {}] - The source object to create the WorkMemoryAppCaptureProfile.
-     */
-    constructor($$source = {}) {
-        if (!("id" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["id"] = "";
-        }
-        if (!("displayName" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["displayName"] = "";
-        }
-        if (!("processName" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["processName"] = "";
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {string | undefined}
-             */
-            this["icon"] = undefined;
-        }
-        if (!("enabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["enabled"] = false;
-        }
-        if (!("windowSwitchDelaySeconds" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["windowSwitchDelaySeconds"] = 0;
-        }
-        if (!("activeIntervalSeconds" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["activeIntervalSeconds"] = 0;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WorkMemoryAppCaptureProfile instance from a string or object.
-     * @param {any} [$$source = {}]
-     * @returns {WorkMemoryAppCaptureProfile}
-     */
-    static createFrom($$source = {}) {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new WorkMemoryAppCaptureProfile(/** @type {Partial<WorkMemoryAppCaptureProfile>} */($$parsedSource));
-    }
-}
-
-export class WorkMemorySettings {
-    /**
-     * Creates a new WorkMemorySettings instance.
-     * @param {Partial<WorkMemorySettings>} [$$source = {}] - The source object to create the WorkMemorySettings.
-     */
-    constructor($$source = {}) {
-        if (!("enabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["enabled"] = false;
-        }
-        if (!("timeMachineEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["timeMachineEnabled"] = false;
-        }
-        if (!("autoCaptureIntervalSeconds" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["autoCaptureIntervalSeconds"] = 0;
-        }
-        if (!("windowSwitchCaptureEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["windowSwitchCaptureEnabled"] = false;
-        }
-        if (!("windowSwitchCooldownSeconds" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["windowSwitchCooldownSeconds"] = 0;
-        }
-        if (!("appCaptureProfiles" in $$source)) {
-            /**
-             * @member
-             * @type {WorkMemoryAppCaptureProfile[]}
-             */
-            this["appCaptureProfiles"] = [];
-        }
-        if (!("captureScope" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["captureScope"] = "";
-        }
-        if (!("screenshotQuality" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["screenshotQuality"] = 0;
-        }
-        if (!("multiMonitor" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["multiMonitor"] = "";
-        }
-        if (!("privacyMode" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["privacyMode"] = false;
-        }
-        if (!("pauseOnIdle" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["pauseOnIdle"] = false;
-        }
-        if (!("idlePauseSeconds" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["idlePauseSeconds"] = 0;
-        }
-        if (!("pauseOnLock" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["pauseOnLock"] = false;
-        }
-        if (!("sourceClipboard" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["sourceClipboard"] = false;
-        }
-        if (!("sourceCaptureHistory" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["sourceCaptureHistory"] = false;
-        }
-        if (!("sourceManualNote" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["sourceManualNote"] = false;
-        }
-        if (!("sourceSearchFavorite" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["sourceSearchFavorite"] = false;
-        }
-        if (!("sourceActions" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["sourceActions"] = false;
-        }
-        if (!("autoOcr" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["autoOcr"] = false;
-        }
-        if (!("draftScheduleEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["draftScheduleEnabled"] = false;
-        }
-        if (!("draftScheduleIntervalMinutes" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["draftScheduleIntervalMinutes"] = 0;
-        }
-        if (!("dailyDraftScheduleEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["dailyDraftScheduleEnabled"] = false;
-        }
-        if (!("retrospectiveDraftScheduleEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["retrospectiveDraftScheduleEnabled"] = false;
-        }
-        if (!("experienceScheduleEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["experienceScheduleEnabled"] = false;
-        }
-        if (!("experienceDiscoveryEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["experienceDiscoveryEnabled"] = false;
-        }
-        if (!("experienceDiscoveryDays" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["experienceDiscoveryDays"] = 0;
-        }
-        if (!("skillSuggestionEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["skillSuggestionEnabled"] = false;
-        }
-        if (!("workflowSuggestionEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["workflowSuggestionEnabled"] = false;
-        }
-        if (!("flowAutonomyEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["flowAutonomyEnabled"] = false;
-        }
-        if (!("flowCommunicationAssist" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["flowCommunicationAssist"] = false;
-        }
-        if (!("flowTextQualityAssist" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["flowTextQualityAssist"] = false;
-        }
-        if (!("flowCandidateTtlHours" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["flowCandidateTtlHours"] = 0;
-        }
-        if (!("flowCandidateCooldownMinutes" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["flowCandidateCooldownMinutes"] = 0;
-        }
-        if (!("flowDefaultSnoozeMinutes" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["flowDefaultSnoozeMinutes"] = 0;
-        }
-        if (!("flowNotifyLowRiskAutomatic" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["flowNotifyLowRiskAutomatic"] = false;
-        }
-        if (!("retentionDays" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["retentionDays"] = 0;
-        }
-        if (!("thumbnailRetentionDays" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["thumbnailRetentionDays"] = 0;
-        }
-        if (!("maxStorageMb" in $$source)) {
-            /**
-             * @member
-             * @type {number}
-             */
-            this["maxStorageMb"] = 0;
-        }
-        if (!("keepFavoritesForever" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["keepFavoritesForever"] = false;
-        }
-        if (!("excludeApps" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["excludeApps"] = [];
-        }
-        if (!("excludeWindowKeywords" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["excludeWindowKeywords"] = [];
-        }
-        if (!("excludePaths" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["excludePaths"] = [];
-        }
-        if (!("excludeUrls" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["excludeUrls"] = [];
-        }
-        if (!("excludeContentPatterns" in $$source)) {
-            /**
-             * @member
-             * @type {string[]}
-             */
-            this["excludeContentPatterns"] = [];
-        }
-        if (!("sensitiveRulesEnabled" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["sensitiveRulesEnabled"] = false;
-        }
-        if (!("allowSensitiveExport" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["allowSensitiveExport"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WorkMemorySettings instance from a string or object.
-     * @param {any} [$$source = {}]
-     * @returns {WorkMemorySettings}
-     */
-    static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType10;
-        const $$createField39_0 = $$createType7;
-        const $$createField40_0 = $$createType7;
-        const $$createField41_0 = $$createType7;
-        const $$createField42_0 = $$createType7;
-        const $$createField43_0 = $$createType7;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("appCaptureProfiles" in $$parsedSource) {
-            $$parsedSource["appCaptureProfiles"] = $$createField5_0($$parsedSource["appCaptureProfiles"]);
-        }
-        if ("excludeApps" in $$parsedSource) {
-            $$parsedSource["excludeApps"] = $$createField39_0($$parsedSource["excludeApps"]);
-        }
-        if ("excludeWindowKeywords" in $$parsedSource) {
-            $$parsedSource["excludeWindowKeywords"] = $$createField40_0($$parsedSource["excludeWindowKeywords"]);
-        }
-        if ("excludePaths" in $$parsedSource) {
-            $$parsedSource["excludePaths"] = $$createField41_0($$parsedSource["excludePaths"]);
-        }
-        if ("excludeUrls" in $$parsedSource) {
-            $$parsedSource["excludeUrls"] = $$createField42_0($$parsedSource["excludeUrls"]);
-        }
-        if ("excludeContentPatterns" in $$parsedSource) {
-            $$parsedSource["excludeContentPatterns"] = $$createField43_0($$parsedSource["excludeContentPatterns"]);
-        }
-        return new WorkMemorySettings(/** @type {Partial<WorkMemorySettings>} */($$parsedSource));
-    }
-}
-
 // Private type creation functions
 const $$createType0 = GeneralSettings.createFrom;
 const $$createType1 = Hotkeys.createFrom;
 const $$createType2 = ScreenshotSettings.createFrom;
-const $$createType3 = WorkMemorySettings.createFrom;
+const $$createType3 = HistorySettings.createFrom;
 const $$createType4 = AISettings.createFrom;
 const $$createType5 = PluginSettings.createFrom;
 const $$createType6 = SearchSettings.createFrom;
 const $$createType7 = $Create.Array($Create.Any);
 const $$createType8 = $Create.Map($Create.Any, $Create.Any);
-const $$createType9 = WorkMemoryAppCaptureProfile.createFrom;
-const $$createType10 = $Create.Array($$createType9);

@@ -39,91 +39,10 @@ type ScreenshotSettings struct {
 }
 
 type AISettings struct {
-	Enabled                    bool   `json:"enabled"`
-	Provider                   string `json:"provider"`
-	BaseURL                    string `json:"baseUrl"`
-	Model                      string `json:"model"`
-	OCRModelEnabled            bool   `json:"ocrModelEnabled"`
-	OCRProvider                string `json:"ocrProvider"`
-	OCRBaseURL                 string `json:"ocrBaseUrl"`
-	OCRModel                   string `json:"ocrModel"`
-	PinnedOCRModelEnabled      bool   `json:"pinnedOcrModelEnabled"`
-	PinnedOCRProvider          string `json:"pinnedOcrProvider"`
-	PinnedOCRBaseURL           string `json:"pinnedOcrBaseUrl"`
-	PinnedOCRModel             string `json:"pinnedOcrModel"`
-	EmbeddingEnabled           bool   `json:"embeddingEnabled"`
-	EmbeddingProvider          string `json:"embeddingProvider"`
-	EmbeddingBaseURL           string `json:"embeddingBaseUrl"`
-	EmbeddingModel             string `json:"embeddingModel"`
-	VectorStoreType            string `json:"vectorStoreType"`
-	VectorStoreURI             string `json:"vectorStoreUri"`
-	VectorCollection           string `json:"vectorCollection"`
-	AgentsSDKEnabled           bool   `json:"agentsSdkEnabled"`
-	AgentResponsesEnabled      bool   `json:"agentResponsesEnabled"`
-	TraceMode                  string `json:"traceMode"`
-	OpsCoreSyncEnabled         bool   `json:"opscoreSyncEnabled"`
-	ExternalAgentEnabled       bool   `json:"externalAgentEnabled"`
-	CodexCollaborationEnabled  bool   `json:"codexCollaborationEnabled"`
-	ExternalAgentTaskDirectory string `json:"externalAgentTaskDirectory"`
-}
-
-type WorkMemorySettings struct {
-	Enabled                    bool                          `json:"enabled"`
-	TimeMachineEnabled         bool                          `json:"timeMachineEnabled"`
-	AutoCaptureIntervalSeconds int                           `json:"autoCaptureIntervalSeconds"`
-	WindowSwitchCaptureEnabled bool                          `json:"windowSwitchCaptureEnabled"`
-	WindowSwitchCooldownSecs   int                           `json:"windowSwitchCooldownSeconds"`
-	AppCaptureProfiles         []WorkMemoryAppCaptureProfile `json:"appCaptureProfiles"`
-	CaptureScope               string                        `json:"captureScope"`
-	ScreenshotQuality          int                           `json:"screenshotQuality"`
-	MultiMonitor               string                        `json:"multiMonitor"`
-	PrivacyMode                bool                          `json:"privacyMode"`
-	PauseOnIdle                bool                          `json:"pauseOnIdle"`
-	IdlePauseSeconds           int                           `json:"idlePauseSeconds"`
-	PauseOnLock                bool                          `json:"pauseOnLock"`
-	SourceClipboard            bool                          `json:"sourceClipboard"`
-	SourceCaptureHistory       bool                          `json:"sourceCaptureHistory"`
-	SourceManualNote           bool                          `json:"sourceManualNote"`
-	SourceSearchFavorite       bool                          `json:"sourceSearchFavorite"`
-	SourceActions              bool                          `json:"sourceActions"`
-	AutoOCR                    bool                          `json:"autoOcr"`
-	DraftScheduleEnabled       bool                          `json:"draftScheduleEnabled"`
-	DraftScheduleIntervalMin   int                           `json:"draftScheduleIntervalMinutes"`
-	DailyDraftScheduleEnabled  bool                          `json:"dailyDraftScheduleEnabled"`
-	RetroDraftScheduleEnabled  bool                          `json:"retrospectiveDraftScheduleEnabled"`
-	ExperienceScheduleEnabled  bool                          `json:"experienceScheduleEnabled"`
-	ExperienceDiscoveryEnabled bool                          `json:"experienceDiscoveryEnabled"`
-	ExperienceDiscoveryDays    int                           `json:"experienceDiscoveryDays"`
-	SkillSuggestionEnabled     bool                          `json:"skillSuggestionEnabled"`
-	WorkflowSuggestionEnabled  bool                          `json:"workflowSuggestionEnabled"`
-	FlowAutonomyEnabled        bool                          `json:"flowAutonomyEnabled"`
-	FlowCommunicationAssist    bool                          `json:"flowCommunicationAssist"`
-	FlowTextQualityAssist      bool                          `json:"flowTextQualityAssist"`
-	FlowCandidateTTLHours      int                           `json:"flowCandidateTtlHours"`
-	FlowCandidateCooldownMin   int                           `json:"flowCandidateCooldownMinutes"`
-	FlowDefaultSnoozeMin       int                           `json:"flowDefaultSnoozeMinutes"`
-	FlowNotifyLowRiskAutomatic bool                          `json:"flowNotifyLowRiskAutomatic"`
-	RetentionDays              int                           `json:"retentionDays"`
-	ThumbnailRetentionDays     int                           `json:"thumbnailRetentionDays"`
-	MaxStorageMB               int                           `json:"maxStorageMb"`
-	KeepFavoritesForever       bool                          `json:"keepFavoritesForever"`
-	ExcludeApps                []string                      `json:"excludeApps"`
-	ExcludeWindowKeywords      []string                      `json:"excludeWindowKeywords"`
-	ExcludePaths               []string                      `json:"excludePaths"`
-	ExcludeURLs                []string                      `json:"excludeUrls"`
-	ExcludeContentPatterns     []string                      `json:"excludeContentPatterns"`
-	SensitiveRulesEnabled      bool                          `json:"sensitiveRulesEnabled"`
-	AllowSensitiveExport       bool                          `json:"allowSensitiveExport"`
-}
-
-type WorkMemoryAppCaptureProfile struct {
-	ID                       string `json:"id"`
-	DisplayName              string `json:"displayName"`
-	ProcessName              string `json:"processName"`
-	Icon                     string `json:"icon,omitempty"`
-	Enabled                  bool   `json:"enabled"`
-	WindowSwitchDelaySeconds int    `json:"windowSwitchDelaySeconds"`
-	ActiveIntervalSeconds    int    `json:"activeIntervalSeconds"`
+	OCRModelEnabled bool   `json:"ocrModelEnabled"`
+	OCRProvider     string `json:"ocrProvider"`
+	OCRBaseURL      string `json:"ocrBaseUrl"`
+	OCRModel        string `json:"ocrModel"`
 }
 
 type PluginSettings struct {
@@ -137,14 +56,22 @@ type SearchSettings struct {
 	FileExcludeExtensions []string `json:"fileExcludeExtensions"`
 }
 
-const currentSettingsVersion = 21
+type HistorySettings struct {
+	ClipboardEnabled     bool `json:"clipboardEnabled"`
+	PrivacyMode          bool `json:"privacyMode"`
+	RetentionDays        int  `json:"retentionDays"`
+	MaxStorageMB         int  `json:"maxStorageMb"`
+	KeepFavoritesForever bool `json:"keepFavoritesForever"`
+}
+
+const currentSettingsVersion = 23
 
 type AppSettings struct {
 	Version    int                `json:"version"`
 	General    GeneralSettings    `json:"general"`
 	Hotkeys    Hotkeys            `json:"hotkeys"`
 	Screenshot ScreenshotSettings `json:"screenshot"`
-	WorkMemory WorkMemorySettings `json:"workMemory"`
+	History    HistorySettings    `json:"history"`
 	AI         AISettings         `json:"ai"`
 	Plugins    PluginSettings     `json:"plugins"`
 	Search     SearchSettings     `json:"search"`
@@ -516,62 +443,11 @@ func applyLegacyPreferences(next AppSettings, legacy map[string]any) AppSettings
 	next.Screenshot.FilenameTemplate = asString(legacy["screenshot_filename_template"], next.Screenshot.FilenameTemplate)
 
 	if workMemory, ok := legacy["work_memory"].(map[string]any); ok {
-		next.WorkMemory.Enabled = asBool(workMemory["enabled"], next.WorkMemory.Enabled)
-		next.WorkMemory.TimeMachineEnabled = asBool(workMemory["time_machine_enabled"], next.WorkMemory.TimeMachineEnabled)
-		next.WorkMemory.AutoCaptureIntervalSeconds = asInt(workMemory["auto_capture_interval_seconds"], next.WorkMemory.AutoCaptureIntervalSeconds)
-		next.WorkMemory.WindowSwitchCaptureEnabled = asBool(workMemory["window_switch_capture_enabled"], next.WorkMemory.WindowSwitchCaptureEnabled)
-		next.WorkMemory.WindowSwitchCooldownSecs = asInt(workMemory["window_switch_cooldown_seconds"], next.WorkMemory.WindowSwitchCooldownSecs)
-		next.WorkMemory.CaptureScope = asString(workMemory["capture_scope"], next.WorkMemory.CaptureScope)
-		next.WorkMemory.ScreenshotQuality = asInt(workMemory["screenshot_quality"], next.WorkMemory.ScreenshotQuality)
-		next.WorkMemory.MultiMonitor = asString(workMemory["multi_monitor"], next.WorkMemory.MultiMonitor)
-		next.WorkMemory.PrivacyMode = asBool(workMemory["privacy_mode"], next.WorkMemory.PrivacyMode)
-		next.WorkMemory.PauseOnIdle = asBool(workMemory["pause_on_idle"], next.WorkMemory.PauseOnIdle)
-		next.WorkMemory.IdlePauseSeconds = asInt(workMemory["idle_pause_seconds"], next.WorkMemory.IdlePauseSeconds)
-		next.WorkMemory.PauseOnLock = asBool(workMemory["pause_on_lock"], next.WorkMemory.PauseOnLock)
-		next.WorkMemory.SourceClipboard = asBool(workMemory["source_clipboard"], next.WorkMemory.SourceClipboard)
-		next.WorkMemory.SourceCaptureHistory = asBool(workMemory["source_capture_history"], next.WorkMemory.SourceCaptureHistory)
-		next.WorkMemory.SourceManualNote = asBool(workMemory["source_manual_note"], next.WorkMemory.SourceManualNote)
-		next.WorkMemory.SourceSearchFavorite = asBool(workMemory["source_search_favorite"], next.WorkMemory.SourceSearchFavorite)
-		next.WorkMemory.SourceActions = asBool(workMemory["source_actions"], next.WorkMemory.SourceActions)
-		next.WorkMemory.AutoOCR = asBool(workMemory["auto_ocr"], next.WorkMemory.AutoOCR)
-		next.WorkMemory.ExperienceDiscoveryEnabled = asBool(workMemory["experience_discovery_enabled"], next.WorkMemory.ExperienceDiscoveryEnabled)
-		next.WorkMemory.ExperienceDiscoveryDays = asInt(workMemory["experience_discovery_period_days"], next.WorkMemory.ExperienceDiscoveryDays)
-		next.WorkMemory.SkillSuggestionEnabled = asBool(workMemory["skill_suggestion_enabled"], next.WorkMemory.SkillSuggestionEnabled)
-		next.WorkMemory.WorkflowSuggestionEnabled = asBool(workMemory["workflow_suggestion_enabled"], next.WorkMemory.WorkflowSuggestionEnabled)
-		next.WorkMemory.RetentionDays = asInt(workMemory["retention_days"], next.WorkMemory.RetentionDays)
-		next.WorkMemory.ThumbnailRetentionDays = asInt(workMemory["thumbnail_retention_days"], next.WorkMemory.ThumbnailRetentionDays)
-		next.WorkMemory.MaxStorageMB = asInt(workMemory["max_storage_mb"], next.WorkMemory.MaxStorageMB)
-		next.WorkMemory.KeepFavoritesForever = asBool(workMemory["keep_favorites_forever"], next.WorkMemory.KeepFavoritesForever)
-		next.WorkMemory.ExcludeApps = asStringList(workMemory["exclude_apps"], next.WorkMemory.ExcludeApps)
-		next.WorkMemory.ExcludeWindowKeywords = asStringList(workMemory["exclude_window_keywords"], next.WorkMemory.ExcludeWindowKeywords)
-		next.WorkMemory.ExcludePaths = asStringList(workMemory["exclude_paths"], next.WorkMemory.ExcludePaths)
-		next.WorkMemory.ExcludeURLs = asStringList(firstLegacyValue(workMemory, "exclude_urls", "exclude_url_patterns"), next.WorkMemory.ExcludeURLs)
-		next.WorkMemory.ExcludeContentPatterns = asStringList(workMemory["exclude_content_patterns"], next.WorkMemory.ExcludeContentPatterns)
-		next.WorkMemory.SensitiveRulesEnabled = asBool(workMemory["sensitive_rules_enabled"], next.WorkMemory.SensitiveRulesEnabled)
-		next.WorkMemory.AllowSensitiveExport = asBool(workMemory["allow_sensitive_export"], next.WorkMemory.AllowSensitiveExport)
 
-		next.AI.Enabled = asBool(workMemory["ai_enabled"], next.AI.Enabled)
-		next.AI.Provider = asString(workMemory["ai_provider"], next.AI.Provider)
-		next.AI.BaseURL = asString(workMemory["ai_base_url"], next.AI.BaseURL)
-		next.AI.Model = asString(workMemory["ai_model"], next.AI.Model)
 		next.AI.OCRModelEnabled = asBool(firstLegacyValue(workMemory, "ocr_model_enabled", "ai_ocr_enabled"), next.AI.OCRModelEnabled)
 		next.AI.OCRProvider = asString(firstLegacyValue(workMemory, "ocr_provider", "ai_ocr_provider"), next.AI.OCRProvider)
 		next.AI.OCRBaseURL = asString(firstLegacyValue(workMemory, "ocr_base_url", "ai_ocr_base_url"), next.AI.OCRBaseURL)
 		next.AI.OCRModel = asString(firstLegacyValue(workMemory, "ocr_model", "ai_ocr_model"), next.AI.OCRModel)
-		next.AI.EmbeddingEnabled = asBool(workMemory["embedding_enabled"], next.AI.EmbeddingEnabled)
-		next.AI.EmbeddingProvider = asString(workMemory["embedding_provider"], next.AI.EmbeddingProvider)
-		next.AI.EmbeddingBaseURL = asString(workMemory["embedding_base_url"], next.AI.EmbeddingBaseURL)
-		next.AI.EmbeddingModel = asString(workMemory["embedding_model"], next.AI.EmbeddingModel)
-		next.AI.VectorStoreType = asString(workMemory["vector_store_type"], next.AI.VectorStoreType)
-		next.AI.VectorStoreURI = asString(workMemory["vector_store_uri"], next.AI.VectorStoreURI)
-		next.AI.VectorCollection = asString(workMemory["vector_collection"], next.AI.VectorCollection)
-		next.AI.AgentsSDKEnabled = asBool(workMemory["agents_sdk_enabled"], next.AI.AgentsSDKEnabled)
-		next.AI.AgentResponsesEnabled = asBool(firstLegacyValue(workMemory, "agent_responses_enabled", "agents_responses_enabled", "agents_sdk_responses_enabled"), next.AI.AgentResponsesEnabled)
-		next.AI.TraceMode = asString(workMemory["trace_mode"], next.AI.TraceMode)
-		next.AI.OpsCoreSyncEnabled = asBool(workMemory["opscore_sync_enabled"], next.AI.OpsCoreSyncEnabled)
-		next.AI.ExternalAgentEnabled = asBool(workMemory["external_agent_enabled"], next.AI.ExternalAgentEnabled)
-		next.AI.CodexCollaborationEnabled = asBool(workMemory["codex_collaboration_enabled"], next.AI.CodexCollaborationEnabled)
-		next.AI.ExternalAgentTaskDirectory = asString(workMemory["external_agent_task_dir"], next.AI.ExternalAgentTaskDirectory)
 	}
 	if plugins, ok := legacy["plugins_enabled"].(map[string]any); ok {
 		next.Plugins.Enabled = map[string]bool{}
@@ -631,109 +507,12 @@ func defaultSettings() AppSettings {
 			RedactPhones:     true,
 			RedactKeywords:   []string{},
 		},
-		WorkMemory: WorkMemorySettings{
-			Enabled:                    true,
-			TimeMachineEnabled:         false,
-			AutoCaptureIntervalSeconds: 60,
-			WindowSwitchCaptureEnabled: true,
-			WindowSwitchCooldownSecs:   3,
-			CaptureScope:               "active_window",
-			ScreenshotQuality:          90,
-			MultiMonitor:               "combined",
-			PrivacyMode:                false,
-			PauseOnIdle:                true,
-			IdlePauseSeconds:           600,
-			PauseOnLock:                true,
-			SourceClipboard:            true,
-			SourceCaptureHistory:       true,
-			SourceManualNote:           true,
-			SourceSearchFavorite:       true,
-			SourceActions:              true,
-			AutoOCR:                    true,
-			DraftScheduleEnabled:       true,
-			DraftScheduleIntervalMin:   240,
-			DailyDraftScheduleEnabled:  true,
-			RetroDraftScheduleEnabled:  true,
-			ExperienceScheduleEnabled:  true,
-			ExperienceDiscoveryEnabled: true,
-			ExperienceDiscoveryDays:    7,
-			SkillSuggestionEnabled:     true,
-			WorkflowSuggestionEnabled:  true,
-			FlowAutonomyEnabled:        true,
-			FlowCommunicationAssist:    true,
-			FlowTextQualityAssist:      true,
-			FlowCandidateTTLHours:      8,
-			FlowCandidateCooldownMin:   15,
-			FlowDefaultSnoozeMin:       30,
-			FlowNotifyLowRiskAutomatic: false,
-			RetentionDays:              30,
-			ThumbnailRetentionDays:     90,
-			MaxStorageMB:               1024,
-			KeepFavoritesForever:       true,
-			ExcludeApps: []string{
-				"1password.exe",
-				"bitwarden.exe",
-				"keepass.exe",
-				"lastpass.exe",
-				"credentialuibroker.exe",
-				"lockapp.exe",
-				"logonui.exe",
-				"mstsc.exe",
-				"remotehelp.exe",
-			},
-			ExcludeWindowKeywords: []string{
-				"password",
-				"passwd",
-				"token",
-				"secret",
-				"otp",
-				"验证码",
-				"密码",
-				"登录",
-				"支付",
-				"隐私",
-				"无痕",
-				"private",
-				"incognito",
-				"remote desktop",
-				"远程桌面",
-				"堡垒机",
-				"vpn",
-				"sso",
-			},
-			ExcludePaths:           []string{},
-			ExcludeURLs:            []string{},
-			ExcludeContentPatterns: []string{},
-			SensitiveRulesEnabled:  true,
-			AllowSensitiveExport:   false,
-		},
+		History: HistorySettings{ClipboardEnabled: true, RetentionDays: 30, MaxStorageMB: 1024, KeepFavoritesForever: true},
 		AI: AISettings{
-			Enabled:                    false,
-			Provider:                   "disabled",
-			BaseURL:                    "",
-			Model:                      "",
-			OCRModelEnabled:            false,
-			OCRProvider:                "openai-compatible",
-			OCRBaseURL:                 "",
-			OCRModel:                   "",
-			PinnedOCRModelEnabled:      false,
-			PinnedOCRProvider:          "openai-compatible",
-			PinnedOCRBaseURL:           "",
-			PinnedOCRModel:             "",
-			EmbeddingEnabled:           false,
-			EmbeddingProvider:          "disabled",
-			EmbeddingBaseURL:           "",
-			EmbeddingModel:             "",
-			VectorStoreType:            "disabled",
-			VectorStoreURI:             "",
-			VectorCollection:           "ariadne_work_memory",
-			AgentsSDKEnabled:           true,
-			AgentResponsesEnabled:      true,
-			TraceMode:                  "off",
-			OpsCoreSyncEnabled:         false,
-			ExternalAgentEnabled:       true,
-			CodexCollaborationEnabled:  false,
-			ExternalAgentTaskDirectory: filepath.Join(home, "Documents", "Ariadne", "agent_tasks"),
+			OCRModelEnabled: false,
+			OCRProvider:     "openai-compatible",
+			OCRBaseURL:      "",
+			OCRModel:        "",
 		},
 		Plugins: PluginSettings{Enabled: map[string]bool{}},
 		Search: SearchSettings{
@@ -891,39 +670,11 @@ func normalizeSettings(value AppSettings) AppSettings {
 	value.Screenshot.Quality = clamp(value.Screenshot.Quality, 1, 100, defaults.Screenshot.Quality)
 	value.Screenshot.RedactKeywords = cleanList(value.Screenshot.RedactKeywords, nil)
 
-	value.WorkMemory.AutoCaptureIntervalSeconds = clamp(value.WorkMemory.AutoCaptureIntervalSeconds, 10, 86400, defaults.WorkMemory.AutoCaptureIntervalSeconds)
-	value.WorkMemory.WindowSwitchCooldownSecs = clamp(value.WorkMemory.WindowSwitchCooldownSecs, 3, 3600, defaults.WorkMemory.WindowSwitchCooldownSecs)
-	value.WorkMemory.AppCaptureProfiles = normalizeAppCaptureProfiles(value.WorkMemory.AppCaptureProfiles)
-	value.WorkMemory.CaptureScope = oneOf(value.WorkMemory.CaptureScope, defaults.WorkMemory.CaptureScope, "all_screens", "active_window", "primary_screen")
-	value.WorkMemory.ScreenshotQuality = clamp(value.WorkMemory.ScreenshotQuality, 1, 100, defaults.WorkMemory.ScreenshotQuality)
-	value.WorkMemory.MultiMonitor = oneOf(value.WorkMemory.MultiMonitor, defaults.WorkMemory.MultiMonitor, "combined", "per_monitor", "primary_only")
-	value.WorkMemory.IdlePauseSeconds = clamp(value.WorkMemory.IdlePauseSeconds, 30, 86400, defaults.WorkMemory.IdlePauseSeconds)
-	value.WorkMemory.DraftScheduleIntervalMin = clamp(value.WorkMemory.DraftScheduleIntervalMin, 15, 1440, defaults.WorkMemory.DraftScheduleIntervalMin)
-	value.WorkMemory.ExperienceDiscoveryDays = clamp(value.WorkMemory.ExperienceDiscoveryDays, 1, 365, defaults.WorkMemory.ExperienceDiscoveryDays)
-	value.WorkMemory.FlowCandidateTTLHours = clamp(value.WorkMemory.FlowCandidateTTLHours, 1, 168, defaults.WorkMemory.FlowCandidateTTLHours)
-	value.WorkMemory.FlowCandidateCooldownMin = clamp(value.WorkMemory.FlowCandidateCooldownMin, 1, 1440, defaults.WorkMemory.FlowCandidateCooldownMin)
-	value.WorkMemory.FlowDefaultSnoozeMin = clamp(value.WorkMemory.FlowDefaultSnoozeMin, 5, 1440, defaults.WorkMemory.FlowDefaultSnoozeMin)
-	value.WorkMemory.RetentionDays = clamp(value.WorkMemory.RetentionDays, 1, 3650, defaults.WorkMemory.RetentionDays)
-	value.WorkMemory.ThumbnailRetentionDays = clamp(value.WorkMemory.ThumbnailRetentionDays, 1, 3650, defaults.WorkMemory.ThumbnailRetentionDays)
-	value.WorkMemory.MaxStorageMB = clamp(value.WorkMemory.MaxStorageMB, 128, 1024*1024, defaults.WorkMemory.MaxStorageMB)
-	value.WorkMemory.ExcludeApps = cleanList(value.WorkMemory.ExcludeApps, defaults.WorkMemory.ExcludeApps)
-	value.WorkMemory.ExcludeWindowKeywords = cleanList(value.WorkMemory.ExcludeWindowKeywords, defaults.WorkMemory.ExcludeWindowKeywords)
-	value.WorkMemory.ExcludePaths = cleanList(value.WorkMemory.ExcludePaths, nil)
-	value.WorkMemory.ExcludeURLs = cleanList(value.WorkMemory.ExcludeURLs, nil)
-	value.WorkMemory.ExcludeContentPatterns = cleanList(value.WorkMemory.ExcludeContentPatterns, nil)
-
-	value.AI.Provider = firstNonEmpty(value.AI.Provider, defaults.AI.Provider)
+	value.History.RetentionDays = clamp(value.History.RetentionDays, 1, 3650, defaults.History.RetentionDays)
+	value.History.MaxStorageMB = clamp(value.History.MaxStorageMB, 128, 1024*1024, defaults.History.MaxStorageMB)
 	value.AI.OCRProvider = firstNonEmpty(value.AI.OCRProvider, defaults.AI.OCRProvider)
 	value.AI.OCRBaseURL = strings.TrimSpace(value.AI.OCRBaseURL)
 	value.AI.OCRModel = strings.TrimSpace(value.AI.OCRModel)
-	value.AI.PinnedOCRProvider = firstNonEmpty(value.AI.PinnedOCRProvider, defaults.AI.PinnedOCRProvider)
-	value.AI.PinnedOCRBaseURL = strings.TrimSpace(value.AI.PinnedOCRBaseURL)
-	value.AI.PinnedOCRModel = strings.TrimSpace(value.AI.PinnedOCRModel)
-	value.AI.EmbeddingProvider = firstNonEmpty(value.AI.EmbeddingProvider, defaults.AI.EmbeddingProvider)
-	value.AI.VectorStoreType = firstNonEmpty(value.AI.VectorStoreType, defaults.AI.VectorStoreType)
-	value.AI.VectorCollection = firstNonEmpty(value.AI.VectorCollection, defaults.AI.VectorCollection)
-	value.AI.TraceMode = oneOf(value.AI.TraceMode, defaults.AI.TraceMode, "off", "local", "internal")
-	value.AI.ExternalAgentTaskDirectory = firstNonEmpty(value.AI.ExternalAgentTaskDirectory, defaults.AI.ExternalAgentTaskDirectory)
 	if value.Plugins.Enabled == nil {
 		value.Plugins.Enabled = map[string]bool{}
 	}
@@ -957,106 +708,12 @@ func normalizePluginEnabled(enabled map[string]bool) map[string]bool {
 	return normalized
 }
 
-func normalizeAppCaptureProfiles(profiles []WorkMemoryAppCaptureProfile) []WorkMemoryAppCaptureProfile {
-	if len(profiles) == 0 {
-		return []WorkMemoryAppCaptureProfile{}
-	}
-	seen := map[string]bool{}
-	normalized := make([]WorkMemoryAppCaptureProfile, 0, len(profiles))
-	for _, profile := range profiles {
-		processName := strings.TrimSpace(profile.ProcessName)
-		displayName := strings.TrimSpace(profile.DisplayName)
-		icon := strings.TrimSpace(profile.Icon)
-		id := strings.TrimSpace(profile.ID)
-		if processName == "" && displayName == "" && id == "" {
-			continue
-		}
-		if processName == "" {
-			processName = firstNonEmpty(displayName, id)
-		}
-		if displayName == "" {
-			displayName = processName
-		}
-		key := normalizeAppProfileKey(firstNonEmpty(firstNonEmpty(processName, displayName), id))
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		if id == "" {
-			id = key
-		}
-		normalized = append(normalized, WorkMemoryAppCaptureProfile{
-			ID:                       key,
-			DisplayName:              displayName,
-			ProcessName:              processName,
-			Icon:                     icon,
-			Enabled:                  profile.Enabled,
-			WindowSwitchDelaySeconds: clampAllowZero(profile.WindowSwitchDelaySeconds, 3600),
-			ActiveIntervalSeconds:    clamp(profile.ActiveIntervalSeconds, 10, 86400, 120),
-		})
-	}
-	return normalized
-}
-
-func clampAllowZero(value int, max int) int {
-	if value < 0 {
-		return 0
-	}
-	if value > max {
-		return max
-	}
-	return value
-}
-
-func normalizeAppProfileKey(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	value = strings.ReplaceAll(value, "\\", "/")
-	value = filepath.Base(value)
-	return strings.ToLower(value)
-}
-
 func migrateSettings(value AppSettings) AppSettings {
 	if value.Version < currentSettingsVersion && legacyThemeNeedsDefaultReset(value.General.Theme) {
 		value.General.Theme = "cloud-blue"
 	}
-	if value.Version < 8 {
-		defaults := defaultSettings()
-		value.WorkMemory.DraftScheduleIntervalMin = defaults.WorkMemory.DraftScheduleIntervalMin
-		value.WorkMemory.DailyDraftScheduleEnabled = defaults.WorkMemory.DailyDraftScheduleEnabled
-		value.WorkMemory.RetroDraftScheduleEnabled = defaults.WorkMemory.RetroDraftScheduleEnabled
-		value.WorkMemory.ExperienceScheduleEnabled = defaults.WorkMemory.ExperienceScheduleEnabled
-	}
-	if value.Version < 9 {
-		defaults := defaultSettings()
-		value.WorkMemory.WindowSwitchCaptureEnabled = defaults.WorkMemory.WindowSwitchCaptureEnabled
-		value.WorkMemory.WindowSwitchCooldownSecs = defaults.WorkMemory.WindowSwitchCooldownSecs
-	}
-	if value.Version < 11 {
-		defaults := defaultSettings()
-		value.WorkMemory.DraftScheduleEnabled = defaults.WorkMemory.DraftScheduleEnabled
-	}
-	if value.Version < 13 {
-		defaults := defaultSettings()
-		switch strings.TrimSpace(value.WorkMemory.CaptureScope) {
-		case "", "all_screens":
-			value.WorkMemory.CaptureScope = defaults.WorkMemory.CaptureScope
-		}
-	}
-	if value.Version < 14 {
-		defaults := defaultSettings()
-		value.AI.AgentResponsesEnabled = defaults.AI.AgentResponsesEnabled
-	}
-	if value.Version < 15 {
-		defaults := defaultSettings()
-		value.WorkMemory.FlowTextQualityAssist = defaults.WorkMemory.FlowTextQualityAssist
-	}
 	if value.Version < 16 {
-		defaults := defaultSettings()
-		value.Screenshot.RedactPhones = defaults.Screenshot.RedactPhones
-		value.Screenshot.RedactKeywords = defaults.Screenshot.RedactKeywords
+		value.Screenshot.RedactPhones = true
 	}
 	return value
 }
@@ -1154,40 +811,6 @@ func legacySecretCandidates(legacy map[string]any) []legacySecretCandidate {
 				{"openai__api_key"},
 				{"OPENAI__API_KEY"},
 				{"OPENAI_API_KEY"},
-			},
-		},
-		{
-			kind:   "embedding_api_key",
-			label:  "Embedding API key",
-			target: securestore.TargetEmbeddingAPIKey,
-			paths: [][]string{
-				{"work_memory", "embedding_api_key"},
-				{"work_memory", "embed_api_key"},
-				{"work_memory", "embed__api_key"},
-				{"work_memory", "EMBED__API_KEY"},
-				{"work_memory", "EMBED_API_KEY"},
-				{"embedding", "api_key"},
-				{"embedding_api_key"},
-				{"embed_api_key"},
-				{"embed__api_key"},
-				{"EMBED__API_KEY"},
-				{"EMBED_API_KEY"},
-			},
-		},
-		{
-			kind:   "milvus_token",
-			label:  "Milvus token",
-			target: securestore.TargetMilvusToken,
-			paths: [][]string{
-				{"work_memory", "milvus_token"},
-				{"work_memory", "vector_store_token"},
-				{"work_memory", "MILVUS__TOKEN"},
-				{"work_memory", "MILVUS_TOKEN"},
-				{"milvus", "token"},
-				{"milvus_token"},
-				{"vector_store_token"},
-				{"MILVUS__TOKEN"},
-				{"MILVUS_TOKEN"},
 			},
 		},
 	}

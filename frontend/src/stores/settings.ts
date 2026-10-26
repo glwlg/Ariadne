@@ -42,7 +42,6 @@ import type {
   SettingsStorageStatus,
 } from '../types/ariadne'
 
-type WorkMemoryListPath = 'excludeApps' | 'excludeWindowKeywords' | 'excludePaths' | 'excludeUrls' | 'excludeContentPatterns'
 
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<AppSettings | null>(null)
@@ -66,21 +65,12 @@ export const useSettingsStore = defineStore('settings', () => {
   const pluginManifests = ref<PluginManifest[]>([])
   const secretInputs = ref<Record<string, string>>({
     ai_api_key: '',
-    embedding_api_key: '',
-    milvus_token: '',
   })
   const launcherStatus = ref<LauncherStatus | null>(null)
   const launcherDraft = ref<Launcher>(createLauncherDraft())
   const launcherDeleteArmedId = ref('')
   const searchUsageClearArmed = ref(false)
   const secretClearArmedKind = ref('')
-  const workMemoryListDrafts = ref<Record<WorkMemoryListPath, string>>({
-    excludeApps: '',
-    excludeWindowKeywords: '',
-    excludePaths: '',
-    excludeUrls: '',
-    excludeContentPatterns: '',
-  })
   const searchExcludeFoldersDraft = ref('')
   const searchExcludePatternsDraft = ref('')
   const searchIncludeExtensionsDraft = ref('')
@@ -104,17 +94,6 @@ export const useSettingsStore = defineStore('settings', () => {
   const visiblePluginManifests = computed(() => pluginManifests.value)
   const enabledPluginCount = computed(() => visiblePluginManifests.value.filter((plugin) => pluginEnabled(plugin.id)).length)
 
-  const memorySources = computed(() => {
-    const memory = settings.value?.workMemory
-    if (!memory) return []
-    return [
-      { key: 'sourceClipboard', label: '剪贴板', enabled: memory.sourceClipboard },
-      { key: 'sourceCaptureHistory', label: '截图历史', enabled: memory.sourceCaptureHistory },
-      { key: 'sourceManualNote', label: '手动笔记', enabled: memory.sourceManualNote },
-      { key: 'sourceSearchFavorite', label: '搜索收藏', enabled: memory.sourceSearchFavorite },
-      { key: 'sourceActions', label: '动作轨迹', enabled: memory.sourceActions },
-    ]
-  })
 
   async function load() {
     isLoading.value = true
@@ -379,32 +358,8 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function updateWorkMemoryRuntime(patch: Partial<AppSettings['workMemory']>) {
-    if (!settings.value) {
-      await load()
-    }
-    if (!settings.value) return null
-    const next = structuredClone(toRaw(settings.value))
-    next.workMemory = {
-      ...next.workMemory,
-      ...patch,
-    }
-    settings.value = await updateSettings(next)
-    syncTextDraftsFromSettings()
-    applyTheme(settings.value.general.theme)
-    storageStatus.value = await getSettingsStorageStatus()
-    return settings.value.workMemory
-  }
 
-  function setList(path: WorkMemoryListPath, value: string) {
-    if (!settings.value) return
-    workMemoryListDrafts.value[path] = value
-    settings.value.workMemory[path] = linesToList(value)
-  }
 
-  function listText(path: WorkMemoryListPath) {
-    return workMemoryListDrafts.value[path]
-  }
 
   function setScreenshotRedactKeywords(value: string) {
     if (!settings.value) return
@@ -461,14 +416,6 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function syncTextDraftsFromSettings() {
-    const memory = settings.value?.workMemory
-    workMemoryListDrafts.value = {
-      excludeApps: memory?.excludeApps.join('\n') ?? '',
-      excludeWindowKeywords: memory?.excludeWindowKeywords.join('\n') ?? '',
-      excludePaths: memory?.excludePaths.join('\n') ?? '',
-      excludeUrls: memory?.excludeUrls.join('\n') ?? '',
-      excludeContentPatterns: memory?.excludeContentPatterns.join('\n') ?? '',
-    }
     screenshotRedactKeywordsDraft.value = settings.value?.screenshot.redactKeywords.join('\n') ?? ''
     ensureSearchSettings()
     searchExcludeFoldersDraft.value = settings.value?.search.fileExcludeFolders.join('\n') ?? ''
@@ -502,11 +449,6 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.value.search.fileExcludeExtensions ??= []
   }
 
-  function setMemorySource(key: string, enabled: boolean) {
-    if (!settings.value) return
-    const memory = settings.value.workMemory as unknown as Record<string, boolean>
-    memory[key] = enabled
-  }
 
   function pluginEnabled(id: string) {
     return settings.value?.plugins.enabled[id] !== false
@@ -751,7 +693,6 @@ export const useSettingsStore = defineStore('settings', () => {
     legacyHandoffMode,
     rollbackRestoreArmed,
     hasSettings,
-    memorySources,
     visiblePluginManifests,
     enabledPluginCount,
     load,
@@ -769,9 +710,6 @@ export const useSettingsStore = defineStore('settings', () => {
     installAvailableUpdate,
     exportDiagnostics,
     resolveLegacyHandoff,
-    updateWorkMemoryRuntime,
-    setList,
-    listText,
     setScreenshotRedactKeywords,
     screenshotRedactKeywordsText,
     setSearchExcludeFolders,
@@ -782,7 +720,6 @@ export const useSettingsStore = defineStore('settings', () => {
     searchIncludeExtensionsText,
     setSearchExcludeExtensions,
     searchExcludeExtensionsText,
-    setMemorySource,
     pluginEnabled,
     setPluginEnabled,
     setHotkey,

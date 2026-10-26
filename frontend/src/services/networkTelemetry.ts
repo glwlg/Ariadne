@@ -29,19 +29,31 @@ export function connectNetworkTelemetry(
   onFrame: (frame: NetworkTelemetryFrame) => void,
   onError: (message: string) => void,
   createStream: StreamFactory = defaultStreamFactory,
+  onOpen: () => void = () => {},
 ): () => void {
   let stopped = false
-  let socket: NetworkTelemetrySocket
-  try {
-    socket = createStream(NETWORK_TELEMETRY_STREAM)
-  } catch (error) {
-    onError(error instanceof Error ? error.message : String(error))
-    return () => {}
+  const socket = createStream(NETWORK_TELEMETRY_STREAM)
+
+  function stop() {
+    if (stopped) return
+    stopped = true
+    socket.close(1000, 'view closed')
+  }
+
+  function fail(message: string) {
+    if (stopped) return
+    stop()
+    onError(message)
   }
 
   socket.onopen = () => {
     if (!stopped) {
-      socket.send({ mode })
+      try {
+        socket.send({ mode })
+        onOpen()
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error))
+      }
     }
   }
   socket.onmessage = (event) => {
@@ -49,20 +61,7 @@ export function connectNetworkTelemetry(
       onFrame(event.data as NetworkTelemetryFrame)
     }
   }
-  socket.onerror = () => {
-    if (!stopped) {
-      onError('网络实时数据连接失败')
-    }
-  }
-  socket.onclose = () => {
-    if (!stopped) {
-      onError('网络实时数据连接已断开')
-    }
-  }
-
-  return () => {
-    if (stopped) return
-    stopped = true
-    socket.close(1000, 'view closed')
-  }
+  socket.onerror = () => fail('网络实时数据连接失败')
+  socket.onclose = () => fail('网络实时数据连接已断开')
+  return stop
 }

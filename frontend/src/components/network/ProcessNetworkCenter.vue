@@ -111,7 +111,9 @@ function formatBytes(value: number) {
 
         <div class="tool-toolbar process-network-toolbar">
           <div class="process-network-metrics">
-            <span class="system-pill is-on"><Activity :size="13" />刷新中</span>
+            <span class="system-pill" :class="{ 'is-on': network.processConnection === 'connected' }" role="status">
+              <Activity :size="13" />{{ network.processConnection === 'connected' ? '实时更新' : network.processConnection === 'connecting' ? '正在连接' : '连接已断开' }}
+            </span>
             <span class="system-pill is-download"><ArrowDown :size="13" />下载 {{ formatRate(network.processSnapshot?.downloadBytesPerSecond ?? 0) }}</span>
             <span class="system-pill is-upload"><ArrowUp :size="13" />上传 {{ formatRate(network.processSnapshot?.uploadBytesPerSecond ?? 0) }}</span>
           </div>
@@ -120,14 +122,15 @@ function formatBytes(value: number) {
             <input v-model="query" type="search" placeholder="筛选进程 / PID" aria-label="筛选进程或 PID" />
           </label>
           <div class="process-network-actions">
-            <AriButton class="process-network-action" size="sm" variant="secondary" @click="network.refreshProcesses()"><RefreshCw :size="14" />刷新</AriButton>
+            <AriButton v-if="network.processConnection === 'disconnected'" class="process-network-action" size="sm" variant="primary" @click="network.startProcessPolling()"><RefreshCw :size="14" />重新连接</AriButton>
+            <AriButton v-else class="process-network-action" size="sm" variant="secondary" :disabled="network.processConnection === 'connecting'" @click="network.refreshProcesses()"><RefreshCw :size="14" />刷新</AriButton>
             <AriButton class="process-network-action" size="sm" variant="secondary" :disabled="!processes.length" @click="copySummary"><ClipboardCopy :size="14" />复制摘要</AriButton>
             <AriButton class="process-network-action" size="sm" variant="secondary" @click="returnToMini">返回小窗</AriButton>
           </div>
         </div>
 
-        <div v-if="network.processSnapshot?.lastError" class="process-network-warning" role="status">
-          {{ network.processSnapshot.lastError }}
+        <div v-if="network.processError || network.processSnapshot?.lastError || network.feedback" class="process-network-warning" role="status">
+          {{ network.processError || network.processSnapshot?.lastError || network.feedback }}
         </div>
 
         <div class="process-network-workspace">

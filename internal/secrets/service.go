@@ -187,21 +187,9 @@ func specs() []credentialSpec {
 	return []credentialSpec{
 		{
 			Kind:   "ai_api_key",
-			Label:  "AI API key",
+			Label:  "OCR API key",
 			Target: securestore.TargetOpenAIAPIKey,
-			Envs:   []string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
-		},
-		{
-			Kind:   "embedding_api_key",
-			Label:  "Embedding API key",
-			Target: securestore.TargetEmbeddingAPIKey,
-			Envs:   []string{"ARIADNE_EMBED_API_KEY", "EMBED__API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
-		},
-		{
-			Kind:   "milvus_token",
-			Label:  "Milvus token",
-			Target: securestore.TargetMilvusToken,
-			Envs:   []string{"ARIADNE_MILVUS_TOKEN", "MILVUS__TOKEN", "MILVUS_TOKEN"},
+			Envs:   []string{"ARIADNE_OCR_API_KEY", "ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
 		},
 	}
 }

@@ -616,9 +616,11 @@ public sealed class BleHidPeripheral : IAsyncDisposable
         return found;
     }
 
+    public void ClearKeyboardReport() => _lastKeyboardReport = HidReports.KeyboardRelease();
+
     public Task ReleaseKeysAsync()
     {
-        _lastKeyboardReport = HidReports.KeyboardRelease();
+        ClearKeyboardReport();
         return NotifyAsync(_keyboardInput, _lastKeyboardReport);
     }
 
@@ -647,6 +649,9 @@ public sealed class BleHidPeripheral : IAsyncDisposable
 
     public bool HasMouseSubscription(string deviceId) =>
         _mouseInput?.SubscribedClients.Any(c => c.Session.DeviceId.Id == deviceId && IsLiveHost(deviceId)) == true;
+
+    public bool HasKeyboardSubscription(string deviceId) =>
+        _keyboardInput?.SubscribedClients.Any(c => c.Session.DeviceId.Id == deviceId && IsLiveHost(deviceId)) == true;
 
     public bool HasAbsoluteSubscription(string deviceId) =>
         _absoluteInput?.SubscribedClients.Any(c => c.Session.DeviceId.Id == deviceId && IsLiveHost(deviceId)) == true;

@@ -1,7 +1,7 @@
 import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/ariadne'
 
 const fallbackSettings: AppSettings = {
-  version: 21,
+  version: 23,
   general: {
     theme: 'cloud-blue',
     runOnStartup: false,
@@ -23,91 +23,18 @@ const fallbackSettings: AppSettings = {
     redactPhones: true,
     redactKeywords: [],
   },
-  workMemory: {
-    enabled: true,
-    timeMachineEnabled: false,
-    autoCaptureIntervalSeconds: 30,
-    windowSwitchCaptureEnabled: true,
-    windowSwitchCooldownSeconds: 3,
-    appCaptureProfiles: [],
-    captureScope: 'active_window',
-    screenshotQuality: 90,
-    multiMonitor: 'combined',
+  history: {
+    clipboardEnabled: true,
     privacyMode: false,
-    pauseOnIdle: true,
-    idlePauseSeconds: 600,
-    pauseOnLock: true,
-    sourceClipboard: true,
-    sourceCaptureHistory: true,
-    sourceManualNote: true,
-    sourceSearchFavorite: true,
-    sourceActions: true,
-    autoOcr: true,
-    draftScheduleEnabled: true,
-    draftScheduleIntervalMinutes: 240,
-    dailyDraftScheduleEnabled: true,
-    retrospectiveDraftScheduleEnabled: true,
-    experienceScheduleEnabled: true,
-    experienceDiscoveryEnabled: true,
-    experienceDiscoveryDays: 7,
-    skillSuggestionEnabled: true,
-    workflowSuggestionEnabled: true,
-    flowAutonomyEnabled: true,
-    flowCommunicationAssist: true,
-    flowTextQualityAssist: true,
-    flowCandidateTtlHours: 8,
-    flowCandidateCooldownMinutes: 15,
-    flowDefaultSnoozeMinutes: 30,
-    flowNotifyLowRiskAutomatic: false,
     retentionDays: 30,
-    thumbnailRetentionDays: 90,
     maxStorageMb: 1024,
     keepFavoritesForever: true,
-    excludeApps: [
-      '1password.exe',
-      'bitwarden.exe',
-      'keepass.exe',
-      'lastpass.exe',
-      'credentialuibroker.exe',
-      'lockapp.exe',
-      'logonui.exe',
-      'mstsc.exe',
-      'remotehelp.exe',
-    ],
-    excludeWindowKeywords: ['password', 'token', 'secret', '验证码', '密码', '登录', '支付', '隐私', '无痕', '远程桌面', '堡垒机', 'vpn', 'sso'],
-    excludePaths: [],
-    excludeUrls: [],
-    excludeContentPatterns: [],
-    sensitiveRulesEnabled: true,
-    allowSensitiveExport: false,
   },
   ai: {
-    enabled: false,
-    provider: 'disabled',
-    baseUrl: '',
-    model: '',
     ocrModelEnabled: false,
     ocrProvider: 'openai-compatible',
     ocrBaseUrl: '',
     ocrModel: '',
-    pinnedOcrModelEnabled: false,
-    pinnedOcrProvider: 'openai-compatible',
-    pinnedOcrBaseUrl: '',
-    pinnedOcrModel: '',
-    embeddingEnabled: false,
-    embeddingProvider: 'disabled',
-    embeddingBaseUrl: '',
-    embeddingModel: '',
-    vectorStoreType: 'disabled',
-    vectorStoreUri: '',
-    vectorCollection: 'ariadne_work_memory',
-    agentsSdkEnabled: true,
-    agentResponsesEnabled: true,
-    traceMode: 'off',
-    opscoreSyncEnabled: false,
-    externalAgentEnabled: true,
-    codexCollaborationEnabled: false,
-    externalAgentTaskDirectory: '~/Documents/Ariadne/agent_tasks',
   },
   plugins: {
     enabled: {},
@@ -292,21 +219,6 @@ function normalizeFallback(settings: AppSettings): AppSettings {
   next.screenshot.autoRedact = Boolean(next.screenshot.autoRedact)
   next.screenshot.redactPhones = next.screenshot.redactPhones !== false
   next.screenshot.redactKeywords = cleanList(next.screenshot.redactKeywords)
-  next.workMemory.autoCaptureIntervalSeconds = clamp(next.workMemory.autoCaptureIntervalSeconds, 10, 86400)
-  next.workMemory.windowSwitchCooldownSeconds = clamp(next.workMemory.windowSwitchCooldownSeconds, 3, 3600)
-  next.workMemory.appCaptureProfiles = cleanAppCaptureProfiles(next.workMemory.appCaptureProfiles)
-  next.workMemory.screenshotQuality = clamp(next.workMemory.screenshotQuality, 1, 100)
-  next.workMemory.idlePauseSeconds = clamp(next.workMemory.idlePauseSeconds, 30, 86400)
-  next.workMemory.draftScheduleIntervalMinutes = clamp(next.workMemory.draftScheduleIntervalMinutes, 15, 1440)
-  next.workMemory.experienceDiscoveryDays = clamp(next.workMemory.experienceDiscoveryDays, 1, 365)
-  next.workMemory.retentionDays = clamp(next.workMemory.retentionDays, 1, 3650)
-  next.workMemory.thumbnailRetentionDays = clamp(next.workMemory.thumbnailRetentionDays, 1, 3650)
-  next.workMemory.maxStorageMb = clamp(next.workMemory.maxStorageMb, 128, 1024 * 1024)
-  next.workMemory.excludeApps = cleanList(next.workMemory.excludeApps)
-  next.workMemory.excludeWindowKeywords = cleanList(next.workMemory.excludeWindowKeywords)
-  next.workMemory.excludePaths = cleanList(next.workMemory.excludePaths)
-  next.workMemory.excludeUrls = cleanList(next.workMemory.excludeUrls)
-  next.workMemory.excludeContentPatterns = cleanList(next.workMemory.excludeContentPatterns)
   if (!next.search) {
     next.search = structuredClone(fallbackSettings.search)
   }
@@ -321,7 +233,6 @@ function normalizeFallback(settings: AppSettings): AppSettings {
   next.search.fileExcludePatterns = cleanList(next.search.fileExcludePatterns)
   next.search.fileIncludeExtensions = cleanExtensionList(next.search.fileIncludeExtensions)
   next.search.fileExcludeExtensions = cleanExtensionList(next.search.fileExcludeExtensions)
-  next.ai.traceMode = ['off', 'local', 'internal'].includes(next.ai.traceMode) ? next.ai.traceMode : 'off'
   return next
 }
 
@@ -365,35 +276,7 @@ function normalizeExtension(value: string) {
   return item
 }
 
-function cleanAppCaptureProfiles(profiles: AppSettings['workMemory']['appCaptureProfiles'] = []) {
-  const seen = new Set<string>()
-  return profiles
-    .map((profile) => {
-      const processName = String(profile.processName || profile.displayName || profile.id || '').trim()
-      const displayName = String(profile.displayName || processName).trim()
-      const key = appProfileKey(processName || displayName || profile.id)
-      return {
-        id: key,
-        displayName,
-        processName,
-        icon: String(profile.icon || '').trim(),
-        enabled: Boolean(profile.enabled),
-        windowSwitchDelaySeconds: clamp(Number(profile.windowSwitchDelaySeconds), 0, 3600),
-        activeIntervalSeconds: clamp(Number(profile.activeIntervalSeconds), 10, 86400),
-      }
-    })
-    .filter((profile) => {
-      if (!profile.id || seen.has(profile.id)) return false
-      seen.add(profile.id)
-      return true
-    })
-}
 
-function appProfileKey(value: string) {
-  const normalized = String(value || '').trim().replace(/\\/g, '/')
-  const parts = normalized.split('/')
-  return (parts[parts.length - 1] || normalized).toLowerCase()
-}
 
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min

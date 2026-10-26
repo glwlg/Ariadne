@@ -9,7 +9,6 @@ const (
 	ResultPluginResult  SearchResultType = "plugin_result"
 	ResultWorkflow      SearchResultType = "workflow"
 	ResultClipboard     SearchResultType = "clipboard"
-	ResultMemory        SearchResultType = "memory"
 	ResultCommand       SearchResultType = "command"
 	ResultCapture       SearchResultType = "capture"
 	ResultSettings      SearchResultType = "settings"
@@ -24,7 +23,6 @@ const (
 	ActionPin        PreviewActionKind = "pin"
 	ActionRun        PreviewActionKind = "run"
 	ActionPlugin     PreviewActionKind = "plugin"
-	ActionRemember   PreviewActionKind = "remember"
 	ActionDanger     PreviewActionKind = "danger"
 )
 
@@ -32,7 +30,6 @@ type PreviewKind string
 
 const (
 	PreviewText     PreviewKind = "text"
-	PreviewMemory   PreviewKind = "memory"
 	PreviewImage    PreviewKind = "image"
 	PreviewSettings PreviewKind = "settings"
 	PreviewWorkflow PreviewKind = "workflow"

@@ -13,6 +13,7 @@ import (
 
 	"ariadne/internal/appdb"
 	"ariadne/internal/launcherwindow"
+	"ariadne/internal/toolregistry"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -22,12 +23,16 @@ const (
 	networkMiniView          = "network-mini"
 	networkMiniContextMenu   = "network-mini-menu"
 	networkMiniDefaultAnchor = "taskbar-left"
-	networkMiniWidth         = 156
-	networkMiniHeight        = 40
 	networkMiniMargin        = 6
 	networkMiniFillRatio     = 82
 	networkMiniLayerRefresh  = 30 * time.Second
 	networkMiniLayerWatch    = 500 * time.Millisecond
+)
+
+var (
+	networkMiniDefinition, _ = toolregistry.Lookup(networkMiniView)
+	networkMiniWidth         = networkMiniDefinition.Width
+	networkMiniHeight        = networkMiniDefinition.Height
 )
 
 type OpenResult struct {
@@ -209,12 +214,6 @@ func (s *Service) Open(view string) OpenResult {
 	if view == "" {
 		return OpenResult{OK: false, Message: "未知工具窗口"}
 	}
-	if view == "work-memory" {
-		if err := s.showMainWorkMemory(); err != nil {
-			return OpenResult{OK: false, Message: err.Error(), View: view}
-		}
-		return OpenResult{OK: true, Message: "心流已打开", View: view}
-	}
 	if err := s.open(view); err != nil {
 		return OpenResult{OK: false, Message: err.Error(), View: view}
 	}
@@ -271,21 +270,6 @@ func (s *Service) OpenFromShell(view string) bool {
 		return s.ShowLauncher().OK
 	}
 	return s.Open(view).OK
-}
-
-func (s *Service) ApplyMainWindowPolicy() OpenResult {
-	s.mu.RLock()
-	app := s.app
-	s.mu.RUnlock()
-	if app == nil {
-		return OpenResult{OK: false, Message: "Ariadne 窗口服务尚未就绪", View: "work-memory"}
-	}
-	main, ok := app.Window.Get("main")
-	if !ok {
-		return OpenResult{OK: false, Message: "心流主窗口不存在", View: "work-memory"}
-	}
-	s.applyOrdinaryWindowPolicy(main)
-	return OpenResult{OK: true, Message: "心流主窗口策略已应用", View: "work-memory"}
 }
 
 func (s *Service) EnableTaskbarToggle(ctx context.Context, view string) OpenResult {
@@ -508,50 +492,6 @@ func (s *Service) open(view string) error {
 	return nil
 }
 
-func (s *Service) showMainWorkMemory() error {
-	s.mu.RLock()
-	app := s.app
-	s.mu.RUnlock()
-	if app == nil {
-		return errors.New("Ariadne 工具窗口服务尚未就绪")
-	}
-	main, ok := app.Window.Get("main")
-	if !ok {
-		main = s.createMainWorkMemoryWindow(app)
-	}
-	main.Restore()
-	main.SetAlwaysOnTop(false)
-	s.applyOrdinaryWindowPolicy(main)
-	main.Show().Focus()
-	main.EmitEvent("ariadne:navigate", "work-memory")
-	main.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:navigate", { detail: "work-memory" }));`)
-	return nil
-}
-
-func (s *Service) createMainWorkMemoryWindow(app *application.App) application.Window {
-	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             "main",
-		Title:            "Ariadne - 心流",
-		Width:            1280,
-		Height:           820,
-		MinWidth:         1040,
-		MinHeight:        640,
-		AlwaysOnTop:      false,
-		Frameless:        false,
-		DisableResize:    false,
-		BackgroundColour: application.NewRGB(244, 244, 245),
-		InitialPosition:  application.WindowCentered,
-		Windows: application.WindowsWindow{
-			Theme:                             application.Light,
-			DisableIcon:                       false,
-			DisableFramelessWindowDecorations: false,
-			HiddenOnTaskbar:                   false,
-		},
-	})
-	s.applyOrdinaryWindowPolicy(window)
-	return window
-}
-
 func focusLauncher(window application.Window) {
 	if window == nil {
 		return
@@ -561,100 +501,34 @@ func focusLauncher(window application.Window) {
 }
 
 func normalizeView(view string) string {
-	switch strings.ToLower(strings.TrimSpace(view)) {
-	case "work-memory", "clipboard", "capture", "hosts", "workflow", "json-compare", "api-testing", "airplay", "network-monitor", "network-mini", "settings":
-		return strings.ToLower(strings.TrimSpace(view))
-	default:
-		return ""
+	view = strings.ToLower(strings.TrimSpace(view))
+	if _, ok := toolregistry.Lookup(view); ok {
+		return view
 	}
+	return ""
 }
 
 func toolTitle(view string) string {
-	switch view {
-	case "work-memory":
-		return "Ariadne - 心流"
-	case "clipboard":
-		return "Ariadne - 剪贴板历史"
-	case "capture":
-		return "Ariadne - 截图历史"
-	case "hosts":
-		return "Ariadne - Hosts"
-	case "workflow":
-		return "Ariadne - 工作流"
-	case "json-compare":
-		return "Ariadne - JSON 对比"
-	case "api-testing":
-		return "Ariadne - API 测试"
-	case "airplay":
-		return "Ariadne - iPhone 投屏"
-	case "network-monitor":
-		return "Ariadne - 进程网络"
-	case networkMiniView:
-		return "Ariadne - 网速小窗"
-	case "settings":
-		return "Ariadne - 设置"
-	default:
+	definition, ok := toolregistry.Lookup(view)
+	if !ok {
 		return "Ariadne"
 	}
+	return definition.Title
 }
 
 func toolSize(view string) (int, int) {
-	switch view {
-	case "settings":
-		return 1240, 800
-	case "hosts":
-		return 1360, 860
-	case "json-compare":
-		return 1180, 760
-	case "api-testing":
-		return 1240, 780
-	case "airplay":
-		return 1080, 760
-	case "network-monitor":
-		return 1240, 760
-	case networkMiniView:
-		return networkMiniWidth, networkMiniHeight
-	default:
-		return 1120, 720
-	}
+	definition, _ := toolregistry.Lookup(view)
+	return definition.Width, definition.Height
 }
 
 func minWidth(view string) int {
-	if view == networkMiniView {
-		return networkMiniWidth
-	}
-	if view == "network-monitor" {
-		return 760
-	}
-	if view == "airplay" {
-		return 820
-	}
-	if view == "settings" {
-		return 980
-	}
-	if view == "hosts" {
-		return 1120
-	}
-	return 900
+	definition, _ := toolregistry.Lookup(view)
+	return definition.MinWidth
 }
 
 func minHeight(view string) int {
-	if view == networkMiniView {
-		return networkMiniHeight
-	}
-	if view == "network-monitor" {
-		return 520
-	}
-	if view == "airplay" {
-		return 560
-	}
-	if view == "settings" {
-		return 680
-	}
-	if view == "hosts" {
-		return 720
-	}
-	return 620
+	definition, _ := toolregistry.Lookup(view)
+	return definition.MinHeight
 }
 
 func maxWidth(view string) int {

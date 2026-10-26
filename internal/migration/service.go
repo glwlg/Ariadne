@@ -2,7 +2,7 @@ package migration
 
 import (
 	"encoding/json"
-	"fmt"
+
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,7 +11,6 @@ import (
 
 	"ariadne/internal/capturehistory"
 	"ariadne/internal/clipboardhistory"
-	"ariadne/internal/workmemory"
 )
 
 type LegacySourceStatus struct {
@@ -69,19 +68,17 @@ type Service struct {
 	root      string
 	clipboard *clipboardhistory.Service
 	capture   *capturehistory.Service
-	memory    *workmemory.Service
 }
 
-func NewService(clipboard *clipboardhistory.Service, capture *capturehistory.Service, memory *workmemory.Service) *Service {
-	return NewServiceWithRoot(defaultLegacyRoot(), clipboard, capture, memory)
+func NewService(clipboard *clipboardhistory.Service, capture *capturehistory.Service) *Service {
+	return NewServiceWithRoot(defaultLegacyRoot(), clipboard, capture)
 }
 
-func NewServiceWithRoot(root string, clipboard *clipboardhistory.Service, capture *capturehistory.Service, memory *workmemory.Service) *Service {
+func NewServiceWithRoot(root string, clipboard *clipboardhistory.Service, capture *capturehistory.Service) *Service {
 	return &Service{
 		root:      strings.TrimSpace(root),
 		clipboard: clipboard,
 		capture:   capture,
-		memory:    memory,
 	}
 }
 
@@ -101,7 +98,6 @@ func (s *Service) Status() LegacyDataStatus {
 	status.Sources = []LegacySourceStatus{
 		s.sourceStatus("clipboard_history", filepath.Join(root, "clipboard_history.json"), filepath.Join(root, "clipboard_images")),
 		s.sourceStatus("capture_history", filepath.Join(root, "capture_history.json"), filepath.Join(root, "capture_images")),
-		s.sourceStatus("work_memory", filepath.Join(root, "work_memory", "entries.json"), filepath.Join(root, "work_memory", "images")),
 	}
 	s.annotateImportProgress(status.Sources)
 	for _, source := range status.Sources {
@@ -131,10 +127,6 @@ func (s *Service) annotateImportProgress(sources []LegacySourceStatus) {
 			if s.capture != nil {
 				sources[index].ImportedCount = s.capture.LegacyEntryCount()
 			}
-		case "work_memory":
-			if s.memory != nil {
-				sources[index].ImportedCount = s.memory.LegacyEntryCount()
-			}
 		}
 		sources[index].NeedsImport = sources[index].ImportedCount < sources[index].Count
 	}
@@ -149,7 +141,7 @@ func (s *Service) ImportLegacyData(request LegacyImportRequest) LegacyImportResu
 	}
 	sources := normalizeSources(request.Sources)
 	if len(sources) == 0 {
-		sources = []string{"clipboard_history", "capture_history", "work_memory"}
+		sources = []string{"clipboard_history", "capture_history"}
 	}
 	limit := request.Limit
 	if limit <= 0 {
@@ -164,8 +156,6 @@ func (s *Service) ImportLegacyData(request LegacyImportRequest) LegacyImportResu
 			result.Sources = append(result.Sources, s.importClipboard(limit, request.DryRun))
 		case "capture_history":
 			result.Sources = append(result.Sources, s.importCapture(limit, request.DryRun))
-		case "work_memory":
-			result.Sources = append(result.Sources, s.importWorkMemory(limit, request.DryRun))
 		default:
 			result.Sources = append(result.Sources, LegacyImportSourceResult{
 				Source: source,
@@ -252,34 +242,6 @@ func (s *Service) importCapture(limit int, dryRun bool) LegacyImportSourceResult
 	result.BeforeCount = before
 	s.capture.ImportLegacyEntries(entries)
 	after := s.capture.Status().Count
-	result.AfterCount = after
-	result.Imported = maxInt(0, after-before)
-	result.Skipped += maxInt(0, len(entries)-result.Imported)
-	return result
-}
-
-func (s *Service) importWorkMemory(limit int, dryRun bool) LegacyImportSourceResult {
-	path := filepath.Join(s.root, "work_memory", "entries.json")
-	result := LegacyImportSourceResult{Source: "work_memory", Path: path}
-	entries, skipped, failed, err := readLegacyWorkMemory(path, limit)
-	result.Found = len(entries) + skipped + failed
-	result.Skipped = skipped
-	result.Failed = failed
-	if err != nil {
-		if os.IsNotExist(err) {
-			return result
-		}
-		result.Error = err.Error()
-		return result
-	}
-	if s.memory == nil || dryRun {
-		result.Imported = len(entries)
-		return result
-	}
-	before := s.memory.Status().EntryCount
-	result.BeforeCount = before
-	s.memory.ImportLegacyEntries(entries)
-	after := s.memory.Status().EntryCount
 	result.AfterCount = after
 	result.Imported = maxInt(0, after-before)
 	result.Skipped += maxInt(0, len(entries)-result.Imported)
@@ -376,57 +338,6 @@ func readLegacyCapture(path string, limit int) ([]capturehistory.Entry, int, int
 	return entries, skipped, failed, nil
 }
 
-func readLegacyWorkMemory(path string, limit int) ([]workmemory.Entry, int, int, error) {
-	var raw []legacyWorkMemoryEntry
-	if err := readJSONList(path, &raw); err != nil {
-		return nil, 0, 0, err
-	}
-	entries := []workmemory.Entry{}
-	skipped := 0
-	failed := 0
-	for _, item := range raw {
-		if len(entries) >= limit {
-			skipped++
-			continue
-		}
-		imagePath := strings.TrimSpace(item.ImagePath)
-		if imagePath != "" && !fileExists(imagePath) {
-			failed++
-			imagePath = ""
-		}
-		text := strings.TrimSpace(item.Text)
-		ocrText := strings.TrimSpace(item.OCRText)
-		if text == "" && ocrText == "" && imagePath == "" && strings.TrimSpace(item.Title+item.Summary) == "" {
-			skipped++
-			continue
-		}
-		source := firstNonEmpty(item.Source, "legacy_x_tools")
-		contentType := firstNonEmpty(item.ContentType, "text")
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			id = fmt.Sprintf("legacy-memory-%d", len(entries)+1)
-		}
-		entries = append(entries, workmemory.Entry{
-			ID:          id,
-			Source:      source,
-			ContentType: contentType,
-			Title:       strings.TrimSpace(item.Title),
-			Summary:     strings.TrimSpace(item.Summary),
-			Text:        text,
-			OCRText:     ocrText,
-			WindowTitle: strings.TrimSpace(item.WindowTitle),
-			AppName:     firstNonEmpty(item.AppName, item.ProcessName),
-			CaptureID:   strings.TrimSpace(item.SourceID),
-			ImagePath:   imagePath,
-			Tags:        append([]string{"legacy_x_tools"}, cleanStrings(item.Tags)...),
-			Favorite:    item.Favorite || item.Pinned,
-			Sensitive:   item.Sensitive,
-			CreatedAt:   unixSeconds(item.CreatedAt),
-		})
-	}
-	return entries, skipped, failed, nil
-}
-
 type legacyClipboardEntry struct {
 	ID        string  `json:"id"`
 	Type      string  `json:"type"`
@@ -449,26 +360,6 @@ type legacyCaptureEntry struct {
 	Pinned    bool     `json:"pinned"`
 	Width     int      `json:"width"`
 	Height    int      `json:"height"`
-}
-
-type legacyWorkMemoryEntry struct {
-	ID          string   `json:"id"`
-	CreatedAt   float64  `json:"created_at"`
-	Source      string   `json:"source"`
-	SourceID    string   `json:"source_id"`
-	ContentType string   `json:"content_type"`
-	Title       string   `json:"title"`
-	Summary     string   `json:"summary"`
-	Text        string   `json:"text"`
-	OCRText     string   `json:"ocr_text"`
-	ImagePath   string   `json:"image_path"`
-	AppName     string   `json:"app_name"`
-	ProcessName string   `json:"process_name"`
-	WindowTitle string   `json:"window_title"`
-	Tags        []string `json:"tags"`
-	Favorite    bool     `json:"favorite"`
-	Pinned      bool     `json:"pinned"`
-	Sensitive   bool     `json:"sensitive"`
 }
 
 func readJSONList(path string, target interface{}) error {

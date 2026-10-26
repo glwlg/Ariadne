@@ -17,3 +17,7 @@ export async function executeAirPlay(command: AirPlayCommand): Promise<ActionRes
 export async function getAirPlayLogs(): Promise<string> {
   return await (await binding()).Logs()
 }
+
+export async function getAirPlayDiagnostics(): Promise<string> {
+  return await (await binding()).Diagnostics()
+}

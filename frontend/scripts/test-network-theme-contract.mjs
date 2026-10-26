@@ -13,7 +13,6 @@ const themes = readFileSync(new URL('../src/styles/themes.css', import.meta.url)
 const surfaces = [
   readFileSync(new URL('../src/styles/surfaces-launcher-tools.css', import.meta.url), 'utf8'),
   readFileSync(new URL('../src/styles/surfaces-settings-api-network-overlays.css', import.meta.url), 'utf8'),
-  readFileSync(new URL('../src/styles/surfaces-flow.css', import.meta.url), 'utf8'),
 ].join('\n')
 
 assert.doesNotMatch(app, /process-network/, 'network details must reuse the existing network-monitor window')

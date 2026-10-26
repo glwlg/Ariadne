@@ -35,7 +35,6 @@ func TestListIncludesMigratedBuiltins(t *testing.T) {
 		"capture_history",
 		"network_monitor",
 		"workflow",
-		"work_memory",
 	}
 	for _, id := range want {
 		if !got[id] {
@@ -81,7 +80,6 @@ func TestLegacyPythonBuiltinsHaveNativeGoCoverage(t *testing.T) {
 		"url_tool.py":             "url",
 		"uuid_tool.py":            "uuid",
 		"workflow_tool.py":        "workflow",
-		"work_memory_tool.py":     "work_memory",
 	}
 
 	seen := map[string]bool{}

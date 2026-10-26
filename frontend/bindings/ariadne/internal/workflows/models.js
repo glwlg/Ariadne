@@ -6,124 +6,6 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
-import * as workmemory$0 from "../workmemory/models.js";
-
-export class DraftSaveRequest {
-    /**
-     * Creates a new DraftSaveRequest instance.
-     * @param {Partial<DraftSaveRequest>} [$$source = {}] - The source object to create the DraftSaveRequest.
-     */
-    constructor($$source = {}) {
-        if (!("draft" in $$source)) {
-            /**
-             * @member
-             * @type {workmemory$0.WorkflowDraft}
-             */
-            this["draft"] = (new workmemory$0.WorkflowDraft());
-        }
-        if (!("confirmed" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["confirmed"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new DraftSaveRequest instance from a string or object.
-     * @param {any} [$$source = {}]
-     * @returns {DraftSaveRequest}
-     */
-    static createFrom($$source = {}) {
-        const $$createField0_0 = $$createType0;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("draft" in $$parsedSource) {
-            $$parsedSource["draft"] = $$createField0_0($$parsedSource["draft"]);
-        }
-        return new DraftSaveRequest(/** @type {Partial<DraftSaveRequest>} */($$parsedSource));
-    }
-}
-
-export class DraftSaveResult {
-    /**
-     * Creates a new DraftSaveResult instance.
-     * @param {Partial<DraftSaveResult>} [$$source = {}] - The source object to create the DraftSaveResult.
-     */
-    constructor($$source = {}) {
-        if (!("ok" in $$source)) {
-            /**
-             * @member
-             * @type {boolean}
-             */
-            this["ok"] = false;
-        }
-        if (!("message" in $$source)) {
-            /**
-             * @member
-             * @type {string}
-             */
-            this["message"] = "";
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {Workflow | undefined}
-             */
-            this["workflow"] = undefined;
-        }
-        if (!("status" in $$source)) {
-            /**
-             * @member
-             * @type {Status}
-             */
-            this["status"] = (new Status());
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {boolean | undefined}
-             */
-            this["requiresConfirmation"] = undefined;
-        }
-        if (/** @type {any} */(false)) {
-            /**
-             * @member
-             * @type {string[] | undefined}
-             */
-            this["riskReasons"] = undefined;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new DraftSaveResult instance from a string or object.
-     * @param {any} [$$source = {}]
-     * @returns {DraftSaveResult}
-     */
-    static createFrom($$source = {}) {
-        const $$createField2_0 = $$createType1;
-        const $$createField3_0 = $$createType2;
-        const $$createField5_0 = $$createType3;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("workflow" in $$parsedSource) {
-            $$parsedSource["workflow"] = $$createField2_0($$parsedSource["workflow"]);
-        }
-        if ("status" in $$parsedSource) {
-            $$parsedSource["status"] = $$createField3_0($$parsedSource["status"]);
-        }
-        if ("riskReasons" in $$parsedSource) {
-            $$parsedSource["riskReasons"] = $$createField5_0($$parsedSource["riskReasons"]);
-        }
-        return new DraftSaveResult(/** @type {Partial<DraftSaveResult>} */($$parsedSource));
-    }
-}
-
 export class ExportResult {
     /**
      * Creates a new ExportResult instance.
@@ -238,7 +120,7 @@ export class ImportResult {
      * @returns {ImportResult}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType2;
+        const $$createField3_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("status" in $$parsedSource) {
             $$parsedSource["status"] = $$createField3_0($$parsedSource["status"]);
@@ -368,7 +250,7 @@ export class RunResult {
      * @returns {RunResult}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType5;
+        const $$createField5_0 = $$createType2;
         const $$createField7_0 = $$createType3;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
@@ -439,7 +321,7 @@ export class Status {
      * @returns {Status}
      */
     static createFrom($$source = {}) {
-        const $$createField5_0 = $$createType6;
+        const $$createField5_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("workflows" in $$parsedSource) {
             $$parsedSource["workflows"] = $$createField5_0($$parsedSource["workflows"]);
@@ -611,7 +493,7 @@ export class Workflow {
      * @returns {Workflow}
      */
     static createFrom($$source = {}) {
-        const $$createField3_0 = $$createType8;
+        const $$createField3_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("steps" in $$parsedSource) {
             $$parsedSource["steps"] = $$createField3_0($$parsedSource["steps"]);
@@ -621,12 +503,11 @@ export class Workflow {
 }
 
 // Private type creation functions
-const $$createType0 = workmemory$0.WorkflowDraft.createFrom;
-const $$createType1 = Workflow.createFrom;
-const $$createType2 = Status.createFrom;
+const $$createType0 = Status.createFrom;
+const $$createType1 = StepRun.createFrom;
+const $$createType2 = $Create.Array($$createType1);
 const $$createType3 = $Create.Array($Create.Any);
-const $$createType4 = StepRun.createFrom;
+const $$createType4 = Workflow.createFrom;
 const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = $Create.Array($$createType1);
-const $$createType7 = Step.createFrom;
-const $$createType8 = $Create.Array($$createType7);
+const $$createType6 = Step.createFrom;
+const $$createType7 = $Create.Array($$createType6);

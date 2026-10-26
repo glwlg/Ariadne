@@ -265,7 +265,6 @@ export const PreviewActionKind = {
     ActionPin: "pin",
     ActionRun: "run",
     ActionPlugin: "plugin",
-    ActionRemember: "remember",
     ActionDanger: "danger",
 };
 
@@ -358,7 +357,6 @@ export const PreviewKind = {
     $zero: "",
 
     PreviewText: "text",
-    PreviewMemory: "memory",
     PreviewImage: "image",
     PreviewSettings: "settings",
     PreviewWorkflow: "workflow",
@@ -558,7 +556,6 @@ export const SearchResultType = {
     ResultPluginResult: "plugin_result",
     ResultWorkflow: "workflow",
     ResultClipboard: "clipboard",
-    ResultMemory: "memory",
     ResultCommand: "command",
     ResultCapture: "capture",
     ResultSettings: "settings",

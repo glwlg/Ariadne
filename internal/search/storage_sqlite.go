@@ -69,6 +69,25 @@ func saveUsageRecordsToSQLite(path string, records map[string]UsageRecord) error
 	})
 }
 
+func saveUsageRecordToSQLite(path string, record UsageRecord) error {
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := ensureSearchUsageSchema(conn); err != nil {
+		return err
+	}
+	if isEmptyUsageRecord(record) {
+		return appdb.DeleteByKey(conn, "search_usage", "result_id", record.ResultID)
+	}
+	return sqlitex.Execute(conn, `INSERT INTO search_usage(result_id, favorite, use_count, last_used_at)
+VALUES (?1, ?2, ?3, ?4) ON CONFLICT(result_id) DO UPDATE SET
+favorite=excluded.favorite, use_count=excluded.use_count, last_used_at=excluded.last_used_at`, &sqlitex.ExecOptions{
+		Args: []any{record.ResultID, appdb.BoolInt(record.Favorite), record.UseCount, record.LastUsedAt},
+	})
+}
+
 func ensureSearchUsageSchema(conn *sqlite.Conn) error {
 	return sqlitex.ExecScript(conn, `
 CREATE TABLE IF NOT EXISTS search_usage(

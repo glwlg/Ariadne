@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ariadne-window.h"
 #include <gst/video/video.h>
+#include <imm.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -10,6 +11,7 @@
 #define VIDEO_TITLE (WM_APP + 203)
 #define VIDEO_STOP (WM_APP + 204)
 #define VIDEO_ASPECT (WM_APP + 205)
+#define VIDEO_INPUT (WM_APP + 206)
 #define MENU_PIN 4101
 #define MENU_FIT 4102
 #define MENU_FULLSCREEN 4103
@@ -30,9 +32,11 @@ typedef struct {
     GstElement *sink;
     GstPad *pad;
     gulong pad_probe, present_handler;
-    gboolean direct_control, pointer_down, pointer_pending, input_active;
+    gboolean direct_control, pointer_down, pointer_pending, input_active, sizing;
     POINT pointer;
     int wheel_delta;
+    gboolean keys[232], ime_disabled;
+    HIMC ime_context;
 } VideoWindow;
 
 typedef struct {
@@ -73,8 +77,58 @@ static int send_pointer(HWND window, int kind, POINT point, int delta)
 
 static gboolean control_ready(HWND window, VideoWindow *state)
 {
-    return state->streaming && state->direct_control &&
+    return state->streaming && state->direct_control && !state->sizing &&
         send_pointer(window, POINTER_QUERY, (POINT){0, 0}, 0) == 2;
+}
+
+int ariadne_key_usage(WPARAM key, LPARAM flags)
+{
+    // Scan codes preserve physical positions, including numpad keys with Num Lock off.
+    static const unsigned char usage[128] = {
+        [0x01]=0x29, [0x02]=0x1e, [0x03]=0x1f, [0x04]=0x20, [0x05]=0x21,
+        [0x06]=0x22, [0x07]=0x23, [0x08]=0x24, [0x09]=0x25, [0x0a]=0x26,
+        [0x0b]=0x27, [0x0c]=0x2d, [0x0d]=0x2e, [0x0e]=0x2a, [0x0f]=0x2b,
+        [0x10]=0x14, [0x11]=0x1a, [0x12]=0x08, [0x13]=0x15, [0x14]=0x17,
+        [0x15]=0x1c, [0x16]=0x18, [0x17]=0x0c, [0x18]=0x12, [0x19]=0x13,
+        [0x1a]=0x2f, [0x1b]=0x30, [0x1c]=0x28, [0x1d]=0xe0, [0x1e]=0x04,
+        [0x1f]=0x16, [0x20]=0x07, [0x21]=0x09, [0x22]=0x0a, [0x23]=0x0b,
+        [0x24]=0x0d, [0x25]=0x0e, [0x26]=0x0f, [0x27]=0x33, [0x28]=0x34,
+        [0x29]=0x35, [0x2a]=0xe1, [0x2b]=0x31, [0x2c]=0x1d, [0x2d]=0x1b,
+        [0x2e]=0x06, [0x2f]=0x19, [0x30]=0x05, [0x31]=0x11, [0x32]=0x10,
+        [0x33]=0x36, [0x34]=0x37, [0x35]=0x38, [0x36]=0xe5, [0x37]=0x55,
+        [0x38]=0xe2, [0x39]=0x2c, [0x3a]=0x39, [0x3b]=0x3a, [0x3c]=0x3b,
+        [0x3d]=0x3c, [0x3e]=0x3d, [0x3f]=0x3e, [0x40]=0x3f, [0x41]=0x40,
+        [0x42]=0x41, [0x43]=0x42, [0x44]=0x43, [0x45]=0x53, [0x46]=0x47,
+        [0x47]=0x5f, [0x48]=0x60, [0x49]=0x61, [0x4a]=0x56, [0x4b]=0x5c,
+        [0x4c]=0x5d, [0x4d]=0x5e, [0x4e]=0x57, [0x4f]=0x59, [0x50]=0x5a,
+        [0x51]=0x5b, [0x52]=0x62, [0x53]=0x63, [0x56]=0x64, [0x57]=0x44,
+        [0x58]=0x45
+    };
+    if (key == VK_PAUSE) return 0x48;
+    if (key == VK_NUMLOCK) return 0x53;
+    if (key == VK_SNAPSHOT) return 0x46;
+    int scan = (flags >> 16) & 0xff;
+    if (!(flags & (1 << 24))) return scan < G_N_ELEMENTS(usage) ? usage[scan] : 0;
+    switch (scan) {
+    case 0x1c: return 0x58;
+    case 0x1d: return 0xe4;
+    case 0x35: return 0x54;
+    case 0x38: return 0xe6;
+    case 0x47: return 0x4a;
+    case 0x48: return 0x52;
+    case 0x49: return 0x4b;
+    case 0x4b: return 0x50;
+    case 0x4d: return 0x4f;
+    case 0x4f: return 0x4d;
+    case 0x50: return 0x51;
+    case 0x51: return 0x4e;
+    case 0x52: return 0x49;
+    case 0x53: return 0x4c;
+    case 0x5b: return 0xe3;
+    case 0x5c: return 0xe7;
+    case 0x5d: return 0x65;
+    default: return 0;
+    }
 }
 
 static gboolean map_pointer(HWND window, VideoWindow *state, LPARAM position, gboolean clamp, POINT *point)
@@ -87,13 +141,36 @@ static gboolean map_pointer(HWND window, VideoWindow *state, LPARAM position, gb
 
 static void cancel_pointer(HWND window, VideoWindow *state)
 {
+    gboolean release_capture = state->pointer_down;
     KillTimer(window, POINTER_TIMER);
     state->pointer_pending = FALSE;
     state->pointer_down = FALSE;
     state->wheel_delta = 0;
+    memset(state->keys, 0, sizeof(state->keys));
     if (state->input_active) send_pointer(window, POINTER_CANCEL, (POINT){0, 0}, 0);
     state->input_active = FALSE;
-    if (GetCapture() == window) ReleaseCapture();
+    // Windows also captures during resizing; release only a phone gesture's capture.
+    if (release_capture && GetCapture() == window) ReleaseCapture();
+}
+
+static gboolean keyboard_input(HWND window, VideoWindow *state, WPARAM key, LPARAM flags, gboolean down)
+{
+    int usage = ariadne_key_usage(key, flags);
+    if (!usage) return FALSE;
+    if (!down && !state->keys[usage]) return FALSE;
+    if (down && state->keys[usage]) return TRUE; // iPhone handles held-key repeat.
+    if (down && (flags & (1 << 30))) return FALSE; // Do not revive keys held across a reset.
+    if (!control_ready(window, state) || GetFocus() != window ||
+        send_pointer(window, KEYBOARD_QUERY, (POINT){0, 0}, 0) != 1) {
+        if (state->input_active) cancel_pointer(window, state);
+        return FALSE;
+    }
+    // A timeout can happen after the receiver accepted input; still attempt a release.
+    state->input_active = TRUE;
+    if (!send_pointer(window, down ? KEY_DOWN : KEY_UP, (POINT){usage, 0}, 0))
+        cancel_pointer(window, state);
+    else state->keys[usage] = down;
+    return TRUE;
 }
 
 static gboolean pointer_button(HWND window, VideoWindow *state, LPARAM position, gboolean down)
@@ -110,7 +187,7 @@ static gboolean pointer_button(HWND window, VideoWindow *state, LPARAM position,
     }
     state->pointer_pending = FALSE;
     // Activate before sending the press: moving focus away from the control panel releases its input.
-    if (down) { SetFocus(window); SetCapture(window); }
+    if (down) { SetFocus(window); SetCapture(window); state->pointer_down = TRUE; }
     if (!send_pointer(window, down ? POINTER_DOWN : POINTER_UP, point, 0)) {
         cancel_pointer(window, state);
         return TRUE;
@@ -308,7 +385,12 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
         update_title(window, state);
         publish(state, "disconnected");
         return 0;
+    case WM_ENTERSIZEMOVE:
+        cancel_pointer(window, state);
+        state->sizing = TRUE;
+        break;
     case WM_EXITSIZEMOVE:
+        state->sizing = FALSE;
         remember_size(window, state);
         break;
     case WM_SIZE:
@@ -355,6 +437,14 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
         if (wparam && IsChild(window, (HWND)wparam)) break;
         cancel_pointer(window, state);
         break;
+    case VIDEO_INPUT:
+    case WM_SETFOCUS:
+        // Input is composed by the phone's IME, not by a second desktop IME.
+        if (!state->ime_disabled) {
+            state->ime_context = ImmAssociateContext(window, NULL);
+            state->ime_disabled = TRUE;
+        }
+        break;
     case WM_CANCELMODE:
         cancel_pointer(window, state);
         break;
@@ -363,16 +453,28 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
         break;
     case WM_SYSKEYDOWN:
         if (wparam == VK_RETURN && (lparam & (1 << 29))) {
+            cancel_pointer(window, state);
             if (!(lparam & (1 << 30))) toggle_fullscreen(window, state);
             return 0;
         }
+        if (wparam == VK_F4 && (lparam & (1 << 29))) {
+            cancel_pointer(window, state);
+            break;
+        }
+        if (keyboard_input(window, state, wparam, lparam, TRUE)) return 0;
         break;
     case WM_KEYDOWN:
-        if (wparam == VK_ESCAPE) cancel_pointer(window, state);
         if (wparam == VK_ESCAPE && state->fullscreen) {
+            cancel_pointer(window, state);
             toggle_fullscreen(window, state);
             return 0;
         }
+        if (keyboard_input(window, state, wparam, lparam, TRUE)) return 0;
+        if (wparam == VK_ESCAPE) cancel_pointer(window, state);
+        break;
+    case WM_KEYUP:
+    case WM_SYSKEYUP:
+        if (keyboard_input(window, state, wparam, lparam, FALSE)) return 0;
         break;
     case WM_CONTEXTMENU: {
         cancel_pointer(window, state);
@@ -435,6 +537,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
         }
         G_UNLOCK(video_state);
         RemovePropW(window, WINDOW_PROPERTY);
+        if (state->ime_disabled) ImmAssociateContext(window, state->ime_context);
         SetWindowLongPtrW(window, GWLP_WNDPROC, (LONG_PTR)original);
         if (state->pad) {
             gst_pad_remove_probe(state->pad, state->pad_probe);
@@ -539,6 +642,7 @@ HWND ariadne_brand_video_window(GstMessage *message)
         g_free(state);
         return NULL;
     }
+    PostMessageW(window, VIDEO_INPUT, 0, 0);
     G_LOCK(video_state);
     active_window = window;
     G_UNLOCK(video_state);

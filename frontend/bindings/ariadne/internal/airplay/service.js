@@ -15,6 +15,13 @@ import * as contracts$0 from "../contracts/models.js";
 import * as $models from "./models.js";
 
 /**
+ * @returns {$CancellablePromise<string>}
+ */
+export function Diagnostics() {
+    return $Call.ByID(3966740229);
+}
+
+/**
  * @param {string} command
  * @returns {$CancellablePromise<contracts$0.ActionResult>}
  */

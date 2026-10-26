@@ -15,15 +15,6 @@ import * as application$0 from "../../../github.com/wailsapp/wails/v3/pkg/applic
 import * as $models from "./models.js";
 
 /**
- * @returns {$CancellablePromise<$models.OpenResult>}
- */
-export function ApplyMainWindowPolicy() {
-    return $Call.ByID(3412883627).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType0($result);
-    }));
-}
-
-/**
  * @param {application$0.App | null} app
  * @returns {$CancellablePromise<void>}
  */

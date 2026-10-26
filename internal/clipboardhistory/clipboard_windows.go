@@ -38,37 +38,42 @@ const (
 	errorClassAlreadyExists = 1410
 )
 
+type clipboardProc interface {
+	Call(...uintptr) (uintptr, uintptr, error)
+}
+
 var (
-	user32                          = windows.NewLazySystemDLL("user32.dll")
-	kernel32                        = windows.NewLazySystemDLL("kernel32.dll")
-	procOpenClipboard               = user32.NewProc("OpenClipboard")
-	procCloseClipboard              = user32.NewProc("CloseClipboard")
-	procEmptyClipboard              = user32.NewProc("EmptyClipboard")
-	procGetClipboardData            = user32.NewProc("GetClipboardData")
-	procIsFormatAvailable           = user32.NewProc("IsClipboardFormatAvailable")
-	procSetClipboardData            = user32.NewProc("SetClipboardData")
-	procAddClipboardFormatListener  = user32.NewProc("AddClipboardFormatListener")
-	procRemoveClipboardFormatListen = user32.NewProc("RemoveClipboardFormatListener")
-	procCreateWindowExW             = user32.NewProc("CreateWindowExW")
-	procDefWindowProcW              = user32.NewProc("DefWindowProcW")
-	procDestroyWindow               = user32.NewProc("DestroyWindow")
-	procDispatchMessageW            = user32.NewProc("DispatchMessageW")
-	procGetMessageW                 = user32.NewProc("GetMessageW")
-	procPostMessageW                = user32.NewProc("PostMessageW")
-	procPostQuitMessage             = user32.NewProc("PostQuitMessage")
-	procRegisterClassExW            = user32.NewProc("RegisterClassExW")
-	procTranslateMessage            = user32.NewProc("TranslateMessage")
-	procGetModuleHandleW            = kernel32.NewProc("GetModuleHandleW")
-	procGlobalAlloc                 = kernel32.NewProc("GlobalAlloc")
-	procGlobalFree                  = kernel32.NewProc("GlobalFree")
-	procGlobalLock                  = kernel32.NewProc("GlobalLock")
-	procGlobalUnlock                = kernel32.NewProc("GlobalUnlock")
-	procGlobalSize                  = kernel32.NewProc("GlobalSize")
+	user32                                        = windows.NewLazySystemDLL("user32.dll")
+	kernel32                                      = windows.NewLazySystemDLL("kernel32.dll")
+	procOpenClipboard               clipboardProc = user32.NewProc("OpenClipboard")
+	procCloseClipboard              clipboardProc = user32.NewProc("CloseClipboard")
+	procEmptyClipboard                            = user32.NewProc("EmptyClipboard")
+	procGetClipboardData                          = user32.NewProc("GetClipboardData")
+	procIsFormatAvailable           clipboardProc = user32.NewProc("IsClipboardFormatAvailable")
+	procSetClipboardData                          = user32.NewProc("SetClipboardData")
+	procAddClipboardFormatListener                = user32.NewProc("AddClipboardFormatListener")
+	procRemoveClipboardFormatListen               = user32.NewProc("RemoveClipboardFormatListener")
+	procCreateWindowExW                           = user32.NewProc("CreateWindowExW")
+	procDefWindowProcW                            = user32.NewProc("DefWindowProcW")
+	procDestroyWindow                             = user32.NewProc("DestroyWindow")
+	procDispatchMessageW                          = user32.NewProc("DispatchMessageW")
+	procGetMessageW                               = user32.NewProc("GetMessageW")
+	procPostMessageW                              = user32.NewProc("PostMessageW")
+	procPostQuitMessage                           = user32.NewProc("PostQuitMessage")
+	procRegisterClassExW                          = user32.NewProc("RegisterClassExW")
+	procTranslateMessage                          = user32.NewProc("TranslateMessage")
+	procGetModuleHandleW                          = kernel32.NewProc("GetModuleHandleW")
+	procGlobalAlloc                               = kernel32.NewProc("GlobalAlloc")
+	procGlobalFree                                = kernel32.NewProc("GlobalFree")
+	procGlobalLock                                = kernel32.NewProc("GlobalLock")
+	procGlobalUnlock                              = kernel32.NewProc("GlobalUnlock")
+	procGlobalSize                                = kernel32.NewProc("GlobalSize")
 
 	clipboardWatcherClassName = windows.StringToUTF16Ptr("AriadneClipboardWatcherWindow")
 	clipboardWatcherWndProc   = syscall.NewCallback(clipboardWatcherWindowProc)
 	clipboardWatcherCallbacks sync.Map
 	clipboardWriteSleep       = time.Sleep
+	clipboardAccess           sync.Mutex
 )
 
 const clipboardWriteAttempts = 12
@@ -231,43 +236,55 @@ func readSystemClipboardText() (string, error) {
 }
 
 func readSystemClipboardEntryOnce(imageDir string, source string) (Entry, error) {
-	opened, _, err := procOpenClipboard.Call(0)
-	if opened == 0 {
-		return Entry{}, fmt.Errorf("open clipboard: %w", err)
-	}
-
-	if available, _, _ := procIsFormatAvailable.Call(cfDIBV5); available != 0 {
-		dib, err := copyClipboardData(cfDIBV5)
-		procCloseClipboard.Call()
-		if err != nil {
-			return Entry{}, err
+	var dib []byte
+	var text string
+	imageAvailable := false
+	err := withOpenClipboard(func() error {
+		for _, format := range []uintptr{cfDIBV5, cfDIB} {
+			if available, _, _ := procIsFormatAvailable.Call(format); available != 0 {
+				imageAvailable = true
+				var err error
+				dib, err = copyClipboardData(format)
+				return err
+			}
 		}
-		return makeImageEntryFromDIB(dib, imageDir, source)
-	}
-	if available, _, _ := procIsFormatAvailable.Call(cfDIB); available != 0 {
-		dib, err := copyClipboardData(cfDIB)
-		procCloseClipboard.Call()
-		if err != nil {
-			return Entry{}, err
-		}
-		return makeImageEntryFromDIB(dib, imageDir, source)
-	}
-	text, err := readUnicodeTextFromOpenClipboard()
-	procCloseClipboard.Call()
+		var err error
+		text, err = readUnicodeTextFromOpenClipboard()
+		return err
+	})
 	if err != nil {
 		return Entry{}, err
+	}
+	if imageAvailable {
+		return makeImageEntryFromDIB(dib, imageDir, source)
 	}
 	return makeTextEntry(text, source), nil
 }
 
 func readSystemClipboardTextOnce() (string, error) {
+	var text string
+	err := withOpenClipboard(func() error {
+		var err error
+		text, err = readUnicodeTextFromOpenClipboard()
+		return err
+	})
+	return text, err
+}
+
+func withOpenClipboard(operation func() error) error {
+	// OpenClipboard(NULL) can be reopened by another thread in this process.
+	clipboardAccess.Lock()
+	defer clipboardAccess.Unlock()
+	// Windows requires the opening thread to close the clipboard.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	opened, _, err := procOpenClipboard.Call(0)
 	if opened == 0 {
-		return "", fmt.Errorf("open clipboard: %w", err)
+		return fmt.Errorf("open clipboard: %w", err)
 	}
 	defer procCloseClipboard.Call()
-
-	return readUnicodeTextFromOpenClipboard()
+	return operation()
 }
 
 func readUnicodeTextFromOpenClipboard() (string, error) {
@@ -353,39 +370,32 @@ func writePNGToSystemClipboard(data []byte) error {
 }
 
 func writeImageDIBToSystemClipboardOnce(dib []byte) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	return withOpenClipboard(func() error {
+		if ok, _, emptyErr := procEmptyClipboard.Call(); ok == 0 {
+			return fmt.Errorf("empty clipboard: %w", emptyErr)
+		}
 
-	opened, _, openErr := procOpenClipboard.Call(0)
-	if opened == 0 {
-		return fmt.Errorf("open clipboard: %w", openErr)
-	}
-	defer procCloseClipboard.Call()
+		handle, _, allocErr := procGlobalAlloc.Call(gmemMoveable, uintptr(len(dib)))
+		if handle == 0 {
+			return fmt.Errorf("alloc clipboard image: %w", allocErr)
+		}
+		ptr, _, lockErr := procGlobalLock.Call(handle)
+		if ptr == 0 {
+			procGlobalFree.Call(handle)
+			return fmt.Errorf("lock clipboard image: %w", lockErr)
+		}
+		copy(unsafe.Slice((*byte)(unsafe.Pointer(ptr)), len(dib)), dib)
+		procGlobalUnlock.Call(handle)
 
-	if ok, _, emptyErr := procEmptyClipboard.Call(); ok == 0 {
-		return fmt.Errorf("empty clipboard: %w", emptyErr)
-	}
-
-	handle, _, allocErr := procGlobalAlloc.Call(gmemMoveable, uintptr(len(dib)))
-	if handle == 0 {
-		return fmt.Errorf("alloc clipboard image: %w", allocErr)
-	}
-	ptr, _, lockErr := procGlobalLock.Call(handle)
-	if ptr == 0 {
-		procGlobalFree.Call(handle)
-		return fmt.Errorf("lock clipboard image: %w", lockErr)
-	}
-	copy(unsafe.Slice((*byte)(unsafe.Pointer(ptr)), len(dib)), dib)
-	procGlobalUnlock.Call(handle)
-
-	if result, _, setErr := procSetClipboardData.Call(cfDIB, handle); result == 0 {
-		procGlobalFree.Call(handle)
-		return fmt.Errorf("set clipboard image: %w", setErr)
-	}
-	if available, _, _ := procIsFormatAvailable.Call(cfDIB); available == 0 {
-		return fmt.Errorf("set clipboard image: image format unavailable after write")
-	}
-	return nil
+		if result, _, setErr := procSetClipboardData.Call(cfDIB, handle); result == 0 {
+			procGlobalFree.Call(handle)
+			return fmt.Errorf("set clipboard image: %w", setErr)
+		}
+		if available, _, _ := procIsFormatAvailable.Call(cfDIB); available == 0 {
+			return fmt.Errorf("set clipboard image: image format unavailable after write")
+		}
+		return nil
+	})
 }
 
 func writeTextToSystemClipboard(text string) error {
@@ -401,39 +411,32 @@ func writeTextToSystemClipboard(text string) error {
 }
 
 func writeTextToSystemClipboardOnce(data []uint16, size int) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	return withOpenClipboard(func() error {
+		if ok, _, emptyErr := procEmptyClipboard.Call(); ok == 0 {
+			return fmt.Errorf("empty clipboard: %w", emptyErr)
+		}
 
-	opened, _, openErr := procOpenClipboard.Call(0)
-	if opened == 0 {
-		return fmt.Errorf("open clipboard: %w", openErr)
-	}
-	defer procCloseClipboard.Call()
+		handle, _, allocErr := procGlobalAlloc.Call(gmemMoveable, uintptr(size))
+		if handle == 0 {
+			return fmt.Errorf("alloc clipboard text: %w", allocErr)
+		}
+		ptr, _, lockErr := procGlobalLock.Call(handle)
+		if ptr == 0 {
+			procGlobalFree.Call(handle)
+			return fmt.Errorf("lock clipboard text: %w", lockErr)
+		}
+		copy(unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(data)), data)
+		procGlobalUnlock.Call(handle)
 
-	if ok, _, emptyErr := procEmptyClipboard.Call(); ok == 0 {
-		return fmt.Errorf("empty clipboard: %w", emptyErr)
-	}
-
-	handle, _, allocErr := procGlobalAlloc.Call(gmemMoveable, uintptr(size))
-	if handle == 0 {
-		return fmt.Errorf("alloc clipboard text: %w", allocErr)
-	}
-	ptr, _, lockErr := procGlobalLock.Call(handle)
-	if ptr == 0 {
-		procGlobalFree.Call(handle)
-		return fmt.Errorf("lock clipboard text: %w", lockErr)
-	}
-	copy(unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), len(data)), data)
-	procGlobalUnlock.Call(handle)
-
-	if result, _, setErr := procSetClipboardData.Call(cfUnicodeText, handle); result == 0 {
-		procGlobalFree.Call(handle)
-		return fmt.Errorf("set clipboard text: %w", setErr)
-	}
-	if available, _, _ := procIsFormatAvailable.Call(cfUnicodeText); available == 0 {
-		return fmt.Errorf("set clipboard text: text format unavailable after write")
-	}
-	return nil
+		if result, _, setErr := procSetClipboardData.Call(cfUnicodeText, handle); result == 0 {
+			procGlobalFree.Call(handle)
+			return fmt.Errorf("set clipboard text: %w", setErr)
+		}
+		if available, _, _ := procIsFormatAvailable.Call(cfUnicodeText); available == 0 {
+			return fmt.Errorf("set clipboard text: text format unavailable after write")
+		}
+		return nil
+	})
 }
 
 func writeClipboardWithRetry(operation func() error) error {

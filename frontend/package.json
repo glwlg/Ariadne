@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test": "node scripts/run-tests.mjs",
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
@@ -15,6 +16,9 @@
     "test:api-json-expansion": "node scripts/test-api-json-expansion.mjs",
     "test:process-network-sort": "node scripts/test-process-network-sort.ts",
     "test:network-telemetry": "node scripts/test-network-telemetry.ts",
+    "test:network-theme-contract": "node scripts/test-network-theme-contract.mjs",
+    "test:store-state": "node scripts/test-store-state.mjs",
+    "test:tool-window-registry": "node scripts/test-tool-window-registry.mjs",
     "test:app-update-api": "node scripts/test-app-update-api.ts"
   },
   "dependencies": {

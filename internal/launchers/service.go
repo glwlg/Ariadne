@@ -226,7 +226,6 @@ func launcherToResult(launcher Launcher, score float64) contracts.SearchResult {
 		Actions: []contracts.PreviewAction{
 			action,
 			contracts.CopyAction("copy_target", "复制目标", launcher.Target, ""),
-			contracts.RememberAction("remember_launcher", "加入记忆", "launcher-"+launcher.ID),
 		},
 	}
 }

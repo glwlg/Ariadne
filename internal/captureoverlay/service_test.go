@@ -26,10 +26,18 @@ import (
 type failingPinService struct{}
 
 type fakeOCRProvider struct {
-	mu     sync.Mutex
-	result ocr.Result
-	paths  []string
-	delay  time.Duration
+	mu          sync.Mutex
+	result      ocr.Result
+	paths       []string
+	delay       time.Duration
+	regionCalls int
+}
+
+func (f *fakeOCRProvider) RecognizeImageRegions(path string) ocr.Result {
+	f.mu.Lock()
+	f.regionCalls++
+	f.mu.Unlock()
+	return f.RecognizeImagePath(path)
 }
 
 func (f *fakeOCRProvider) RecognizeImagePath(path string) ocr.Result {
@@ -584,9 +592,26 @@ func TestNativeRedactCopyActionWritesClipboardBeforeReturning(t *testing.T) {
 	if len(*copiedPNG) == 0 {
 		t.Fatal("expected callback to write the clipboard before returning")
 	}
+	if ocrProvider.regionCalls != 1 {
+		t.Fatalf("redaction must request OCR coordinates, got %d region calls", ocrProvider.regionCalls)
+	}
 	img := decodePNGBytes(t, *copiedPNG)
 	if !sameRGBA(img.At(5, 2), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
 		t.Fatalf("expected clipboard image to be redacted, got %#v", img.At(5, 2))
+	}
+}
+
+func TestNativeRedactCopyDoesNotCopyWhenOCRFails(t *testing.T) {
+	service := NewService(nil, nil, &fakeOCRProvider{result: ocr.Result{Error: "本地识别不可用"}})
+	service.ApplyScreenshotPolicy(ScreenshotPolicy{RedactPhones: true})
+	copiedPNG := stubPNGClipboardWriter(t)
+	imagePath := filepath.Join(t.TempDir(), "selection.png")
+	if err := os.WriteFile(imagePath, testOverlayPNG(t, 12, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	response := service.handleNativePinAction(nativecapture.PinActionRequest{Action: "redact_copy", ImagePath: imagePath})
+	if response.OK || response.ClipboardWritten || !strings.Contains(response.Message, "本地识别不可用") || len(*copiedPNG) != 0 {
+		t.Fatalf("failed redaction must report the error without copying: %#v, copied=%d", response, len(*copiedPNG))
 	}
 }
 
