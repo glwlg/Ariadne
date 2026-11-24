@@ -1,9 +1,40 @@
 <script setup lang="ts">
 import { Copy, Globe2, Plus, Save, Trash2, X } from '@lucide/vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FancunButton from '../ui/FancunButton.vue'
 import { useAPITestingStore } from '../../stores/apiTesting'
 
 const apiTesting = useAPITestingStore()
+const envNameInputRef = ref<HTMLInputElement | null>(null)
+let previousFocus: HTMLElement | null = null
+
+function onWindowKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    apiTesting.closeEnvironmentPanel()
+  }
+}
+
+watch(
+  () => apiTesting.isEnvironmentPanelOpen,
+  (open) => {
+    if (open) {
+      previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      window.addEventListener('keydown', onWindowKeydown, true)
+      void nextTick(() => envNameInputRef.value?.focus())
+    } else {
+      window.removeEventListener('keydown', onWindowKeydown, true)
+      previousFocus?.focus()
+      previousFocus = null
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown, true)
+})
 </script>
 
 <template>
@@ -13,7 +44,11 @@ const apiTesting = useAPITestingStore()
       <header class="api-env-panel-head">
         <div>
           <strong>环境配置</strong>
-          <span v-if="apiTesting.saveFeedback" aria-live="polite">{{ apiTesting.saveFeedback }}</span>
+          <span
+            v-if="apiTesting.saveFeedback"
+            :class="{ 'inline-feedback': true, 'is-danger': apiTesting.saveFeedbackTone === 'danger' }"
+            aria-live="polite"
+          >{{ apiTesting.saveFeedback }}</span>
           <span v-else-if="apiTesting.isDirty">未保存</span>
         </div>
         <div class="api-env-panel-actions">
@@ -35,17 +70,19 @@ const apiTesting = useAPITestingStore()
               <Plus :size="15" />
             </FancunButton>
           </div>
-          <button
-            v-for="environment in apiTesting.draftCollection?.environments ?? []"
-            :key="environment.id"
-            class="api-env-row"
-            :class="{ 'is-active': environment.id === apiTesting.selectedEnvironmentId }"
-            @click="apiTesting.selectEnvironment(environment.id)"
-          >
-            <Globe2 :size="15" />
-            <span>{{ environment.name }}</span>
-            <small>{{ environment.variables.filter((variable) => variable.enabled).length }}</small>
-          </button>
+          <div class="api-env-list">
+            <button
+              v-for="environment in apiTesting.draftCollection?.environments ?? []"
+              :key="environment.id"
+              class="api-env-row"
+              :class="{ 'is-active': environment.id === apiTesting.selectedEnvironmentId }"
+              @click="apiTesting.selectEnvironment(environment.id)"
+            >
+              <Globe2 :size="15" />
+              <span>{{ environment.name }}</span>
+              <small>{{ environment.variables.filter((variable) => variable.enabled).length }}</small>
+            </button>
+          </div>
           <div class="api-env-rail-actions">
             <FancunButton size="sm" variant="secondary" :disabled="!apiTesting.selectedEnvironment" @click="apiTesting.duplicateEnvironment()">
               <Copy :size="14" />
@@ -54,11 +91,12 @@ const apiTesting = useAPITestingStore()
             <FancunButton
               size="sm"
               variant="ghost"
+              :class="{ 'is-armed-danger': Boolean(apiTesting.selectedEnvironment && apiTesting.envDeleteArmedId === apiTesting.selectedEnvironment.id) }"
               :disabled="(apiTesting.draftCollection?.environments.length ?? 0) <= 1"
-              @click="apiTesting.removeSelectedEnvironment()"
+              @click="apiTesting.confirmRemoveSelectedEnvironment()"
             >
               <Trash2 :size="14" />
-              删除
+              {{ apiTesting.selectedEnvironment && apiTesting.envDeleteArmedId === apiTesting.selectedEnvironment.id ? '确认删除' : '删除' }}
             </FancunButton>
           </div>
         </aside>
@@ -69,6 +107,7 @@ const apiTesting = useAPITestingStore()
               <label class="api-field">
                 <span>环境名称</span>
                 <input
+                  ref="envNameInputRef"
                   class="api-input"
                   :value="apiTesting.selectedEnvironment?.name || ''"
                   placeholder="环境名称"

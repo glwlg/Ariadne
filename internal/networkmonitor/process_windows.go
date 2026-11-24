@@ -23,8 +23,9 @@ const (
 )
 
 var (
-	iphlpapi                = windows.NewLazySystemDLL("iphlpapi.dll")
-	procGetExtendedTCPTable = iphlpapi.NewProc("GetExtendedTcpTable")
+	iphlpapi                    = windows.NewLazySystemDLL("iphlpapi.dll")
+	procGetExtendedTCPTable     = iphlpapi.NewProc("GetExtendedTcpTable")
+	defaultProcessIdentityCache = newProcessIdentityCache()
 )
 
 type mibTCPRowOwnerPID struct {
@@ -40,20 +41,12 @@ func readProcessCounters() ([]processCounter, error) {
 	traffic, trafficErr := readPrivilegedTraffic()
 	rows, rowsErr := establishedTCPRows()
 	byPID := make(map[uint32]*processCounter, len(traffic.Processes))
-	processes := make(map[uint32][2]string)
-	resolve := func(pid uint32) [2]string {
-		if value, ok := processes[pid]; ok {
-			return value
-		}
-		value := processNamePath(pid)
-		processes[pid] = value
-		return value
-	}
+	activePIDs := make(map[uint32]struct{}, len(traffic.Processes)+len(rows))
 	ensure := func(pid uint32) *processCounter {
 		if counter := byPID[pid]; counter != nil {
 			return counter
 		}
-		namePath := resolve(pid)
+		namePath := defaultProcessIdentityCache.resolve(pid, activePIDs, processNamePath)
 		counter := &processCounter{pid: pid, name: namePath[0], path: namePath[1], connections: []ProcessConnection{}}
 		byPID[pid] = counter
 		return counter
@@ -71,6 +64,7 @@ func readProcessCounters() ([]processCounter, error) {
 			RemoteAddress: net.JoinHostPort(ipv4String(row.RemoteAddr), fmt.Sprintf("%d", networkPort(row.RemotePort))),
 		})
 	}
+	defaultProcessIdentityCache.evictExcept(activePIDs)
 
 	counters := make([]processCounter, 0, len(byPID))
 	for _, counter := range byPID {

@@ -124,6 +124,7 @@ type HotkeyKey = keyof HotkeySettings
 type SettingsPageId = 'general' | 'hotkeys' | 'plugins' | 'launchers' | 'screenshot' | 'ocr' | 'search' | 'data' | 'advanced'
 
 const activeSettingsPage = ref<SettingsPageId>('general')
+const hotkeySnapshots = ref<Partial<Record<HotkeyKey, string>>>({})
 const settingsPages: Array<{
   id: SettingsPageId
   label: string
@@ -160,17 +161,32 @@ function selectLauncher(launcher: Launcher) {
 
 function captureHotkey(key: HotkeyKey, event: KeyboardEvent) {
   if (event.key === 'Tab') return
-  const value = formatHotkeyEvent(event)
-  if (!value) {
-    return
-  }
   event.preventDefault()
   event.stopPropagation()
+  if (event.key === 'Escape' && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
+    const previous = hotkeySnapshots.value[key]
+    if (previous) {
+      settings.stageHotkey(key, previous)
+    }
+    ;(event.target as HTMLInputElement | null)?.blur()
+    return
+  }
+  const value = formatHotkeyEvent(event)
+  if (!value) {
+    const normalized = normalizeHotkeyKey(event.key)
+    if (normalized && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
+      settings.showFeedback('快捷键需包含修饰键（如 Alt+Q）或使用 F1-F24', 'danger')
+    }
+    return
+  }
   settings.stageHotkey(key, value)
 }
 
-function selectHotkeyInput(event: FocusEvent | MouseEvent) {
+function selectHotkeyInput(key: HotkeyKey, event: FocusEvent | MouseEvent) {
   const target = event.target as HTMLInputElement | null
+  if (settings.settings?.hotkeys[key]) {
+    hotkeySnapshots.value[key] = settings.settings.hotkeys[key]
+  }
   target?.select()
 }
 
@@ -225,9 +241,10 @@ onMounted(() => {
   <main class="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
     <div class="app-frame">
       <section class="launcher-shell settings-shell is-design-surface" aria-label="Fancun settings center">
-        <div v-if="settings.isLoading" class="empty-state">
+        <div v-if="settings.isLoading" class="tool-loading-state">
           <Sparkles :size="22" />
-          <span>正在读取设置</span>
+          <strong>正在读取设置...</strong>
+          <small>加载本地配置文件与平台诊断信息</small>
         </div>
 
         <div v-else-if="settings.settings" class="settings-workspace">
@@ -392,6 +409,7 @@ onMounted(() => {
                   <FancunButton
                     size="sm"
                     variant="secondary"
+                    :class="{ 'is-armed-danger': settings.legacyHandoffMode === 'graceful' }"
                     :disabled="settings.isResolvingLegacyConflict"
                     @click="settings.resolveLegacyHandoff(false)"
                   >
@@ -403,6 +421,7 @@ onMounted(() => {
                     size="sm"
                     variant="ghost"
                     class="danger-action"
+                    :class="{ 'is-armed-danger': settings.legacyHandoffMode === 'force' }"
                     :disabled="settings.isResolvingLegacyConflict"
                     @click="settings.resolveLegacyHandoff(true)"
                   >
@@ -575,6 +594,7 @@ onMounted(() => {
                     size="sm"
                     variant="ghost"
                     class="danger-action"
+                    :class="{ 'is-armed-danger': settings.rollbackRestoreArmed }"
                     :disabled="!settings.releaseBackupStatus?.latestBackup || settings.isRestoringRollbackCheckpoint"
                     @click="settings.restoreLatestRollbackCheckpoint()"
                   >
@@ -728,8 +748,8 @@ onMounted(() => {
                     autocomplete="off"
                     spellcheck="false"
                     placeholder="alt+q 或点击后按组合键"
-                    @focus="selectHotkeyInput"
-                    @click="selectHotkeyInput"
+                    @focus="selectHotkeyInput('toggleWindow', $event)"
+                    @click="selectHotkeyInput('toggleWindow', $event)"
                     @keydown="captureHotkey('toggleWindow', $event)"
                     @blur="settings.normalizeHotkey('toggleWindow')"
                   />
@@ -742,8 +762,8 @@ onMounted(() => {
                     autocomplete="off"
                     spellcheck="false"
                     placeholder="alt+a 或点击后按组合键"
-                    @focus="selectHotkeyInput"
-                    @click="selectHotkeyInput"
+                    @focus="selectHotkeyInput('screenshot', $event)"
+                    @click="selectHotkeyInput('screenshot', $event)"
                     @keydown="captureHotkey('screenshot', $event)"
                     @blur="settings.normalizeHotkey('screenshot')"
                   />
@@ -757,8 +777,8 @@ onMounted(() => {
                     spellcheck="false"
                     placeholder="alt+v 或点击后按组合键"
                     title="将当前剪贴板图片或文本固定到桌面。"
-                    @focus="selectHotkeyInput"
-                    @click="selectHotkeyInput"
+                    @focus="selectHotkeyInput('pinClipboard', $event)"
+                    @click="selectHotkeyInput('pinClipboard', $event)"
                     @keydown="captureHotkey('pinClipboard', $event)"
                     @blur="settings.normalizeHotkey('pinClipboard')"
                   />
@@ -928,7 +948,13 @@ onMounted(() => {
                       <Save :size="14" />
                       保存启动项
                     </FancunButton>
-                    <FancunButton size="sm" variant="secondary" :disabled="settings.isSaving" @click="settings.deleteLauncher()">
+                    <FancunButton
+                      size="sm"
+                      variant="secondary"
+                      :class="{ 'is-armed-danger': Boolean(settings.launcherDraft.id && settings.launcherDeleteArmedId === settings.launcherDraft.id) }"
+                      :disabled="settings.isSaving"
+                      @click="settings.deleteLauncher()"
+                    >
                       <Trash2 :size="14" />
                       {{ settings.launcherDeleteArmedId === settings.launcherDraft.id ? '确认删除' : '删除' }}
                     </FancunButton>
@@ -1121,7 +1147,14 @@ onMounted(() => {
                   <Shield :size="14" />
                   {{ settings.isCreatingRollbackCheckpoint ? '创建中' : '创建检查点' }}
                 </FancunButton>
-                <FancunButton size="sm" variant="ghost" class="danger-action" :disabled="!settings.releaseBackupStatus?.latestBackup || settings.isRestoringRollbackCheckpoint" @click="settings.restoreLatestRollbackCheckpoint()">
+                <FancunButton
+                  size="sm"
+                  variant="ghost"
+                  class="danger-action"
+                  :class="{ 'is-armed-danger': settings.rollbackRestoreArmed }"
+                  :disabled="!settings.releaseBackupStatus?.latestBackup || settings.isRestoringRollbackCheckpoint"
+                  @click="settings.restoreLatestRollbackCheckpoint()"
+                >
                   <RotateCcw :size="14" />
                   {{ settings.isRestoringRollbackCheckpoint ? '恢复中' : settings.rollbackRestoreArmed ? '确认恢复' : '恢复最近检查点' }}
                 </FancunButton>
@@ -1130,15 +1163,35 @@ onMounted(() => {
           </section>
         </div>
 
+        <div v-else class="tool-error-state m-6">
+          <AlertTriangle :size="24" />
+          <strong>设置加载失败</strong>
+          <small>{{ settings.loadError || '无法读取本地配置，请检查数据目录或重试。' }}</small>
+          <FancunButton size="sm" variant="secondary" @click="settings.load()">
+            <RotateCcw :size="14" />
+            重试加载
+          </FancunButton>
+        </div>
+
         <footer class="status-strip">
           <span class="settings-footer-spacer" />
-          <span v-if="settings.feedback" class="inline-feedback">{{ settings.feedback }}</span>
+          <span
+            v-if="settings.feedback"
+            class="inline-feedback"
+            :class="{ 'is-danger': settings.feedbackTone === 'danger' }"
+          >{{ settings.feedback }}</span>
           <span class="settings-footer-actions">
-            <FancunButton size="sm" variant="ghost" :disabled="settings.isSaving" @click="settings.reset()">
+            <FancunButton
+              size="sm"
+              variant="ghost"
+              :class="{ 'is-armed-danger': settings.resetArmed }"
+              :disabled="settings.isSaving || !settings.settings"
+              @click="settings.confirmReset()"
+            >
               <RotateCcw :size="14" />
-              恢复默认
+              {{ settings.resetArmed ? '确认恢复默认' : '恢复默认' }}
             </FancunButton>
-            <FancunButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.save()">
+            <FancunButton size="sm" variant="primary" :disabled="settings.isSaving || !settings.settings" @click="settings.save()">
               <Save :size="14" />
               {{ settings.isSaving ? '保存中' : '保存设置' }}
             </FancunButton>

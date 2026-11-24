@@ -53,14 +53,41 @@ const assertionOperators = [
           placeholder="https://api.example.com/v1/resource"
           @input="apiTesting.updateRequest({ url: ($event.target as HTMLInputElement).value })"
         />
-        <FancunButton v-if="apiTesting.isRunning" size="md" variant="secondary" :disabled="apiTesting.isStopping" @click="apiTesting.stopSelectedRequest()">
-          <Square :size="15" />
-          {{ apiTesting.isStopping ? '停止中' : '停止' }}
-        </FancunButton>
-        <FancunButton v-else size="md" variant="primary" @click="apiTesting.runSelectedRequest()">
-          <Send :size="15" />
-          发送
-        </FancunButton>
+        <div class="flex items-center gap-2 shrink-0">
+          <label class="inline-flex items-center gap-1 text-xs text-[var(--muted)]" title="请求超时秒数">
+            <span>超时</span>
+            <input
+              v-model.number="apiTesting.requestTimeoutSeconds"
+              type="number"
+              min="1"
+              max="600"
+              aria-label="请求超时秒数"
+              class="api-input !w-14 !h-10 text-center"
+            />
+            <span>s</span>
+          </label>
+          <FancunButton
+            v-if="apiTesting.isRequestRunning(apiTesting.selectedRequest.id)"
+            class="!h-10 min-w-[84px]"
+            size="md"
+            variant="secondary"
+            :disabled="apiTesting.isRequestStopping(apiTesting.selectedRequest.id)"
+            @click="apiTesting.stopSelectedRequest()"
+          >
+            <Square :size="15" />
+            {{ apiTesting.isRequestStopping(apiTesting.selectedRequest.id) ? '停止中' : '停止' }}
+          </FancunButton>
+          <FancunButton
+            v-else
+            class="!h-10 min-w-[84px]"
+            size="md"
+            variant="primary"
+            @click="apiTesting.runSelectedRequest()"
+          >
+            <Send :size="15" />
+            发送
+          </FancunButton>
+        </div>
       </div>
 
       <nav class="api-editor-tabs" aria-label="请求编辑区域">

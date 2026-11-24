@@ -396,3 +396,64 @@ func (s *Service) clearThumbnailForTest(id string) {
 		}
 	}
 }
+
+func TestCaptureSQLiteIncrementalSyncPreservesActionsTagsAndOrder(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "capture_history.json")
+	imageDir := filepath.Join(root, "capture_images")
+	service := NewServiceWithPaths(path, imageDir)
+
+	first := service.AddPNG(testPNG(t, 100, 80), 100, 80, "screen-a", "", []string{"copy", "pin"}).Entries[0]
+	second := service.AddPNG(testPNG(t, 200, 120), 200, 120, "screen-b", "", []string{"save", "ocr"}).Entries[0]
+	service.setCreatedAtForTest(first.ID, 100)
+	service.setCreatedAtForTest(second.ID, 200)
+	service.TogglePin(first.ID)
+	service.Delete(second.ID)
+
+	reloaded := NewServiceWithPaths(path, imageDir)
+	entries := reloaded.List("", 10)
+	if len(entries) != 1 || entries[0].ID != first.ID || !entries[0].Pinned {
+		t.Fatalf("unexpected entries after incremental sync: %#v", entries)
+	}
+	if len(entries[0].Actions) != 2 || entries[0].Actions[0] != "copy" || entries[0].Actions[1] != "pin" {
+		t.Fatalf("actions order/content lost after batch load: %#v", entries[0].Actions)
+	}
+
+	reloaded.Delete(first.ID)
+	empty := NewServiceWithPaths(path, imageDir)
+	if empty.Status().Count != 0 {
+		t.Fatalf("expected empty capture history after deleting last entry, got %#v", empty.Status())
+	}
+}
+
+func TestCaptureHistoryVirtualizedStatusCacheAvoidsRepeatedGlobs(t *testing.T) {
+	root := t.TempDir()
+	appData := filepath.Join(root, "Roaming")
+	localAppData := filepath.Join(root, "Local")
+	t.Setenv("APPDATA", appData)
+	t.Setenv("LOCALAPPDATA", localAppData)
+
+	historyPath := filepath.Join(appData, "Fancun", "capture_history.json")
+	imageDir := filepath.Join(appData, "Fancun", "capture_images")
+	pkgDir := filepath.Join(localAppData, "Packages", "Fancun.Test", "LocalCache", "Roaming", "Fancun")
+	if err := os.MkdirAll(filepath.Join(pkgDir, "capture_images"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	virtFile := filepath.Join(pkgDir, "capture_history.json")
+	if err := os.WriteFile(virtFile, []byte(`{"entries":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewServiceWithPaths(historyPath, imageDir)
+	status1 := service.Status()
+	if !status1.VirtualizedExists || status1.VirtualizedPath != virtFile {
+		t.Fatalf("expected initial virtualized file detection, got %#v", status1)
+	}
+
+	// Remove virtualized file; cached status should keep snapshot without re-globbing under same env.
+	_ = os.Remove(virtFile)
+	status2 := service.Status()
+	if !status2.VirtualizedExists || status2.VirtualizedPath != virtFile {
+		t.Fatalf("expected cached virtualized status, got %#v", status2)
+	}
+}

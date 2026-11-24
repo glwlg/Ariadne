@@ -14,6 +14,7 @@ const searchPerformanceSampleLimit = 200
 const searchPerformanceTargetP95Ms int64 = 100
 const searchResultLimit = 40
 const searchProviderResultLimit = 60
+const searchProgressThrottleInterval = 30 * time.Millisecond
 
 type Service struct {
 	results       []contracts.SearchResult
@@ -105,18 +106,24 @@ func (s *Service) search(ctx context.Context, query string, progress func(contra
 	}
 
 	results := make([]contracts.SearchResult, 0, len(s.results))
+	seedSeen := make(map[string]struct{}, len(s.results))
 
 	for _, result := range s.results {
 		if ctx.Err() != nil {
 			return newSearchResponse(query, results, started)
 		}
 		if matches(result, normalized) {
-			results = appendUnique(results, result)
+			if _, exists := seedSeen[result.ID]; !exists {
+				seedSeen[result.ID] = struct{}{}
+				results = append(results, result)
+			}
 		}
 	}
 	seedMatches := append([]contracts.SearchResult(nil), results...)
-	if progress != nil {
+	var lastProgressAt time.Time
+	if progress != nil && len(results) > 0 {
 		progress(s.rankedResponse(query, results, started))
+		lastProgressAt = time.Now()
 	}
 	type providerResponse struct {
 		index   int
@@ -137,30 +144,68 @@ func (s *Service) search(ctx context.Context, query string, progress func(contra
 		}()
 	}
 	providerResults := make([][]contracts.SearchResult, len(s.providers))
-	for range s.providers {
+	completedCount := 0
+	dirty := false
+	var throttleTimer *time.Timer
+	var throttleC <-chan time.Time
+	stopThrottleTimer := func() {
+		if throttleTimer != nil {
+			throttleTimer.Stop()
+			throttleTimer = nil
+			throttleC = nil
+		}
+	}
+	defer stopThrottleTimer()
+
+	emitProgress := func() {
+		if progress == nil || !dirty {
+			return
+		}
+		merged := mergeProviderResults(seedMatches, providerResults)
+		progress(s.rankedResponse(query, merged, started))
+		dirty = false
+		lastProgressAt = time.Now()
+		stopThrottleTimer()
+	}
+
+	for completedCount < len(s.providers) {
 		select {
 		case <-ctx.Done():
 			return newSearchResponse(query, nil, started)
 		case response := <-completed:
+			completedCount++
 			providerResults[response.index] = response.results
-		}
-		if ctx.Err() != nil {
-			return newSearchResponse(query, nil, started)
-		}
-		results = append([]contracts.SearchResult(nil), seedMatches...)
-		// Preserve provider order so completion timing never changes duplicate selection or score ties.
-		for _, batch := range providerResults {
-			for _, result := range batch {
-				results = appendUnique(results, result)
+			if len(response.results) > 0 {
+				dirty = true
+			}
+			if ctx.Err() != nil {
+				return newSearchResponse(query, nil, started)
+			}
+			if progress != nil && dirty && completedCount < len(s.providers) {
+				elapsedSinceLast := time.Since(lastProgressAt)
+				if lastProgressAt.IsZero() || elapsedSinceLast >= searchProgressThrottleInterval {
+					emitProgress()
+				} else if throttleTimer == nil {
+					throttleTimer = time.NewTimer(searchProgressThrottleInterval - elapsedSinceLast)
+					throttleC = throttleTimer.C
+				}
+			}
+		case <-throttleC:
+			throttleTimer = nil
+			throttleC = nil
+			if ctx.Err() != nil {
+				return newSearchResponse(query, nil, started)
+			}
+			if completedCount < len(s.providers) {
+				emitProgress()
 			}
 		}
-		if progress != nil {
-			progress(s.rankedResponse(query, results, started))
-		}
 	}
+	stopThrottleTimer()
 	if ctx.Err() != nil {
 		return newSearchResponse(query, nil, started)
 	}
+	results = mergeProviderResults(seedMatches, providerResults)
 	response := s.rankedResponse(query, results, started)
 	s.recordPerformance(query, response.Elapsed, len(response.Results))
 	return response
@@ -297,13 +342,31 @@ func (r *searchPerformanceRecorder) status() PerformanceStatus {
 	}
 }
 
-func appendUnique(results []contracts.SearchResult, next contracts.SearchResult) []contracts.SearchResult {
-	for _, result := range results {
-		if result.ID == next.ID {
-			return results
+func mergeProviderResults(seedMatches []contracts.SearchResult, providerResults [][]contracts.SearchResult) []contracts.SearchResult {
+	total := len(seedMatches)
+	for _, batch := range providerResults {
+		total += len(batch)
+	}
+	results := make([]contracts.SearchResult, 0, total)
+	seen := make(map[string]struct{}, total)
+	for _, result := range seedMatches {
+		if _, exists := seen[result.ID]; exists {
+			continue
+		}
+		seen[result.ID] = struct{}{}
+		results = append(results, result)
+	}
+	// Preserve provider order so completion timing never changes duplicate selection or score ties.
+	for _, batch := range providerResults {
+		for _, result := range batch {
+			if _, exists := seen[result.ID]; exists {
+				continue
+			}
+			seen[result.ID] = struct{}{}
+			results = append(results, result)
 		}
 	}
-	return append(results, next)
+	return results
 }
 
 func matches(result contracts.SearchResult, query string) bool {

@@ -109,6 +109,26 @@ func TestRestoreLegacyCheckpointRebrandsDataAndPreservesMigrationReceipts(t *tes
 	}
 }
 
+func TestCopyRestoredFileClosesInputExplicitly(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+	if err := os.WriteFile(src, []byte("hello release"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyRestoredFile(src, dst); err != nil {
+		t.Fatalf("copyRestoredFile failed: %v", err)
+	}
+	// Removing src immediately verifies input FD is no longer held open.
+	if err := os.Remove(src); err != nil {
+		t.Fatalf("remove source after copy failed: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil || string(got) != "hello release" {
+		t.Fatalf("unexpected destination content: %q err=%v", got, err)
+	}
+}
+
 func TestStatusCountsDataRootsAndExistingBackups(t *testing.T) {
 	base := t.TempDir()
 	roamingRoot := filepath.Join(base, "roaming")

@@ -660,19 +660,25 @@ func restoreLegacyRootFromZip(reader *zip.Reader, root dataRoot, backupDir strin
 		if isMigrationMarker(relative) {
 			return nil
 		}
-		input, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer input.Close()
-		output, err := os.Create(target)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(output, input)
-		return errors.Join(copyErr, output.Close())
+		return copyRestoredFile(path, target)
 	})
 	return count, bytes, skipped, err
+}
+
+func copyRestoredFile(source string, target string) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	output, err := os.Create(target)
+	if err != nil {
+		_ = input.Close()
+		return err
+	}
+	_, copyErr := io.Copy(output, input)
+	closeInErr := input.Close()
+	closeOutErr := output.Close()
+	return errors.Join(copyErr, closeInErr, closeOutErr)
 }
 
 func isMigrationMarker(name string) bool {

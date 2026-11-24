@@ -13,6 +13,31 @@ export function useAirPlay() {
   const copyingDiagnostics = ref(false)
   let disposed = false
   let timer: ReturnType<typeof setTimeout> | undefined
+  let feedbackTimer: ReturnType<typeof setTimeout> | undefined
+
+  function clearFeedbackTimer() {
+    if (feedbackTimer !== undefined) {
+      clearTimeout(feedbackTimer)
+      feedbackTimer = undefined
+    }
+  }
+
+  function setFeedback(next: ActionResult | null) {
+    clearFeedbackTimer()
+    if (next && next.ok && (error.value || status.value?.lastError)) {
+      feedback.value = null
+      return
+    }
+    feedback.value = next
+    if (next && next.ok) {
+      feedbackTimer = setTimeout(() => {
+        feedbackTimer = undefined
+        if (feedback.value === next) {
+          feedback.value = null
+        }
+      }, 3000)
+    }
+  }
 
   const stateLabel = computed(() => {
     if (error.value) return '状态读取失败'
@@ -31,8 +56,14 @@ export function useAirPlay() {
     try {
       status.value = await getAirPlayStatus()
       error.value = ''
+      if (status.value?.lastError && feedback.value?.ok) {
+        setFeedback(null)
+      }
     } catch (cause) {
       error.value = `读取投屏状态失败：${String(cause)}`
+      if (feedback.value?.ok) {
+        setFeedback(null)
+      }
     } finally {
       refreshing.value = false
     }
@@ -41,11 +72,11 @@ export function useAirPlay() {
   async function run(command: AirPlayCommand) {
     if (pending.value) return
     pending.value = command
-    feedback.value = null
+    setFeedback(null)
     try {
-      feedback.value = await executeAirPlay(command)
+      setFeedback(await executeAirPlay(command))
     } catch (cause) {
-      feedback.value = { ok: false, message: `操作失败：${String(cause)}` }
+      setFeedback({ ok: false, message: `操作失败：${String(cause)}` })
     } finally {
       pending.value = ''
       await refresh()
@@ -55,9 +86,9 @@ export function useAirPlay() {
   async function copy(text: string, label: string) {
     try {
       await Clipboard.SetText(text)
-      feedback.value = { ok: true, message: `已复制${label}` }
+      setFeedback({ ok: true, message: `已复制${label}` })
     } catch (cause) {
-      feedback.value = { ok: false, message: `复制失败：${String(cause)}` }
+      setFeedback({ ok: false, message: `复制失败：${String(cause)}` })
     }
   }
 
@@ -67,7 +98,7 @@ export function useAirPlay() {
     try {
       await copy(await getAirPlayDiagnostics(), '投屏诊断')
     } catch (cause) {
-      feedback.value = { ok: false, message: `读取诊断失败：${String(cause)}` }
+      setFeedback({ ok: false, message: `读取诊断失败：${String(cause)}` })
     } finally {
       copyingDiagnostics.value = false
     }
@@ -83,6 +114,7 @@ export function useAirPlay() {
   onBeforeUnmount(() => {
     disposed = true
     clearTimeout(timer)
+    clearFeedbackTimer()
   })
 
   return { status, error, pending, refreshing, feedback, stateLabel, refresh, run, copy, copyingDiagnostics, copyDiagnostics }

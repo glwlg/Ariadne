@@ -16,12 +16,14 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/Microsoft/go-winio"
+	"golang.org/x/sys/windows"
 )
 
 const (
-	defaultCaptureTimeout = 2 * time.Minute
+	defaultCaptureTimeout = 15 * time.Minute
 	defaultStartTimeout   = 4 * time.Second
 )
 
@@ -100,15 +102,27 @@ type PinActionResponse struct {
 
 type PinActionHandler func(PinActionRequest) PinActionResponse
 
+type runningCommand struct {
+	cmd  *exec.Cmd
+	done chan struct{}
+	err  error
+}
+
 type Manager struct {
-	mu             sync.Mutex
-	actionMu       sync.RWMutex
-	exePath        string
-	pipeName       string
-	actionPipeName string
-	actionHandler  PinActionHandler
-	actionListener net.Listener
-	command        *exec.Cmd
+	mu                 sync.Mutex
+	actionMu           sync.RWMutex
+	exePath            string
+	pipeName           string
+	actionPipeName     string
+	actionHandler      PinActionHandler
+	actionListener     net.Listener
+	running            *runningCommand
+	job                windows.Handle
+	closed             bool
+	miniRestartAttempt int
+	miniNextRestart    time.Time
+	nowFn              func() time.Time
+	startFn            func() error
 }
 
 func NewManager(options Options) *Manager {
@@ -120,7 +134,14 @@ func NewManager(options Options) *Manager {
 	if pipeName == "" {
 		pipeName = "fancun-capture-" + strconv.Itoa(os.Getpid())
 	}
-	return &Manager{exePath: exePath, pipeName: pipeName, actionPipeName: pipeName + "-actions"}
+	manager := &Manager{
+		exePath:        exePath,
+		pipeName:       pipeName,
+		actionPipeName: pipeName + "-actions",
+		nowFn:          time.Now,
+	}
+	manager.startFn = manager.startLocked
+	return manager
 }
 
 func (m *Manager) SetPinActionHandler(handler PinActionHandler) {
@@ -139,6 +160,9 @@ func (m *Manager) SetPinActionHandler(handler PinActionHandler) {
 func (m *Manager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return errors.New("原生截图进程已停止")
+	}
 	return m.startLocked()
 }
 
@@ -154,6 +178,9 @@ func (m *Manager) Capture(ctx context.Context, request Request) (Response, error
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return Response{}, errors.New("原生截图进程已停止")
+	}
 	if err := m.startLocked(); err != nil {
 		return Response{}, err
 	}
@@ -181,15 +208,21 @@ func (m *Manager) Capture(ctx context.Context, request Request) (Response, error
 
 func (m *Manager) Stop() error {
 	m.mu.Lock()
-	command := m.command
-	m.command = nil
+	m.closed = true
+	rc := m.running
+	m.running = nil
 	actionListener := m.actionListener
 	m.actionListener = nil
+	job := m.job
+	m.job = 0
 	m.mu.Unlock()
 	if actionListener != nil {
 		_ = actionListener.Close()
 	}
-	if command == nil || command.Process == nil {
+	if rc == nil || rc.cmd == nil || rc.cmd.Process == nil {
+		if job != 0 {
+			_ = windows.CloseHandle(job)
+		}
 		return nil
 	}
 
@@ -197,24 +230,44 @@ func (m *Manager) Stop() error {
 	_, _ = m.roundTrip(ctx, Request{Command: "shutdown"})
 	cancel()
 
-	done := make(chan error, 1)
-	go func() { done <- command.Wait() }()
+	var waitErr error
 	select {
-	case err := <-done:
-		return err
+	case <-rc.done:
+		waitErr = rc.err
 	case <-time.After(1200 * time.Millisecond):
-		_ = command.Process.Kill()
-		return <-done
+		_ = rc.cmd.Process.Kill()
+		<-rc.done
+		waitErr = rc.err
+	}
+	if job != 0 {
+		_ = windows.CloseHandle(job)
+	}
+	return waitErr
+}
+
+func (m *Manager) isCommandAliveLocked() bool {
+	if m.running == nil || m.running.cmd == nil || m.running.cmd.Process == nil {
+		return false
+	}
+	select {
+	case <-m.running.done:
+		return false
+	default:
+		return true
 	}
 }
 
 func (m *Manager) startLocked() error {
-	if m.command != nil && m.command.Process != nil {
+	if m.closed {
+		return errors.New("原生截图进程已停止")
+	}
+	if m.isCommandAliveLocked() {
 		if err := m.startActionServerLocked(); err != nil {
 			return err
 		}
 		return nil
 	}
+	m.running = nil
 	if strings.TrimSpace(m.exePath) == "" {
 		return errors.New("原生截图进程路径为空")
 	}
@@ -230,10 +283,20 @@ func (m *Manager) startLocked() error {
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("启动原生截图进程失败: %w", err)
 	}
-	m.command = command
+	rc := &runningCommand{
+		cmd:  command,
+		done: make(chan struct{}),
+	}
+	go func(entry *runningCommand) {
+		entry.err = entry.cmd.Wait()
+		close(entry.done)
+	}(rc)
+	m.assignToKillOnCloseJobLocked(command.Process.Pid)
+	m.running = rc
+
 	if err := m.startActionServerLocked(); err != nil {
-		_ = command.Process.Kill()
-		m.command = nil
+		m.killAndWait(rc)
+		m.running = nil
 		return err
 	}
 
@@ -242,15 +305,69 @@ func (m *Manager) startLocked() error {
 	for {
 		response, err := m.roundTrip(ctx, Request{Command: "ping"})
 		if err == nil && response.OK {
+			m.miniRestartAttempt = 0
+			m.miniNextRestart = time.Time{}
 			return nil
 		}
 		if ctx.Err() != nil {
-			_ = command.Process.Kill()
-			m.command = nil
+			m.killAndWait(rc)
+			m.running = nil
 			return fmt.Errorf("原生截图进程未就绪: %w", firstErr(err, ctx.Err()))
+		}
+		select {
+		case <-rc.done:
+			m.running = nil
+			return fmt.Errorf("原生截图进程提前退出: %w", firstErr(rc.err, err))
+		default:
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+func (m *Manager) killAndWait(rc *runningCommand) {
+	if rc == nil || rc.cmd == nil || rc.cmd.Process == nil {
+		return
+	}
+	_ = rc.cmd.Process.Kill()
+	<-rc.done
+}
+
+func (m *Manager) assignToKillOnCloseJobLocked(pid int) {
+	if pid <= 0 {
+		return
+	}
+	if m.job == 0 {
+		job, err := createKillOnCloseJobObject()
+		if err != nil {
+			return
+		}
+		m.job = job
+	}
+	procHandle, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(pid))
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(procHandle)
+	_ = windows.AssignProcessToJobObject(m.job, procHandle)
+}
+
+func createKillOnCloseJobObject() (windows.Handle, error) {
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return 0, err
+	}
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	if _, err := windows.SetInformationJobObject(
+		job,
+		windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+	); err != nil {
+		_ = windows.CloseHandle(job)
+		return 0, err
+	}
+	return job, nil
 }
 
 func (m *Manager) startActionServerLocked() error {
@@ -301,19 +418,14 @@ func (m *Manager) handlePinAction(conn net.Conn) {
 }
 
 func (m *Manager) discardCommandLocked() {
-	command := m.command
-	m.command = nil
-	if command == nil || command.Process == nil {
+	rc := m.running
+	m.running = nil
+	if rc == nil || rc.cmd == nil || rc.cmd.Process == nil {
 		return
 	}
-	_ = command.Process.Kill()
-	done := make(chan struct{}, 1)
-	go func() {
-		_ = command.Wait()
-		done <- struct{}{}
-	}()
+	_ = rc.cmd.Process.Kill()
 	select {
-	case <-done:
+	case <-rc.done:
 	case <-time.After(500 * time.Millisecond):
 	}
 }

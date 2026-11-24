@@ -1,17 +1,27 @@
 package filesearch
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
+func testRootVolume() string {
+	if runtime.GOOS == "windows" {
+		return `P:\`
+	}
+	return `/p`
+}
+
 func TestCompactFileIndexSearchResolvesChineseFilenamePath(t *testing.T) {
-	index := newCompactFileIndex([]string{`P:\`})
-	if err := index.AddNode(`P:\`, fileIndexNode{Ref: 10, Parent: 0, Name: "项目", IsDirectory: true}); err != nil {
+	root := testRootVolume()
+	index := newCompactFileIndex([]string{root})
+	if err := index.AddNode(root, fileIndexNode{Ref: 10, Parent: 0, Name: "项目", IsDirectory: true}); err != nil {
 		t.Fatalf("add directory node: %v", err)
 	}
-	if err := index.AddNode(`P:\`, fileIndexNode{Ref: 11, Parent: 10, Name: "工作日历.xlsx"}); err != nil {
+	if err := index.AddNode(root, fileIndexNode{Ref: 11, Parent: 10, Name: "工作日历.xlsx"}); err != nil {
 		t.Fatalf("add file node: %v", err)
 	}
 
@@ -19,8 +29,9 @@ func TestCompactFileIndexSearchResolvesChineseFilenamePath(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected one result, got %#v", results)
 	}
-	if results[0].Path != `P:\项目\工作日历.xlsx` {
-		t.Fatalf("expected resolved full path, got %#v", results[0])
+	expected := filepath.Join(root, "项目", "工作日历.xlsx")
+	if results[0].Path != expected {
+		t.Fatalf("expected resolved full path %q, got %#v", expected, results[0])
 	}
 }
 
@@ -28,8 +39,9 @@ func TestCompactFileIndexSearchFindsTailItemInLargeIndex(t *testing.T) {
 	index := buildCompactFileIndexFixture(t, 300000)
 
 	results := index.Search("工作日历", 10)
-	if !hasRawPath(results, `P:\项目\工作日历.xlsx`) {
-		t.Fatalf("expected target result, got %#v", results)
+	expected := filepath.Join(testRootVolume(), "项目", "工作日历.xlsx")
+	if !hasRawPath(results, expected) {
+		t.Fatalf("expected target result %q, got %#v", expected, results)
 	}
 	if index.Count() != 300003 {
 		t.Fatalf("expected all nodes to stay indexed, got %d", index.Count())
@@ -39,12 +51,13 @@ func TestCompactFileIndexSearchFindsTailItemInLargeIndex(t *testing.T) {
 func BenchmarkCompactFileIndexSearch300K(b *testing.B) {
 	index := buildCompactFileIndexFixture(b, 300000)
 	index.Finalize()
+	expected := filepath.Join(testRootVolume(), "项目", "工作日历.xlsx")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		results := index.Search("工作日历", 24)
-		if !hasRawPath(results, `P:\项目\工作日历.xlsx`) {
-			b.Fatalf("expected target result, got %#v", results)
+		if !hasRawPath(results, expected) {
+			b.Fatalf("expected target result %q, got %#v", expected, results)
 		}
 	}
 }
@@ -67,8 +80,9 @@ func TestLineFileIndexSearchResolvesChineseFilenamePath(t *testing.T) {
 	}
 
 	results := lineIndex.Search("工作日历", 10)
-	if !hasRawPath(results, `P:\项目\工作日历.xlsx`) {
-		t.Fatalf("expected target result, got %#v", results)
+	expected := filepath.Join(testRootVolume(), "项目", "工作日历.xlsx")
+	if !hasRawPath(results, expected) {
+		t.Fatalf("expected target result %q, got %#v", expected, results)
 	}
 	if lineIndex.Count() != 1003 {
 		t.Fatalf("expected full line index count, got %d", lineIndex.Count())
@@ -90,27 +104,33 @@ func TestOpenLineFileIndexReusesPersistedTSV(t *testing.T) {
 	if reopened.Count() != 1003 {
 		t.Fatalf("expected persisted count, got %d", reopened.Count())
 	}
-	if volumes := reopened.Volumes(); len(volumes) != 1 || volumes[0] != `P:\` {
-		t.Fatalf("expected persisted volume metadata, got %#v", volumes)
+	if runtime.GOOS == "windows" {
+		if volumes := reopened.Volumes(); len(volumes) != 1 || volumes[0] != `P:\` {
+			t.Fatalf("expected persisted volume metadata, got %#v", volumes)
+		}
 	}
-	if !hasRawPath(reopened.Search("工作日历", 10), `P:\项目\工作日历.xlsx`) {
+	expected := filepath.Join(testRootVolume(), "项目", "工作日历.xlsx")
+	if !hasRawPath(reopened.Search("工作日历", 10), expected) {
 		t.Fatalf("reopened line index should be searchable")
 	}
 }
 
 func TestDefaultReadLineIndexPathsPreferSharedIndex(t *testing.T) {
+	root := t.TempDir()
+	programData := filepath.Join(root, "ProgramData")
+	localAppData := filepath.Join(root, "LocalAppData")
 	t.Setenv(lineIndexPathEnv, "")
-	t.Setenv("PROGRAMDATA", `C:\ProgramData`)
-	t.Setenv("LOCALAPPDATA", `C:\Users\luwei\AppData\Local`)
+	t.Setenv("PROGRAMDATA", programData)
+	t.Setenv("LOCALAPPDATA", localAppData)
 
 	paths := defaultReadLineIndexPaths()
 	if len(paths) < 2 {
 		t.Fatalf("expected shared and user index paths, got %#v", paths)
 	}
-	if paths[0] != `C:\ProgramData\Fancun\file-index.tsv` {
+	if paths[0] != filepath.Join(programData, "Fancun", "file-index.tsv") {
 		t.Fatalf("shared index should be preferred, got %#v", paths)
 	}
-	if paths[1] != `C:\Users\luwei\AppData\Local\Fancun\file-index.tsv` {
+	if paths[1] != filepath.Join(localAppData, "Fancun", "file-index.tsv") {
 		t.Fatalf("user index should be fallback, got %#v", paths)
 	}
 }
@@ -125,7 +145,8 @@ func TestLineFileIndexAppendNewFileIsSearchable(t *testing.T) {
 		t.Fatalf("new file should not exist before append, got %#v", results)
 	}
 
-	added, err := lineIndex.AppendRawResults([]rawResult{{Name: "搜索测试.txt", Path: `P:\桌面\搜索测试.txt`}})
+	targetPath := filepath.Join(testRootVolume(), "桌面", "搜索测试.txt")
+	added, err := lineIndex.AppendRawResults([]rawResult{{Name: "搜索测试.txt", Path: targetPath}})
 	if err != nil {
 		t.Fatalf("append line index: %v", err)
 	}
@@ -133,7 +154,7 @@ func TestLineFileIndexAppendNewFileIsSearchable(t *testing.T) {
 	if added != 1 {
 		t.Fatalf("expected one appended entry, got %d", added)
 	}
-	if !hasRawPath(lineIndex.Search("搜索测试", 10), `P:\桌面\搜索测试.txt`) {
+	if !hasRawPath(lineIndex.Search("搜索测试", 10), targetPath) {
 		t.Fatalf("appended file should be searchable")
 	}
 	if lineIndex.Count() != 1004 {
@@ -144,7 +165,7 @@ func TestLineFileIndexAppendNewFileIsSearchable(t *testing.T) {
 func TestLineFileIndexWriteExcludesPolicyFolders(t *testing.T) {
 	index := buildCompactFileIndexFixture(t, 1000)
 	lineIndex, err := writeLineFileIndex(filepath.Join(t.TempDir(), "file-index.tsv"), index, FileSearchPolicy{
-		ExcludeFolders: []string{`P:\项目`},
+		ExcludeFolders: []string{filepath.Join(testRootVolume(), "项目")},
 	})
 	if err != nil {
 		t.Fatalf("write line index: %v", err)
@@ -158,6 +179,46 @@ func TestLineFileIndexWriteExcludesPolicyFolders(t *testing.T) {
 	}
 }
 
+func TestLineFileIndexSearchContextAbortsWhenCancelled(t *testing.T) {
+	index := buildCompactFileIndexFixture(t, 20000)
+	lineIndex, err := writeLineFileIndex(filepath.Join(t.TempDir(), "file-index.tsv"), index)
+	if err != nil {
+		t.Fatalf("write line index: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if results := lineIndex.SearchContext(ctx, "工作日历", 24); len(results) != 0 {
+		t.Fatalf("cancelled SearchContext should abort and return no results, got %#v", results)
+	}
+}
+
+func TestLineFileIndexAppendedCacheIsBounded(t *testing.T) {
+	index := buildCompactFileIndexFixture(t, 10)
+	lineIndex, err := writeLineFileIndex(filepath.Join(t.TempDir(), "file-index.tsv"), index)
+	if err != nil {
+		t.Fatalf("write line index: %v", err)
+	}
+
+	total := lineIndexAppendedCacheLimit + 500
+	batch := make([]rawResult, 0, total)
+	root := testRootVolume()
+	for i := 0; i < total; i++ {
+		name := fmt.Sprintf("extra-%06d.txt", i)
+		batch = append(batch, rawResult{Name: name, Path: filepath.Join(root, "extra", name)})
+	}
+	added, err := lineIndex.AppendRawResults(batch)
+	if err != nil {
+		t.Fatalf("append batch: %v", err)
+	}
+	if added != total {
+		t.Fatalf("expected %d added entries, got %d", total, added)
+	}
+	if len(lineIndex.appended) > lineIndexAppendedCacheLimit {
+		t.Fatalf("appended cache exceeded limit %d: got %d", lineIndexAppendedCacheLimit, len(lineIndex.appended))
+	}
+}
+
 func BenchmarkLineFileIndexSearch300K(b *testing.B) {
 	index := buildCompactFileIndexFixture(b, 300000)
 	lineIndex, err := writeLineFileIndex(filepath.Join(b.TempDir(), "file-index.tsv"), index)
@@ -166,12 +227,13 @@ func BenchmarkLineFileIndexSearch300K(b *testing.B) {
 	}
 	index = nil
 	releaseFileIndexBuildMemory()
+	expected := filepath.Join(testRootVolume(), "项目", "工作日历.xlsx")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		results := lineIndex.Search("工作日历", 24)
-		if !hasRawPath(results, `P:\项目\工作日历.xlsx`) {
-			b.Fatalf("expected target result, got %#v", results)
+		if !hasRawPath(results, expected) {
+			b.Fatalf("expected target result %q, got %#v", expected, results)
 		}
 	}
 }
@@ -192,12 +254,13 @@ func BenchmarkLineFileIndexBuild300K(b *testing.B) {
 
 func buildCompactFileIndexFixture(tb testing.TB, fillerCount int) *compactFileIndex {
 	tb.Helper()
-	index := newCompactFileIndex([]string{`P:\`})
-	if err := index.AddNode(`P:\`, fileIndexNode{Ref: 10, Parent: 0, Name: "项目", IsDirectory: true}); err != nil {
+	root := testRootVolume()
+	index := newCompactFileIndex([]string{root})
+	if err := index.AddNode(root, fileIndexNode{Ref: 10, Parent: 0, Name: "项目", IsDirectory: true}); err != nil {
 		tb.Fatalf("add project node: %v", err)
 	}
 	for i := 0; i < fillerCount; i++ {
-		if err := index.AddNode(`P:\`, fileIndexNode{
+		if err := index.AddNode(root, fileIndexNode{
 			Ref:    uint64(100 + i),
 			Parent: 10,
 			Name:   fmt.Sprintf("文件-%06d.txt", i),
@@ -205,10 +268,10 @@ func buildCompactFileIndexFixture(tb testing.TB, fillerCount int) *compactFileIn
 			tb.Fatalf("add filler node %d: %v", i, err)
 		}
 	}
-	if err := index.AddNode(`P:\`, fileIndexNode{Ref: uint64(100 + fillerCount), Parent: 10, Name: "工作日历.xlsx"}); err != nil {
+	if err := index.AddNode(root, fileIndexNode{Ref: uint64(100 + fillerCount), Parent: 10, Name: "工作日历.xlsx"}); err != nil {
 		tb.Fatalf("add target node: %v", err)
 	}
-	if err := index.AddNode(`P:\`, fileIndexNode{Ref: uint64(101 + fillerCount), Parent: 10, Name: "工作日历-归档.xlsx"}); err != nil {
+	if err := index.AddNode(root, fileIndexNode{Ref: uint64(101 + fillerCount), Parent: 10, Name: "工作日历-归档.xlsx"}); err != nil {
 		tb.Fatalf("add archive node: %v", err)
 	}
 	return index

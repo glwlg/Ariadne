@@ -1,4 +1,5 @@
 import type { HostsApplyPreview, HostsApplyResult, HostsProfile, HostsStatus } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 let fallbackProfiles: HostsProfile[] = [
   {
@@ -23,6 +24,8 @@ let fallbackStatus: HostsStatus = {
   profiles: fallbackProfiles,
   virtualizedExists: false,
   virtualizedBytes: 0,
+  canRollback: false,
+  lastBackupAt: '',
 }
 
 async function tryHostsBinding() {
@@ -39,9 +42,15 @@ export async function getHostsStatus(): Promise<HostsStatus> {
   if (binding) {
     try {
       return normalizeStatus(await binding.Status())
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取 Hosts 状态失败'))
+      }
       return normalizeStatus(fallbackStatus)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
   }
   return normalizeStatus(fallbackStatus)
 }
@@ -51,9 +60,15 @@ export async function listHostsProfiles(): Promise<HostsProfile[]> {
   if (binding) {
     try {
       return normalizeProfiles(await binding.List())
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取 Hosts 方案失败'))
+      }
       return normalizeProfiles(fallbackProfiles)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
   }
   return normalizeProfiles(fallbackProfiles)
 }
@@ -62,6 +77,9 @@ export async function newHostsProfile(): Promise<HostsStatus> {
   const binding = await tryHostsBinding()
   if (binding) {
     return normalizeStatus(await binding.NewProfile())
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
   }
   const profile = normalizeProfile({
     id: crypto.randomUUID(),
@@ -81,6 +99,9 @@ export async function upsertHostsProfile(profile: HostsProfile): Promise<HostsSt
   if (binding) {
     return normalizeStatus(await binding.Upsert(normalizeProfile(profile)))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
+  }
   const normalized = normalizeProfile(profile)
   fallbackProfiles = fallbackProfiles.map((item) => (item.id === normalized.id ? normalized : item))
   if (!fallbackProfiles.some((item) => item.id === normalized.id)) {
@@ -95,6 +116,9 @@ export async function removeHostsProfile(id: string): Promise<HostsStatus> {
   if (binding) {
     return normalizeStatus(await binding.Remove(id))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
+  }
   fallbackProfiles = fallbackProfiles.filter((item) => item.id !== id || item.system)
   fallbackStatus = normalizeStatus({ ...fallbackStatus, profiles: fallbackProfiles })
   return fallbackStatus
@@ -104,6 +128,9 @@ export async function setHostsProfileEnabled(id: string, enabled: boolean): Prom
   const binding = await tryHostsBinding()
   if (binding) {
     return normalizeStatus(await binding.SetEnabled(id, enabled))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
   }
   fallbackProfiles = fallbackProfiles.map((item) => (item.id === id && !item.system ? { ...item, enabled } : item))
   fallbackStatus = normalizeStatus({ ...fallbackStatus, profiles: fallbackProfiles })
@@ -115,6 +142,9 @@ export async function fetchRemoteHosts(id: string): Promise<HostsStatus> {
   if (binding) {
     return normalizeStatus(await binding.FetchRemote(id))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
+  }
   fallbackStatus = normalizeStatus({ ...fallbackStatus, lastRemoteError: '开发态 fallback 不执行远程拉取' })
   return fallbackStatus
 }
@@ -123,6 +153,9 @@ export async function previewHostsApply(): Promise<HostsApplyPreview> {
   const binding = await tryHostsBinding()
   if (binding) {
     return normalizePreview(await binding.PreviewApply())
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
   }
   return normalizePreview(buildFallbackPreview())
 }
@@ -133,10 +166,30 @@ export async function applyEnabledHostsProfiles(confirmed: boolean): Promise<Hos
     const result = await binding.ApplyEnabledProfiles(confirmed)
     return { ...result, preview: normalizePreview(result.preview) }
   }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
+  }
   return {
     ok: false,
     message: '开发态 fallback 不写入系统 Hosts',
     requiresConfirm: !confirmed,
+    preview: buildFallbackPreview(),
+  }
+}
+
+export async function rollbackHosts(): Promise<HostsApplyResult> {
+  const binding = await tryHostsBinding()
+  if (binding) {
+    const result = await binding.RollbackHosts()
+    return { ...result, preview: normalizePreview(result.preview) }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('Hosts 服务绑定不可用')
+  }
+  return {
+    ok: false,
+    message: '开发态 fallback 不执行系统 Hosts 回滚',
+    requiresConfirm: false,
     preview: buildFallbackPreview(),
   }
 }
@@ -160,6 +213,8 @@ function normalizeStatus(status: HostsStatus): HostsStatus {
     virtualizedPath: status.virtualizedPath ?? '',
     virtualizedExists: Boolean(status.virtualizedExists),
     virtualizedBytes: Number(status.virtualizedBytes ?? 0),
+    canRollback: Boolean(status.canRollback),
+    lastBackupAt: status.lastBackupAt ?? '',
   }
 }
 

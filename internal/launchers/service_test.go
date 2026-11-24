@@ -167,3 +167,49 @@ func TestRemovePersistsDefaultLauncherTombstone(t *testing.T) {
 		}
 	}
 }
+
+func TestLaunchersBatchLoadPreservesKeywordAndTagOrder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "launchers.json")
+	service := NewServiceWithPath(path)
+
+	service.Upsert(Launcher{
+		ID:       "launcher-z",
+		Name:     "Zeta Tool",
+		Kind:     LauncherApp,
+		Target:   `C:\Tools\zeta.exe`,
+		Keywords: []string{"z1", "z2", "z3"},
+		Tags:     []string{"tag-z1", "tag-z2"},
+		Enabled:  true,
+	})
+	service.Upsert(Launcher{
+		ID:       "launcher-a",
+		Name:     "Alpha Tool",
+		Kind:     LauncherFile,
+		Target:   `C:\Tools\alpha.txt`,
+		Keywords: []string{"a1", "a2"},
+		Tags:     nil,
+		Enabled:  true,
+	})
+
+	reloaded := NewServiceWithPath(path)
+	byID := map[string]Launcher{}
+	for _, item := range reloaded.List() {
+		byID[item.ID] = item
+	}
+
+	z := byID["launcher-z"]
+	if len(z.Keywords) != 3 || z.Keywords[0] != "z1" || z.Keywords[1] != "z2" || z.Keywords[2] != "z3" {
+		t.Fatalf("launcher-z keywords order mismatch: %#v", z.Keywords)
+	}
+	if len(z.Tags) != 2 || z.Tags[0] != "tag-z1" || z.Tags[1] != "tag-z2" {
+		t.Fatalf("launcher-z tags order mismatch: %#v", z.Tags)
+	}
+
+	a := byID["launcher-a"]
+	if len(a.Keywords) != 2 || a.Keywords[0] != "a1" || a.Keywords[1] != "a2" {
+		t.Fatalf("launcher-a keywords order mismatch: %#v", a.Keywords)
+	}
+	if a.Tags == nil || len(a.Tags) != 0 {
+		t.Fatalf("launcher-a tags should be non-nil empty slice: %#v", a.Tags)
+	}
+}

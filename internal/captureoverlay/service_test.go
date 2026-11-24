@@ -703,15 +703,16 @@ func TestNativeCaptureRequestUsesNativeClipboardForPlainCopy(t *testing.T) {
 	}
 }
 
-func TestNativeCaptureRequestKeepsPlainCopyInNativeHostWhenAutoRedactIsConfigured(t *testing.T) {
+func TestNativeCaptureRequestDisablesDirectCopyWhenAutoRedactIsEnabled(t *testing.T) {
 	request := nativeCaptureRequest(ScreenshotPolicy{AutoRedact: true, RedactKeywords: []string{"token"}})
-	if !request.DirectClipboardCopy {
-		t.Fatal("plain native copy should stay in the native host even when auto redaction is configured")
+	if request.DirectClipboardCopy {
+		t.Fatal("native capture must disable direct clipboard copy when AutoRedact is enabled")
 	}
 }
 
-func TestCaptureNativeSelectionTrustsNativeClipboardWhenAutoRedactingPlainCopy(t *testing.T) {
-	captures := &blockingCaptureSink{called: make(chan struct{}), release: make(chan struct{})}
+func TestCaptureNativeSelectionRedactsPlainCopyWhenAutoRedactIsEnabled(t *testing.T) {
+	dir := t.TempDir()
+	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
 	ocrProvider := &fakeOCRProvider{
 		result: ocr.Result{
 			OK: true,
@@ -729,21 +730,23 @@ func TestCaptureNativeSelectionTrustsNativeClipboardWhenAutoRedactingPlainCopy(t
 		PNGBase64:        base64.StdEncoding.EncodeToString(testOverlayPNG(t, 90, 12)),
 		Width:            90,
 		Height:           12,
-		ClipboardWritten: true,
+		ClipboardWritten: false,
 	}, ScreenshotPolicy{AutoRedact: true, RedactKeywords: []string{"国联"}})
 
-	if !result.OK || result.CaptureID != "" || len(*copiedPNG) != 0 {
-		t.Fatalf("expected native clipboard result without Go copy, got result=%#v copied_png=%d", result, len(*copiedPNG))
+	if !result.OK || result.CaptureID == "" || len(*copiedPNG) == 0 {
+		t.Fatalf("expected redacted native copy result, got result=%#v copied_png=%d", result, len(*copiedPNG))
 	}
-	if ocrProvider.pathCount() != 0 {
-		t.Fatalf("plain native copy should not run OCR, got %d calls", ocrProvider.pathCount())
+	if ocrProvider.pathCount() != 1 {
+		t.Fatalf("auto-redacted native copy should run OCR once, got %d calls", ocrProvider.pathCount())
 	}
-	select {
-	case <-captures.called:
-	case <-time.After(time.Second):
-		t.Fatal("expected native copy history to be persisted asynchronously")
+	img := readPNG(t, result.ImagePath)
+	if !sameRGBA(img.At(35, 5), color.RGBA{R: 24, G: 26, B: 30, A: 255}) {
+		t.Fatalf("auto-redacted native copy should redact keyword pixels, got %#v", img.At(35, 5))
 	}
-	close(captures.release)
+	entry := captures.Entry(result.CaptureID)
+	if !containsString(entry.Actions, "redacted") {
+		t.Fatalf("auto-redacted native copy should record redacted action, got %#v", entry.Actions)
+	}
 }
 
 func TestCaptureNativeSelectionWritesClipboardBeforeHistory(t *testing.T) {

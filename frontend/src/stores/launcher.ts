@@ -1,9 +1,17 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { Clipboard } from '@wailsio/runtime'
-import { toggleCapturePin } from '../services/captureApi'
+import { clearUnpinnedCaptureEntries, toggleCapturePin } from '../services/captureApi'
 import { openCaptureOverlay } from '../services/captureOverlayApi'
-import { addClipboardText, copyClipboardImage, toggleClipboardPin } from '../services/clipboardApi'
+import {
+  addClipboardImageToCapture,
+  addClipboardText,
+  clearUnpinnedClipboardEntries,
+  copyClipboardImage,
+  decodeClipboardImageQRCode,
+  deleteClipboardEntry,
+  toggleClipboardPin,
+} from '../services/clipboardApi'
 import {
   createFancunSearchRequest,
   executeFancunAction,
@@ -20,6 +28,8 @@ import { useAppShellStore } from './appShell'
 import { toolViewForCommand } from '../lib/toolWindows'
 import type { ActionResult, PreviewAction, SearchResponse, SearchResult } from '../types/fancun'
 
+const SEARCH_DEBOUNCE_MS = 90
+
 export const useLauncherStore = defineStore('launcher', () => {
   const query = ref('')
   const results = ref<SearchResult[]>([])
@@ -27,12 +37,20 @@ export const useLauncherStore = defineStore('launcher', () => {
   const lastAction = ref<ActionResult | null>(null)
   const elapsedMs = ref(0)
   const totalResults = ref(0)
+  const isSearching = ref(false)
   const pendingConfirmationKey = ref('')
   let activeSearchRequest: FancunSearchRequest | null = null
   let searchRequestSerial = 0
   let selectionRevision = 0
   let pendingConfirmationTimer: number | undefined
+  let lastActionTimer: number | undefined
+  let searchDebounceTimer: number | undefined
   const isExpanded = computed(() => query.value.trim().length > 0 || results.value.length > 0 || Boolean(lastAction.value))
+  const feedbackTone = computed<'success' | 'confirmation' | 'danger'>(() => {
+    if (!lastAction.value) return 'success'
+    if (lastAction.value.requiresConfirmation) return 'confirmation'
+    return lastAction.value.ok ? 'success' : 'danger'
+  })
 
   const selectedResult = computed(() => {
     return results.value.find((result) => result.id === selectedId.value) ?? results.value[0] ?? null
@@ -63,247 +81,385 @@ export const useLauncherStore = defineStore('launcher', () => {
     selectedId.value = results.value[next].id
   }
 
+  function setLastAction(result: ActionResult, durationMs = 1400) {
+    clearLastActionTimer()
+    lastAction.value = result
+    const effectiveDuration = result.requiresConfirmation
+      ? Math.max(durationMs, 5000)
+      : result.ok
+        ? durationMs
+        : Math.max(durationMs, 5000)
+    lastActionTimer = window.setTimeout(() => {
+      lastActionTimer = undefined
+      if (lastAction.value === result) {
+        lastAction.value = null
+      }
+    }, effectiveDuration)
+  }
+
+  function clearLastActionTimer() {
+    if (lastActionTimer !== undefined) {
+      window.clearTimeout(lastActionTimer)
+      lastActionTimer = undefined
+    }
+  }
+
+  function clearLastAction() {
+    clearLastActionTimer()
+    lastAction.value = null
+  }
+
+  function clearSearchDebounceTimer() {
+    if (searchDebounceTimer !== undefined) {
+      window.clearTimeout(searchDebounceTimer)
+      searchDebounceTimer = undefined
+    }
+  }
+
   async function triggerAction(action: PreviewAction) {
     const activeResult = selectedResult.value
     const resultId = String(action.payload?.targetId ?? activeResult?.id ?? '')
     const command = String(action.payload?.command ?? '')
+    const confirmationKey = actionConfirmationKey(action, activeResult)
 
-    if (action.id === 'prepare_command' || (action.kind === 'run' && activeResult?.type === 'plugin_trigger')) {
-      if (command) {
-        await applyCommandSuggestion(command.endsWith(' ') ? command : `${command} `)
+    try {
+      if (action.id === 'prepare_command' || (action.kind === 'run' && activeResult?.type === 'plugin_trigger')) {
+        if (command) {
+          await applyCommandSuggestion(command.endsWith(' ') ? command : `${command} `)
+          return
+        }
+      }
+
+      if (action.id === 'open_tool' || action.id === 'open_mini' || action.id === 'open_center') {
+        const appShell = useAppShellStore()
+        let opened = false
+        if (command === 'open_capture_overlay') {
+          const response = await openCaptureOverlay()
+          setLastAction(
+            { ok: response.ok, message: response.message || (response.ok ? '已打开截图覆盖层' : '打开截图覆盖层失败') },
+            action.feedback?.durationMs ?? 1400,
+          )
+          return
+        }
+        const view = toolViewForCommand(command)
+        if (view) opened = await appShell.openView(view)
+        setLastAction(
+          opened
+            ? { ok: true, message: action.feedback?.successLabel ?? `${action.label} 已打开` }
+            : { ok: false, message: `${action.label} 打开失败：工具窗口服务不可用` },
+          action.feedback?.durationMs ?? 1400,
+        )
         return
       }
-    }
 
-    if (action.id === 'open_tool') {
-      const appShell = useAppShellStore()
-      let opened = false
-      if (command === 'open_capture_overlay') {
-        const response = await openCaptureOverlay()
-        lastAction.value = { ok: response.ok, message: response.message || (response.ok ? '已打开截图覆盖层' : '打开截图覆盖层失败') }
-        window.setTimeout(() => {
-          lastAction.value = null
-        }, action.feedback?.durationMs ?? 1400)
+      if ((action.id === 'capture_pin' || action.id === 'capture_unpin') && action.payload?.captureId) {
+        const captureId = String(action.payload.captureId)
+        const nextStatus = await toggleCapturePin(captureId)
+        const saveErr = nextStatus?.lastSaveError
+        setLastAction(
+          saveErr
+            ? { ok: false, message: `置顶操作失败：${saveErr}` }
+            : { ok: true, message: action.feedback?.successLabel ?? (action.id === 'capture_pin' ? '已置顶' : '已取消置顶') },
+          action.feedback?.durationMs ?? 1400,
+        )
+        await refreshResults()
         return
       }
-      const view = toolViewForCommand(command)
-      if (view) opened = await appShell.openView(view)
-      lastAction.value = opened
-        ? { ok: true, message: action.feedback?.successLabel ?? `${action.label} 已打开` }
-        : { ok: false, message: `${action.label} 打开失败：工具窗口服务不可用` }
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
-    }
 
-    if ((action.id === 'capture_pin' || action.id === 'capture_unpin') && action.payload?.captureId) {
-      const captureId = String(action.payload.captureId)
-      await toggleCapturePin(captureId)
-      lastAction.value = {
-        ok: true,
-        message: action.feedback?.successLabel ?? (action.id === 'capture_pin' ? '已置顶' : '已取消置顶'),
-      }
-      await refreshResults()
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
-    }
-
-    if (action.id === 'pin_capture_image' && action.payload?.captureId) {
-      const captureId = String(action.payload.captureId)
-      const response = await openPinnedCapture(captureId)
-      lastAction.value = { ok: response.ok, message: response.message || (response.ok ? '已创建贴图' : '创建贴图失败') }
-      if (response.ok && activeResult?.id) {
-        void recordResultUse(activeResult.id)
-      }
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
-    }
-
-    if (action.id === 'recognize_qr' && action.payload?.captureId) {
-      const captureId = String(action.payload.captureId)
-      const result = await decodeCaptureQRCode(captureId)
-      if (result.ok && result.text) {
-        const copied = await writeClipboardText(result.text)
-        lastAction.value = {
-          ok: copied,
-          message: copied ? `已识别并复制二维码: ${clip(result.text, 42)}` : `已识别二维码: ${clip(result.text, 42)}`,
+      if (action.id === 'pin_capture_image' && action.payload?.captureId) {
+        const captureId = String(action.payload.captureId)
+        const response = await openPinnedCapture(captureId)
+        setLastAction(
+          { ok: response.ok, message: response.message || (response.ok ? '已创建贴图' : '创建贴图失败') },
+          action.feedback?.durationMs ?? 1400,
+        )
+        if (response.ok && activeResult?.id) {
+          void recordResultUse(activeResult.id)
         }
-      } else {
-        lastAction.value = { ok: false, message: result.error || '未识别到二维码' }
+        return
       }
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1800)
-      return
-    }
 
-    if (action.id === 'pin_qr' && action.payload?.text) {
-      const response = await openPinnedQRText(String(action.payload.text))
-      lastAction.value = { ok: response.ok, message: response.message || (response.ok ? '已创建贴图' : '创建贴图失败') }
-      if (response.ok && activeResult?.id) {
-        void recordResultUse(activeResult.id)
-      }
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
-    }
-
-    if (action.id === 'image_index_recent') {
-      const limit = Number(action.payload?.limit ?? 30)
-      const response = await indexRecentImages({ limit })
-      lastAction.value = {
-        ok: response.ok,
-        message: response.ok
-          ? `已索引 ${response.indexed} 张，跳过 ${response.skipped} 张`
-          : `图片索引失败 ${response.failed} 张${response.lastError ? `：${response.lastError}` : ''}`,
-      }
-      if (response.ok && activeResult?.id) {
-        void recordResultUse(activeResult.id)
-      }
-      await refreshResults()
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1800)
-      return
-    }
-
-    if ((action.id === 'favorite' || action.id === 'unfavorite') && resultId) {
-      const favorite = Boolean(action.payload?.favorite)
-      const saved = await setResultFavorite(resultId, favorite)
-      lastAction.value = {
-        ok: saved,
-        message: saved ? (action.feedback?.successLabel ?? (favorite ? '已收藏' : '已取消收藏')) : '收藏失败',
-      }
-      await refreshResults()
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
-    }
-
-    if ((action.id === 'clipboard_pin' || action.id === 'clipboard_unpin') && action.payload?.clipboardId) {
-      const clipboardId = String(action.payload.clipboardId)
-      await toggleClipboardPin(clipboardId)
-      lastAction.value = {
-        ok: true,
-        message: action.feedback?.successLabel ?? (action.id === 'clipboard_pin' ? '已置顶' : '已取消置顶'),
-      }
-      await refreshResults()
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
-    }
-
-    if (action.id === 'pin_clipboard_image' && action.payload?.clipboardId) {
-      const clipboardId = String(action.payload.clipboardId)
-      const response = await openPinnedClipboardImage(clipboardId)
-      lastAction.value = { ok: response.ok, message: response.message || (response.ok ? '已创建贴图' : '创建贴图失败') }
-      if (response.ok && activeResult?.id) {
-        void recordResultUse(activeResult.id)
-      }
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
-    }
-
-    if (action.id === 'copy_clipboard_image' && action.payload?.clipboardId) {
-      const clipboardId = String(action.payload.clipboardId)
-      const response = await copyClipboardImage(clipboardId)
-      lastAction.value = response
-      if (response.ok && activeResult?.id) {
-        void recordResultUse(activeResult.id)
-      }
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
-    }
-
-    if (action.id === 'run_workflow' && action.payload?.workflowId) {
-      const workflowId = String(action.payload.workflowId)
-      const input = String(action.payload.input ?? '')
-      const confirmationKey = actionConfirmationKey(action, activeResult)
-      const confirmed = pendingConfirmationKey.value === confirmationKey
-      let clipboardText = ''
-      try {
-        clipboardText = await Clipboard.Text()
-      } catch {
-        clipboardText = ''
-      }
-      const result = await runWorkflow({ workflowId, input, clipboardText, confirmed })
-      if (result.ok && result.output) {
-        const copied = await writeClipboardText(result.output)
-        lastAction.value = {
-          ok: copied,
-          message: copied ? `${result.message}，结果已复制` : `${result.message}，复制失败`,
+      if (action.id === 'recognize_qr' && action.payload?.captureId) {
+        const captureId = String(action.payload.captureId)
+        const result = await decodeCaptureQRCode(captureId)
+        if (result.ok && result.text) {
+          const copied = await writeClipboardText(result.text)
+          setLastAction(
+            {
+              ok: copied,
+              message: copied ? `已识别并复制二维码: ${clip(result.text, 42)}` : `已识别二维码: ${clip(result.text, 42)}`,
+            },
+            action.feedback?.durationMs ?? 1800,
+          )
+        } else {
+          setLastAction({ ok: false, message: result.error || '未识别到二维码' }, action.feedback?.durationMs ?? 1800)
         }
-        if (copied) {
-          void addClipboardText(result.output, 'workflow')
+        return
+      }
+
+      if (action.id === 'pin_qr' && action.payload?.text) {
+        const response = await openPinnedQRText(String(action.payload.text))
+        setLastAction(
+          { ok: response.ok, message: response.message || (response.ok ? '已创建贴图' : '创建贴图失败') },
+          action.feedback?.durationMs ?? 1400,
+        )
+        if (response.ok && activeResult?.id) {
+          void recordResultUse(activeResult.id)
+        }
+        return
+      }
+
+      if (action.id === 'image_index_recent') {
+        const limit = Number(action.payload?.limit ?? 30)
+        const response = await indexRecentImages({ limit })
+        setLastAction(
+          {
+            ok: response.ok,
+            message: response.ok
+              ? `已索引 ${response.indexed} 张，跳过 ${response.skipped} 张`
+              : `图片索引失败 ${response.failed} 张${response.lastError ? `：${response.lastError}` : ''}`,
+          },
+          action.feedback?.durationMs ?? 1800,
+        )
+        if (response.ok && activeResult?.id) {
+          void recordResultUse(activeResult.id)
+        }
+        await refreshResults()
+        return
+      }
+
+      if ((action.id === 'favorite' || action.id === 'unfavorite') && resultId) {
+        const favorite = Boolean(action.payload?.favorite)
+        const saved = await setResultFavorite(resultId, favorite)
+        setLastAction(
+          {
+            ok: saved,
+            message: saved ? (action.feedback?.successLabel ?? (favorite ? '已收藏' : '已取消收藏')) : '收藏失败',
+          },
+          action.feedback?.durationMs ?? 1400,
+        )
+        await refreshResults()
+        return
+      }
+
+      if ((action.id === 'clipboard_pin' || action.id === 'clipboard_unpin') && action.payload?.clipboardId) {
+        const clipboardId = String(action.payload.clipboardId)
+        const nextStatus = await toggleClipboardPin(clipboardId)
+        const saveErr = nextStatus?.lastSaveError
+        setLastAction(
+          saveErr
+            ? { ok: false, message: `置顶操作失败：${saveErr}` }
+            : { ok: true, message: action.feedback?.successLabel ?? (action.id === 'clipboard_pin' ? '已置顶' : '已取消置顶') },
+          action.feedback?.durationMs ?? 1400,
+        )
+        await refreshResults()
+        return
+      }
+
+      if (action.id === 'clipboard_delete' && action.payload?.clipboardId) {
+        const clipboardId = String(action.payload.clipboardId)
+        if (pendingConfirmationKey.value !== confirmationKey) {
+          setPendingConfirmation(confirmationKey, action)
+          setLastAction(
+            { ok: false, message: '再次点击确认：删除剪贴板记录', requiresConfirmation: true },
+            confirmationTimeoutMs(action),
+          )
+          return
+        }
+        clearPendingConfirmation()
+        const nextStatus = await deleteClipboardEntry(clipboardId)
+        const saveErr = nextStatus?.lastSaveError
+        setLastAction(
+          saveErr
+            ? { ok: false, message: `删除失败：${saveErr}` }
+            : { ok: true, message: action.feedback?.successLabel ?? '已删除' },
+          action.feedback?.durationMs ?? 1400,
+        )
+        await refreshResults()
+        return
+      }
+
+      if (action.id === 'clear_unpinned') {
+        if (pendingConfirmationKey.value !== confirmationKey) {
+          setPendingConfirmation(confirmationKey, action)
+          const label = command.startsWith('capture:') ? '清空未置顶捕获历史' : '清空未置顶剪贴板历史'
+          setLastAction(
+            { ok: false, message: `再次点击确认：${label}`, requiresConfirmation: true },
+            confirmationTimeoutMs(action),
+          )
+          return
+        }
+        clearPendingConfirmation()
+        if (command === 'clipboard:clear_unpinned') {
+          const nextStatus = await clearUnpinnedClipboardEntries()
+          const saveErr = nextStatus?.lastSaveError
+          setLastAction(
+            saveErr
+              ? { ok: false, message: `清理失败：${saveErr}` }
+              : { ok: true, message: action.feedback?.successLabel ?? '已清空未置顶剪贴板历史' },
+            action.feedback?.durationMs ?? 1400,
+          )
+          await refreshResults()
+          return
+        }
+        if (command === 'capture:clear_unpinned') {
+          const nextStatus = await clearUnpinnedCaptureEntries()
+          const saveErr = nextStatus?.lastSaveError
+          setLastAction(
+            saveErr
+              ? { ok: false, message: `清理失败：${saveErr}` }
+              : { ok: true, message: action.feedback?.successLabel ?? '已清空未置顶捕获历史' },
+            action.feedback?.durationMs ?? 1400,
+          )
+          await refreshResults()
+          return
+        }
+        setLastAction({ ok: false, message: '不支持的清理命令' }, 1800)
+        return
+      }
+
+      if (action.id === 'recognize_clipboard_qr' && action.payload?.clipboardId) {
+        const clipboardId = String(action.payload.clipboardId)
+        const result = await decodeClipboardImageQRCode(clipboardId)
+        if (result.ok && result.text) {
+          const copied = await writeClipboardText(result.text)
+          setLastAction(
+            {
+              ok: copied,
+              message: copied ? `已识别并复制二维码: ${clip(result.text, 42)}` : `已识别二维码: ${clip(result.text, 42)}`,
+            },
+            action.feedback?.durationMs ?? 1800,
+          )
           if (activeResult?.id) {
             void recordResultUse(activeResult.id)
           }
+        } else {
+          setLastAction({ ok: false, message: result.error || '未识别到二维码' }, action.feedback?.durationMs ?? 1800)
         }
-      } else {
-        lastAction.value = {
-          ok: false,
-          message: result.message,
-          requiresConfirmation: result.requiresConfirmation,
-          riskReasons: result.riskReasons,
-        }
+        return
       }
-      if (result.requiresConfirmation) {
+
+      if (action.id === 'clipboard_image_to_capture' && action.payload?.clipboardId) {
+        const clipboardId = String(action.payload.clipboardId)
+        const nextStatus = await addClipboardImageToCapture(clipboardId)
+        const err = nextStatus?.lastCaptureError || nextStatus?.lastSaveError
+        setLastAction(
+          err
+            ? { ok: false, message: `加入截图历史失败：${err}` }
+            : { ok: true, message: action.feedback?.successLabel ?? '已加入截图历史' },
+          action.feedback?.durationMs ?? 1400,
+        )
+        if (!err && activeResult?.id) {
+          void recordResultUse(activeResult.id)
+        }
+        return
+      }
+
+      if (action.id === 'pin_clipboard_image' && action.payload?.clipboardId) {
+        const clipboardId = String(action.payload.clipboardId)
+        const response = await openPinnedClipboardImage(clipboardId)
+        setLastAction(
+          { ok: response.ok, message: response.message || (response.ok ? '已创建贴图' : '创建贴图失败') },
+          action.feedback?.durationMs ?? 1400,
+        )
+        if (response.ok && activeResult?.id) {
+          void recordResultUse(activeResult.id)
+        }
+        return
+      }
+
+      if (action.id === 'copy_clipboard_image' && action.payload?.clipboardId) {
+        const clipboardId = String(action.payload.clipboardId)
+        const response = await copyClipboardImage(clipboardId)
+        setLastAction(response, action.feedback?.durationMs ?? 1400)
+        if (response.ok && activeResult?.id) {
+          void recordResultUse(activeResult.id)
+        }
+        return
+      }
+
+      if (action.id === 'run_workflow' && action.payload?.workflowId) {
+        const workflowId = String(action.payload.workflowId)
+        const input = String(action.payload.input ?? '')
+        const confirmed = pendingConfirmationKey.value === confirmationKey
+        let clipboardText = ''
+        try {
+          clipboardText = await Clipboard.Text()
+        } catch {
+          clipboardText = ''
+        }
+        const result = await runWorkflow({ workflowId, input, clipboardText, confirmed })
+        if (result.ok && result.output) {
+          const copied = await writeClipboardText(result.output)
+          setLastAction(
+            {
+              ok: copied,
+              message: copied ? `${result.message}，结果已复制` : `${result.message}，复制失败`,
+            },
+            action.feedback?.durationMs ?? 1800,
+          )
+          if (copied) {
+            void addClipboardText(result.output, 'workflow')
+            if (activeResult?.id) {
+              void recordResultUse(activeResult.id)
+            }
+          }
+        } else {
+          setLastAction(
+            {
+              ok: false,
+              message: result.message,
+              requiresConfirmation: result.requiresConfirmation,
+              riskReasons: result.riskReasons,
+            },
+            result.requiresConfirmation ? confirmationTimeoutMs(action) : (action.feedback?.durationMs ?? 1800),
+          )
+        }
+        if (result.requiresConfirmation) {
+          setPendingConfirmation(confirmationKey, action)
+        } else {
+          clearPendingConfirmation()
+        }
+        return
+      }
+
+      if (action.kind === 'copy') {
+        const text = String(action.payload?.text ?? activeResult?.detail ?? activeResult?.title ?? '')
+        const copied = await writeClipboardText(text)
+        const response = await executeFancunAction(action)
+        setLastAction(
+          copied ? response : { ok: false, message: '复制失败' },
+          action.feedback?.durationMs ?? 1400,
+        )
+        if (copied && activeResult?.id) {
+          void recordResultUse(activeResult.id)
+          void addClipboardText(text, 'action')
+        }
+        return
+      }
+
+      const actionToExecute = pendingConfirmationKey.value === confirmationKey
+        ? { ...action, payload: { ...(action.payload ?? {}), confirmed: true, confirm: true } }
+        : action
+      const response = await executeFancunAction(actionToExecute)
+      setLastAction(
+        response,
+        response.requiresConfirmation ? confirmationTimeoutMs(action) : (action.feedback?.durationMs ?? 1400),
+      )
+      if (response.requiresConfirmation) {
         setPendingConfirmation(confirmationKey, action)
       } else {
         clearPendingConfirmation()
       }
-      const feedbackDuration = result.requiresConfirmation ? confirmationTimeoutMs(action) : (action.feedback?.durationMs ?? 1800)
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, feedbackDuration)
-      return
-    }
-
-    if (action.kind === 'copy') {
-      const text = String(action.payload?.text ?? activeResult?.detail ?? activeResult?.title ?? '')
-      const copied = await writeClipboardText(text)
-      const response = await executeFancunAction(action)
-      lastAction.value = copied ? response : { ok: false, message: '复制失败' }
-      if (copied && activeResult?.id) {
+      if (response.ok && activeResult?.id) {
         void recordResultUse(activeResult.id)
-        void addClipboardText(text, 'action')
       }
-      window.setTimeout(() => {
-        lastAction.value = null
-      }, action.feedback?.durationMs ?? 1400)
-      return
+    } catch (error) {
+      setLastAction({
+        ok: false,
+        message: error instanceof Error && error.message.trim() ? error.message.trim() : `${action.label} 执行失败`,
+      })
     }
-
-    const confirmationKey = actionConfirmationKey(action, activeResult)
-    const actionToExecute = pendingConfirmationKey.value === confirmationKey
-      ? { ...action, payload: { ...(action.payload ?? {}), confirmed: true, confirm: true } }
-      : action
-    const response = await executeFancunAction(actionToExecute)
-    lastAction.value = response
-    if (response.requiresConfirmation) {
-      setPendingConfirmation(confirmationKey, action)
-    } else {
-      clearPendingConfirmation()
-    }
-    if (response.ok && activeResult?.id) {
-      void recordResultUse(activeResult.id)
-    }
-    const feedbackDuration = response.requiresConfirmation ? confirmationTimeoutMs(action) : (action.feedback?.durationMs ?? 1400)
-    window.setTimeout(() => {
-      lastAction.value = null
-    }, feedbackDuration)
   }
 
   async function writeClipboardText(text: string) {
@@ -331,6 +487,7 @@ export const useLauncherStore = defineStore('launcher', () => {
   }
 
   async function refreshResults(value = query.value) {
+    clearSearchDebounceTimer()
     const requestSerial = ++searchRequestSerial
     activeSearchRequest?.cancel('superseded')
     activeSearchRequest = null
@@ -341,9 +498,11 @@ export const useLauncherStore = defineStore('launcher', () => {
       selectedId.value = ''
       elapsedMs.value = 0
       totalResults.value = 0
+      isSearching.value = false
       return
     }
 
+    isSearching.value = true
     const initialSelectionRevision = selectionRevision
     const applyResponse = (response: SearchResponse) => {
       if (requestSerial !== searchRequestSerial || query.value !== value) return
@@ -372,6 +531,7 @@ export const useLauncherStore = defineStore('launcher', () => {
     } finally {
       if (requestSerial === searchRequestSerial) {
         activeSearchRequest = null
+        isSearching.value = false
       }
     }
 
@@ -379,11 +539,21 @@ export const useLauncherStore = defineStore('launcher', () => {
   }
 
   function setQuery(value: string) {
-    void refreshResults(value)
+    clearSearchDebounceTimer()
+    query.value = value
+    if (!value.trim()) {
+      void refreshResults(value)
+      return
+    }
+    isSearching.value = true
+    searchDebounceTimer = window.setTimeout(() => {
+      searchDebounceTimer = undefined
+      void refreshResults(value)
+    }, SEARCH_DEBOUNCE_MS)
   }
 
   async function applyCommandSuggestion(value: string) {
-    lastAction.value = null
+    clearLastAction()
     clearPendingConfirmation()
     await refreshResults(value)
   }
@@ -407,16 +577,18 @@ export const useLauncherStore = defineStore('launcher', () => {
   }
 
   function reset() {
+    clearSearchDebounceTimer()
     searchRequestSerial++
     activeSearchRequest?.cancel('reset')
     activeSearchRequest = null
     clearPendingConfirmation()
+    clearLastAction()
     query.value = ''
     results.value = []
     selectedId.value = ''
-    lastAction.value = null
     elapsedMs.value = 0
     totalResults.value = 0
+    isSearching.value = false
   }
 
   return {
@@ -427,11 +599,14 @@ export const useLauncherStore = defineStore('launcher', () => {
     totalResults,
     resultCountLabel,
     isExpanded,
+    isSearching,
     lastAction,
+    feedbackTone,
     elapsedMs,
     setQuery,
     applyCommandSuggestion,
     reset,
+    clearLastAction,
     select,
     moveSelection,
     runPrimaryAction,

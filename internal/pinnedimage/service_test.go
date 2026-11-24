@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"fancun/internal/capturehistory"
 	"fancun/internal/clipboardhistory"
@@ -212,6 +213,27 @@ func TestOpenFailureRemovesPinnedImage(t *testing.T) {
 	}
 	if result.PinID != "" {
 		t.Fatalf("failed open must not return pin id: %#v", result)
+	}
+}
+
+func TestAttachWarmupCancelsPromptlyOnStop(t *testing.T) {
+	service := NewService(nil, nil)
+	service.Attach(nil)
+
+	sDone := make(chan struct{})
+	start := time.Now()
+	go func() {
+		defer close(sDone)
+		service.Stop()
+	}()
+
+	select {
+	case <-sDone:
+		if elapsed := time.Since(start); elapsed >= 500*time.Millisecond {
+			t.Fatalf("Stop took too long waiting on 1.2s warmup goroutine: %s", elapsed)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Stop did not cancel 1.2s warmup goroutine")
 	}
 }
 

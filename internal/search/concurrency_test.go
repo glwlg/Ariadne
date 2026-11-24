@@ -2,6 +2,8 @@ package search
 
 import (
 	"context"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -131,5 +133,82 @@ func TestUsageDecorationDoesNotMutateProviderSlices(t *testing.T) {
 	}
 	if tags[1] != "untouched" || actions[1].ID != "untouched" {
 		t.Fatal("search mutated provider backing arrays")
+	}
+}
+
+func TestProgressiveSearchCoalescesRapidProviderCompletions(t *testing.T) {
+	slowRelease := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseSlow := func() { releaseOnce.Do(func() { close(slowRelease) }) }
+	defer releaseSlow()
+
+	var progressCount atomic.Int32
+	coalesced := make(chan Progress, 16)
+
+	providers := make([]ResultProvider, 0, 7)
+	providers = append(providers, providerFunc(func(string) []contracts.SearchResult {
+		<-slowRelease
+		return []contracts.SearchResult{scoredResult("slow-final", "Slow Final", 100)}
+	}))
+	for i := 0; i < 6; i++ {
+		id := "fast-" + strconv.Itoa(i)
+		score := float64(50 - i)
+		providers = append(providers, providerFunc(func(string) []contracts.SearchResult {
+			return []contracts.SearchResult{scoredResult(id, id, score)}
+		}))
+	}
+
+	service := NewServiceWithState(NewStateStore(""), providers...)
+	RegisterProgressHandler(service, func(progress Progress) {
+		progressCount.Add(1)
+		coalesced <- progress
+	})
+
+	done := make(chan contracts.SearchResponse, 1)
+	go func() {
+		done <- service.SearchProgressively(context.Background(), "burst-query", "req-burst")
+	}()
+
+	deadline := time.After(2 * time.Second)
+	var lastProgress Progress
+	for {
+		select {
+		case p := <-coalesced:
+			lastProgress = p
+			if len(p.Response.Results) == 6 {
+				goto flushed
+			}
+		case <-deadline:
+			t.Fatalf("expected all 6 fast providers in coalesced progress, got count=%d last=%d", progressCount.Load(), len(lastProgress.Response.Results))
+		}
+	}
+flushed:
+	if got := progressCount.Load(); got >= 6 {
+		t.Fatalf("expected rapid provider completions to be coalesced (<6 progress emits), got %d", got)
+	}
+	releaseSlow()
+	final := <-done
+	if len(final.Results) != 7 || final.Results[0].ID != "slow-final" {
+		t.Fatalf("expected 7 final results with slow-final first, got %#v", final.Results)
+	}
+}
+
+func TestMergeProviderResultsDeduplicatesInOrderAtScale(t *testing.T) {
+	seed := []contracts.SearchResult{scoredResult("seed-1", "Seed 1", 10)}
+	batch1 := make([]contracts.SearchResult, 0, 500)
+	batch2 := make([]contracts.SearchResult, 0, 500)
+	for i := 0; i < 500; i++ {
+		id := "item-" + strconv.Itoa(i)
+		batch1 = append(batch1, scoredResult(id, "B1-"+id, 50))
+		batch2 = append(batch2, scoredResult(id, "B2-"+id, 90))
+	}
+	batch2 = append(batch2, scoredResult("unique-2", "Unique 2", 20))
+
+	merged := mergeProviderResults(seed, [][]contracts.SearchResult{batch1, batch2})
+	if len(merged) != 502 {
+		t.Fatalf("expected 502 deduplicated results, got %d", len(merged))
+	}
+	if merged[1].Title != "B1-item-0" {
+		t.Fatalf("expected earlier provider to win deduplication, got %#v", merged[1])
 	}
 }

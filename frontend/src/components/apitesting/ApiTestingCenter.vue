@@ -35,6 +35,13 @@ onBeforeUnmount(() => {
 })
 
 function onWindowKeydown(event: KeyboardEvent) {
+  if (
+    apiTesting.isEnvironmentPanelOpen
+    || gitPanelOpen.value
+    || (typeof document !== 'undefined' && Boolean(document.querySelector('[role="dialog"][aria-modal="true"]')))
+  ) {
+    return
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
     event.preventDefault()
     void apiTesting.saveCollection()
@@ -103,7 +110,11 @@ function selectCommand(action: string) {
             <TestTube2 :size="14" />
             {{ apiTesting.enabledAssertionCount }} 条断言
           </span>
-          <span v-if="apiTesting.feedback">{{ apiTesting.feedback }}</span>
+          <span
+            v-if="apiTesting.feedback"
+            class="inline-feedback"
+            :class="{ 'is-danger': apiTesting.feedbackTone === 'danger' }"
+          >{{ apiTesting.feedback }}</span>
           <span v-else-if="apiTesting.isSaving">正在保存</span>
           <span v-else-if="apiTesting.isDirty">有未保存修改</span>
           <span v-else>已保存</span>

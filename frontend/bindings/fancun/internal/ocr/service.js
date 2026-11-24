@@ -28,6 +28,16 @@ export function LastResult() {
 }
 
 /**
+ * LocalStatus reports availability and provider for local-only RapidOCR without remote AI fallback.
+ * @returns {$CancellablePromise<$models.Status>}
+ */
+export function LocalStatus() {
+    return $Call.ByID(3015693801).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType1($result);
+    }));
+}
+
+/**
  * @param {string} captureID
  * @returns {$CancellablePromise<$models.Result>}
  */
@@ -38,11 +48,33 @@ export function RecognizeCapture(captureID) {
 }
 
 /**
+ * RecognizeCaptureLocal runs OCR strictly locally without sending screenshots to remote AI endpoints.
+ * @param {string} captureID
+ * @returns {$CancellablePromise<$models.Result>}
+ */
+export function RecognizeCaptureLocal(captureID) {
+    return $Call.ByID(529606093, captureID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {string} clipboardID
  * @returns {$CancellablePromise<$models.Result>}
  */
 export function RecognizeClipboardImage(clipboardID) {
     return $Call.ByID(695673191, clipboardID).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
+ * RecognizeClipboardImageLocal runs OCR strictly locally without sending clipboard images to remote AI endpoints.
+ * @param {string} clipboardID
+ * @returns {$CancellablePromise<$models.Result>}
+ */
+export function RecognizeClipboardImageLocal(clipboardID) {
+    return $Call.ByID(889801350, clipboardID).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
     }));
 }

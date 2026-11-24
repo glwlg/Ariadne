@@ -1,4 +1,5 @@
 import type { PinnedImage, PinnedImageOpenResult } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 async function tryPinnedImageBinding() {
   try {
@@ -43,10 +44,18 @@ export async function openPinnedQRText(text: string): Promise<PinnedImageOpenRes
 
 export async function getPinnedImage(pinId: string): Promise<PinnedImage | null> {
   const binding = await tryPinnedImageBinding()
-  if (!binding) return null
+  if (!binding) {
+    if (isDesktopRuntime()) {
+      throw new Error('贴图窗口服务绑定不可用')
+    }
+    return null
+  }
   try {
     return normalizePinnedImage(await binding.GetPinned(pinId))
-  } catch {
+  } catch (error) {
+    if (isDesktopRuntime()) {
+      throw new Error(formatRpcError(error, '读取贴图数据失败'))
+    }
     return null
   }
 }

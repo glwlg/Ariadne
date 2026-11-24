@@ -3,12 +3,18 @@
 package clipboardhistory
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -149,5 +155,103 @@ func TestWriteClipboardWithRetryReturnsLastError(t *testing.T) {
 
 	if err == nil || err.Error() != "still busy" {
 		t.Fatalf("expected last clipboard error, got %v", err)
+	}
+}
+
+func TestClipboardExclusionFormatsSkipCapture(t *testing.T) {
+	const (
+		excludeFmt = uintptr(0xC101)
+		historyFmt = uintptr(0xC102)
+	)
+	oldOpen, oldClose, oldAvail, oldReg, oldGet, oldLock, oldUnlock, oldSize :=
+		procOpenClipboard, procCloseClipboard, procIsFormatAvailable, procRegisterClipboardFormatW,
+		procGetClipboardData, procGlobalLock, procGlobalUnlock, procGlobalSize
+	t.Cleanup(func() {
+		procOpenClipboard, procCloseClipboard, procIsFormatAvailable, procRegisterClipboardFormatW,
+			procGetClipboardData, procGlobalLock, procGlobalUnlock, procGlobalSize =
+			oldOpen, oldClose, oldAvail, oldReg, oldGet, oldLock, oldUnlock, oldSize
+	})
+
+	procOpenClipboard = fakeClipboardProc(func(...uintptr) (uintptr, uintptr, error) { return 1, 0, nil })
+	procCloseClipboard = fakeClipboardProc(func(...uintptr) (uintptr, uintptr, error) { return 1, 0, nil })
+	procRegisterClipboardFormatW = fakeClipboardProc(func(args ...uintptr) (uintptr, uintptr, error) {
+		switch args[0] {
+		case uintptr(unsafe.Pointer(excludeMonitorFormatName)):
+			return excludeFmt, 0, nil
+		case uintptr(unsafe.Pointer(canIncludeHistoryName)):
+			return historyFmt, 0, nil
+		default:
+			return 0, 0, nil
+		}
+	})
+
+	var dwordBuf [4]byte
+	var excludeAvail, historyAvail uintptr
+	procIsFormatAvailable = fakeClipboardProc(func(args ...uintptr) (uintptr, uintptr, error) {
+		switch args[0] {
+		case excludeFmt:
+			return excludeAvail, 0, nil
+		case historyFmt:
+			return historyAvail, 0, nil
+		default:
+			return 0, 0, nil
+		}
+	})
+	procGetClipboardData = fakeClipboardProc(func(args ...uintptr) (uintptr, uintptr, error) {
+		if args[0] == historyFmt {
+			return 1, 0, nil
+		}
+		return 0, 0, nil
+	})
+	procGlobalLock = fakeClipboardProc(func(...uintptr) (uintptr, uintptr, error) {
+		return uintptr(unsafe.Pointer(&dwordBuf[0])), 0, nil
+	})
+	procGlobalUnlock = fakeClipboardProc(func(...uintptr) (uintptr, uintptr, error) { return 1, 0, nil })
+	procGlobalSize = fakeClipboardProc(func(...uintptr) (uintptr, uintptr, error) { return 4, 0, nil })
+
+	// 1. ExcludeClipboardContentFromMonitorProcessing present -> skip
+	excludeAvail, historyAvail = 1, 0
+	entry, err := readSystemClipboardEntryOnce(t.TempDir(), "watcher")
+	if err != nil || entryIsValid(entry) {
+		t.Fatalf("expected ExcludeClipboardContentFromMonitorProcessing to skip capture, got entry=%#v err=%v", entry, err)
+	}
+
+	// 2. CanIncludeInClipboardHistory == 0 -> skip
+	excludeAvail, historyAvail = 0, 1
+	binary.LittleEndian.PutUint32(dwordBuf[:], 0)
+	entry, err = readSystemClipboardEntryOnce(t.TempDir(), "watcher")
+	if err != nil || entryIsValid(entry) {
+		t.Fatalf("expected CanIncludeInClipboardHistory=0 to skip capture, got entry=%#v err=%v", entry, err)
+	}
+
+	// 3. CanIncludeInClipboardHistory == 1 -> allow reading (no text/image -> empty without exclusion)
+	binary.LittleEndian.PutUint32(dwordBuf[:], 1)
+	if isClipboardCaptureExcluded() {
+		t.Fatal("CanIncludeInClipboardHistory=1 should not be excluded")
+	}
+}
+
+func TestImageToDIBAndDIBToImageRoundTrip(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 4, 3))
+	src.SetRGBA(0, 0, color.RGBA{R: 12, G: 34, B: 56, A: 255})
+	src.SetRGBA(3, 2, color.RGBA{R: 200, G: 150, B: 100, A: 255})
+
+	dib := imageToDIB(src)
+	decoded, err := dibToImage(dib)
+	if err != nil {
+		t.Fatalf("dibToImage failed: %v", err)
+	}
+	if decoded.RGBAAt(0, 0) != (color.RGBA{R: 12, G: 34, B: 56, A: 255}) {
+		t.Fatalf("unexpected top-left pixel: %#v", decoded.RGBAAt(0, 0))
+	}
+	if decoded.RGBAAt(3, 2) != (color.RGBA{R: 200, G: 150, B: 100, A: 255}) {
+		t.Fatalf("unexpected bottom-right pixel: %#v", decoded.RGBAAt(3, 2))
+	}
+	pngBytes, err := dibToPNG(dib)
+	if err != nil {
+		t.Fatalf("dibToPNG failed: %v", err)
+	}
+	if _, err := png.Decode(bytes.NewReader(pngBytes)); err != nil {
+		t.Fatalf("dibToPNG produced invalid PNG: %v", err)
 	}
 }

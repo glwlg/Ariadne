@@ -1,4 +1,5 @@
 import type { Launcher, LauncherStatus } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 const fallbackLaunchers: Launcher[] = [
   {
@@ -33,9 +34,15 @@ export async function getLauncherStatus(): Promise<LauncherStatus> {
   if (binding) {
     try {
       return normalizeStatus(await binding.Status())
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取启动项状态失败'))
+      }
       return structuredClone(fallbackStatus)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('启动项服务绑定不可用')
   }
   return structuredClone(fallbackStatus)
 }
@@ -45,6 +52,9 @@ export async function upsertLauncher(launcher: Launcher): Promise<LauncherStatus
   const next = normalizeLauncher(launcher)
   if (binding) {
     return normalizeStatus(await binding.Upsert(next))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('启动项服务绑定不可用')
   }
   const index = fallbackStatus.items.findIndex((item) => item.id === next.id)
   if (index >= 0) {
@@ -60,6 +70,9 @@ export async function removeLauncher(id: string): Promise<LauncherStatus> {
   const binding = await tryLaunchersBinding()
   if (binding) {
     return normalizeStatus(await binding.Remove(id))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('启动项服务绑定不可用')
   }
   fallbackStatus.items = fallbackStatus.items.filter((item) => item.id !== id)
   fallbackStatus = normalizeStatus(fallbackStatus)

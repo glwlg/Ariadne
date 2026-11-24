@@ -128,10 +128,12 @@ type Service struct {
 	lastWatcherError      string
 	lastWatcherSignature  string
 	watcherStop           chan struct{}
+	watcherDone           chan struct{}
 	clipboardReader       func(string, string) (Entry, error)
 	watcherSourceOverride string
 	captureSink           CaptureSink
 	observers             []func(Entry)
+	changeHandlers        []func()
 	saveDirty             bool
 	saveScheduled         bool
 }
@@ -161,8 +163,14 @@ func NewServiceWithPaths(path string, imageDir string) *Service {
 		clipboardReader: readSystemClipboardEntry,
 	}
 	service.load()
-	service.ensureThumbnails()
 	return service
+}
+
+func BackfillThumbnails(service *Service) {
+	if service == nil {
+		return
+	}
+	service.ensureThumbnails()
 }
 
 func (s *Service) Status() Status {
@@ -205,6 +213,15 @@ func (s *Service) registerEntryObserver(observer func(Entry)) {
 	s.observers = append(s.observers, observer)
 }
 
+func RegisterChangeHandler(service *Service, handler func()) {
+	if service == nil || handler == nil {
+		return
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.changeHandlers = append(service.changeHandlers, handler)
+}
+
 func (s *Service) AddText(text string, source string) Status {
 	entry := makeTextEntry(text, source)
 	s.mu.Lock()
@@ -212,6 +229,9 @@ func (s *Service) AddText(text string, source string) Status {
 	status := s.statusLocked(true)
 	s.mu.Unlock()
 	s.notifyEntryObservers(entry)
+	if entry.ID != "" {
+		s.notifyChangeHandlers()
+	}
 	return status
 }
 
@@ -228,6 +248,9 @@ func (s *Service) AddPNG(pngBytes []byte, source string) Status {
 	status := s.statusLocked(true)
 	s.mu.Unlock()
 	s.notifyEntryObservers(entry)
+	if entry.ID != "" {
+		s.notifyChangeHandlers()
+	}
 	return status
 }
 
@@ -261,14 +284,18 @@ func (s *Service) ImportLegacyEntries(entries []Entry) Status {
 		imported = append(imported, entry)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, entry := range imported {
 		s.addEntryLockedWithSave(entry, false)
 	}
 	if len(imported) > 0 {
 		s.saveLockedWithStatus()
 	}
-	return s.statusLocked(true)
+	status := s.statusLocked(true)
+	s.mu.Unlock()
+	if len(imported) > 0 {
+		s.notifyChangeHandlers()
+	}
+	return status
 }
 
 func (s *Service) CollectCurrent(source string) Status {
@@ -307,6 +334,9 @@ func (s *Service) CollectCurrentEntry(source string) CollectCurrentResult {
 	status := s.statusLocked(true)
 	s.mu.Unlock()
 	s.notifyEntryObservers(entry)
+	if entry.ID != "" {
+		s.notifyChangeHandlers()
+	}
 	return CollectCurrentResult{OK: entry.ID != "", Message: "已读取当前剪贴板", Entry: entry, Status: status}
 }
 
@@ -451,9 +481,14 @@ func (s *Service) ApplyWatcherSettings(privacyMode bool, sourceClipboard bool) S
 
 func (s *Service) StopWatcher() Status {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.watcherEnabled = false
-	s.stopWatcherLocked()
+	done := s.stopWatcherLocked()
+	s.mu.Unlock()
+	if done != nil {
+		<-done
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.saveDirty {
 		s.saveLockedWithStatus()
 	}
@@ -463,48 +498,66 @@ func (s *Service) StopWatcher() Status {
 func (s *Service) TogglePin(id string) Status {
 	id = strings.TrimSpace(id)
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	changed := false
 	for i := range s.entries {
 		if s.entries[i].ID == id {
 			s.entries[i].Pinned = !s.entries[i].Pinned
+			changed = true
 			break
 		}
 	}
 	s.saveLockedWithStatus()
-	return s.statusLocked(true)
+	status := s.statusLocked(true)
+	s.mu.Unlock()
+	if changed {
+		s.notifyChangeHandlers()
+	}
+	return status
 }
 
 func (s *Service) Delete(id string) Status {
 	id = strings.TrimSpace(id)
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	changed := false
 	next := make([]Entry, 0, len(s.entries))
 	for _, entry := range s.entries {
 		if entry.ID != id {
 			next = append(next, entry)
 		} else {
 			s.removeEntryFile(entry)
+			changed = true
 		}
 	}
 	s.entries = next
 	s.saveLockedWithStatus()
-	return s.statusLocked(true)
+	status := s.statusLocked(true)
+	s.mu.Unlock()
+	if changed {
+		s.notifyChangeHandlers()
+	}
+	return status
 }
 
 func (s *Service) ClearUnpinned() Status {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	changed := false
 	next := make([]Entry, 0, len(s.entries))
 	for _, entry := range s.entries {
 		if entry.Pinned {
 			next = append(next, entry)
 		} else {
 			s.removeEntryFile(entry)
+			changed = true
 		}
 	}
 	s.entries = next
 	s.saveLockedWithStatus()
-	return s.statusLocked(true)
+	status := s.statusLocked(true)
+	s.mu.Unlock()
+	if changed {
+		s.notifyChangeHandlers()
+	}
+	return status
 }
 
 func (s *Service) ApplyRetentionPolicy(retentionDays int, keepPinned bool) RetentionResult {
@@ -522,7 +575,6 @@ func (s *Service) ApplyRetentionPolicy(retentionDays int, keepPinned bool) Reten
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	next := make([]Entry, 0, len(s.entries))
 	for _, entry := range s.entries {
 		if keepPinned && entry.Pinned {
@@ -547,6 +599,10 @@ func (s *Service) ApplyRetentionPolicy(retentionDays int, keepPinned bool) Reten
 		s.saveLockedWithStatus()
 	}
 	result.RemainingCount = len(s.entries)
+	s.mu.Unlock()
+	if result.Removed > 0 {
+		s.notifyChangeHandlers()
+	}
 	return result
 }
 
@@ -808,23 +864,29 @@ func (s *Service) startWatcherLocked() {
 	s.lastWatcherSignature = ""
 	s.lastWatcherError = ""
 	stop := make(chan struct{})
+	done := make(chan struct{})
 	s.watcherStop = stop
+	s.watcherDone = done
 	s.watcherRunning = true
-	go s.runWatcher(stop)
+	go s.runWatcher(stop, done)
 }
 
-func (s *Service) stopWatcherLocked() {
+func (s *Service) stopWatcherLocked() chan struct{} {
+	done := s.watcherDone
 	if s.watcherStop != nil {
 		close(s.watcherStop)
 		s.watcherStop = nil
 	}
+	s.watcherDone = nil
 	s.watcherRunning = false
 	s.watcherPrimed = false
 	s.lastWatcherSignature = ""
+	return done
 }
 
-func (s *Service) runWatcher(stop <-chan struct{}) {
-	s.pollClipboardOnce(false)
+func (s *Service) runWatcher(stop chan struct{}, done chan struct{}) {
+	defer close(done)
+	s.pollClipboard(false, false)
 	events := make(chan struct{}, 1)
 	workerStop := make(chan struct{})
 	workerDone := make(chan struct{})
@@ -837,7 +899,7 @@ func (s *Service) runWatcher(stop <-chan struct{}) {
 			case <-workerStop:
 				return
 			case <-events:
-				s.pollClipboardOnce(true)
+				s.pollClipboard(true, false)
 			}
 		}
 	}()
@@ -849,19 +911,29 @@ func (s *Service) runWatcher(stop <-chan struct{}) {
 	})
 	close(workerStop)
 	<-workerDone
-	if err != nil {
-		s.mu.Lock()
-		if errors.Is(err, errClipboardUnsupported) {
-			s.lastWatcherError = "当前平台不支持原生剪贴板监听"
-		} else {
-			s.lastWatcherError = err.Error()
+	s.mu.Lock()
+	if s.watcherStop == stop {
+		if err != nil {
+			if errors.Is(err, errClipboardUnsupported) {
+				s.lastWatcherError = "当前平台不支持原生剪贴板监听"
+			} else {
+				s.lastWatcherError = err.Error()
+			}
 		}
 		s.watcherRunning = false
-		s.mu.Unlock()
+		s.watcherStop = nil
+		if s.watcherDone == done {
+			s.watcherDone = nil
+		}
 	}
+	s.mu.Unlock()
 }
 
 func (s *Service) pollClipboardOnce(recordChange bool) Status {
+	return s.pollClipboard(recordChange, true)
+}
+
+func (s *Service) pollClipboard(recordChange bool, needStatus bool) Status {
 	reader := s.clipboardReader
 	if reader == nil {
 		reader = readSystemClipboardEntry
@@ -877,7 +949,10 @@ func (s *Service) pollClipboardOnce(recordChange bool) Status {
 		} else {
 			s.lastWatcherError = err.Error()
 		}
-		status := s.statusLocked(false)
+		var status Status
+		if needStatus {
+			status = s.statusLocked(false)
+		}
 		s.mu.Unlock()
 		return status
 	}
@@ -894,23 +969,44 @@ func (s *Service) pollClipboardOnce(recordChange bool) Status {
 		s.lastWatcherSignature = signature
 		if !recordChange {
 			s.removeEntryFile(entry)
-			status := s.statusLocked(false)
+			var status Status
+			if needStatus {
+				status = s.statusLocked(false)
+			}
 			s.mu.Unlock()
 			return status
 		}
 	}
 	if signature == "" || signature == s.lastWatcherSignature {
 		s.removeEntryFile(entry)
-		status := s.statusLocked(false)
+		var status Status
+		if needStatus {
+			status = s.statusLocked(false)
+		}
 		s.mu.Unlock()
 		return status
 	}
 	s.lastWatcherSignature = signature
 	entry = s.addEntryLockedWithSave(entry, false)
-	status := s.statusLocked(true)
+	var status Status
+	if needStatus {
+		status = s.statusLocked(false)
+	}
 	s.mu.Unlock()
 	s.notifyEntryObservers(entry)
+	if entry.ID != "" {
+		s.notifyChangeHandlers()
+	}
 	return status
+}
+
+func (s *Service) notifyChangeHandlers() {
+	s.mu.RLock()
+	handlers := append([]func(){}, s.changeHandlers...)
+	s.mu.RUnlock()
+	for _, handler := range handlers {
+		handler()
+	}
 }
 
 func (s *Service) notifyEntryObservers(entry Entry) {
@@ -965,6 +1061,24 @@ func makeImageEntryFromPNG(pngBytes []byte, imageDir string, source string, thum
 	if err != nil {
 		return Entry{}, err
 	}
+	return makeImageEntryWithThumbnail(config.Width, config.Height, pngBytes, nil, imageDir, source, thumbnailDirs...)
+}
+
+func makeImageEntryFromImage(img image.Image, pngBytes []byte, imageDir string, source string, thumbnailDirs ...string) (Entry, error) {
+	if img == nil {
+		return makeImageEntryFromPNG(pngBytes, imageDir, source, thumbnailDirs...)
+	}
+	bounds := img.Bounds()
+	return makeImageEntryWithThumbnail(bounds.Dx(), bounds.Dy(), pngBytes, img, imageDir, source, thumbnailDirs...)
+}
+
+func makeImageEntryWithThumbnail(width int, height int, pngBytes []byte, img image.Image, imageDir string, source string, thumbnailDirs ...string) (Entry, error) {
+	if len(pngBytes) == 0 {
+		return Entry{}, fmt.Errorf("剪贴板图片为空")
+	}
+	if width <= 0 || height <= 0 {
+		return Entry{}, fmt.Errorf("剪贴板图片尺寸无效")
+	}
 	if imageDir == "" {
 		return Entry{}, fmt.Errorf("缺少剪贴板图片目录")
 	}
@@ -981,7 +1095,14 @@ func makeImageEntryFromPNG(pngBytes []byte, imageDir string, source string, thum
 	if err := os.WriteFile(path, pngBytes, 0o600); err != nil {
 		return Entry{}, err
 	}
-	thumbnailPath, thumbnailWidth, thumbnailHeight, thumbnailBytes := writeThumbnail(pngBytes, thumbnailDir, filename)
+	var thumbnailPath string
+	var thumbnailWidth, thumbnailHeight int
+	var thumbnailBytes int64
+	if img != nil {
+		thumbnailPath, thumbnailWidth, thumbnailHeight, thumbnailBytes = writeThumbnailFromImage(img, thumbnailDir, filename)
+	} else {
+		thumbnailPath, thumbnailWidth, thumbnailHeight, thumbnailBytes = writeThumbnail(pngBytes, thumbnailDir, filename)
+	}
 	source = strings.TrimSpace(source)
 	if source == "" {
 		source = "manual"
@@ -997,11 +1118,11 @@ func makeImageEntryFromPNG(pngBytes []byte, imageDir string, source string, thum
 		Signature:       signature,
 		ContentType:     "image",
 		Source:          source,
-		Summary:         fmt.Sprintf("剪贴板图片 %dx%d", config.Width, config.Height),
-		Width:           config.Width,
-		Height:          config.Height,
+		Summary:         fmt.Sprintf("剪贴板图片 %dx%d", width, height),
+		Width:           width,
+		Height:          height,
 		Bytes:           int64(len(pngBytes)),
-		Tags:            []string{"剪贴板", "图片", fmt.Sprintf("%dx%d", config.Width, config.Height)},
+		Tags:            []string{"剪贴板", "图片", fmt.Sprintf("%dx%d", width, height)},
 	}, nil
 }
 
@@ -1367,6 +1488,15 @@ func (s *Service) removeEntryFile(entry Entry) {
 
 func writeThumbnail(pngBytes []byte, thumbnailDir string, filename string) (string, int, int, int64) {
 	thumbnail, width, height, ok, err := imagepreview.CreatePNGThumbnail(pngBytes, imagepreview.DefaultMaxSide)
+	return persistThumbnailBytes(thumbnail, width, height, ok, err, thumbnailDir, filename)
+}
+
+func writeThumbnailFromImage(img image.Image, thumbnailDir string, filename string) (string, int, int, int64) {
+	thumbnail, width, height, ok, err := imagepreview.CreatePNGThumbnailFromImage(img, imagepreview.DefaultMaxSide)
+	return persistThumbnailBytes(thumbnail, width, height, ok, err, thumbnailDir, filename)
+}
+
+func persistThumbnailBytes(thumbnail []byte, width int, height int, ok bool, err error, thumbnailDir string, filename string) (string, int, int, int64) {
 	if err != nil || !ok || thumbnailDir == "" {
 		return "", 0, 0, 0
 	}

@@ -23,6 +23,13 @@ export function Attach(app) {
 }
 
 /**
+ * @returns {$CancellablePromise<void>}
+ */
+export function Close() {
+    return $Call.ByID(1641212171);
+}
+
+/**
  * @param {string} id
  * @returns {$CancellablePromise<$models.OpenResult>}
  */
@@ -115,6 +122,13 @@ export function SetPinnedPosition(id, x, y) {
     return $Call.ByID(674424698, id, x, y).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType0($result);
     }));
+}
+
+/**
+ * @returns {$CancellablePromise<void>}
+ */
+export function Stop() {
+    return $Call.ByID(1783554381);
 }
 
 // Private type creation functions

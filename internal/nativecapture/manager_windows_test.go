@@ -56,6 +56,33 @@ type unexpectedPinActionResponse struct {
 }
 
 func (e *unexpectedPinActionResponse) Error() string {
-	raw, _ := json.Marshal(e.response)
-	return "unexpected pin action response: " + string(raw)
+	if raw, err := json.Marshal(e.response); err == nil {
+		return "unexpected pin action response: " + string(raw)
+	}
+	return "unexpected pin action response"
+}
+
+func TestDefaultCaptureTimeoutSupportsExtendedAnnotations(t *testing.T) {
+	if defaultCaptureTimeout < 10*time.Minute {
+		t.Fatalf("expected generous capture timeout for interactive annotations, got %s", defaultCaptureTimeout)
+	}
+}
+
+func TestCreateKillOnCloseJobObjectSucceeds(t *testing.T) {
+	job, err := createKillOnCloseJobObject()
+	if err != nil {
+		t.Fatalf("createKillOnCloseJobObject failed: %v", err)
+	}
+	if job == 0 {
+		t.Fatal("expected valid Windows Job Object handle")
+	}
+	// CloseHandle via Stop
+	manager := NewManager(Options{ExePath: "unused"})
+	manager.job = job
+	if err := manager.Stop(); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+	if manager.job != 0 {
+		t.Fatal("expected Stop to clear and close job handle")
+	}
 }

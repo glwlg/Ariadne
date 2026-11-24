@@ -70,12 +70,14 @@ const session = ref<CaptureOverlaySession | null>(null)
 const feedback = ref('')
 const isLoading = ref(true)
 const isBusy = ref(false)
+const isClosing = ref(false)
 const dragStart = ref<{ x: number; y: number } | null>(null)
 const dragEnd = ref<{ x: number; y: number } | null>(null)
 const selectionPointerId = ref<number | null>(null)
 const resizePointerId = ref<number | null>(null)
 const resizeAnchor = ref<ResizeAnchor | null>(null)
 const resizeOrigin = ref<{ left: number; top: number; width: number; height: number } | null>(null)
+let resizeAnnotationSnapshot: CaptureOverlayAnnotationOperation[] = []
 const editTool = ref<AnnotationTool>('rect')
 const editMode = ref(false)
 const annotationColor = ref('#dc2626')
@@ -96,6 +98,7 @@ const toolbarPosition = ref<ToolbarPosition | null>(null)
 const toolbarDragPointerId = ref<number | null>(null)
 const toolbarDragOrigin = ref<{ point: Point; position: ToolbarPosition } | null>(null)
 const colorFormat = ref<'rgb' | 'hex'>('rgb')
+let shiftPressedSolo = false
 let sampleCanvas: HTMLCanvasElement | null = null
 let sampleContext: CanvasRenderingContext2D | null = null
 let sampleImageSrc = ''
@@ -144,7 +147,7 @@ const toolbarStyle = computed(() => {
   const rect = selection.value
   if (!rect) return {}
   const viewport = overlayViewport()
-  const toolbarWidth = Math.min(960, Math.max(1, viewport.width - 24))
+  const toolbarWidth = Math.min(740, Math.max(1, viewport.width - 24))
   const position = toolbarPosition.value
     ? clampToolbarPosition(toolbarPosition.value, viewport, toolbarWidth)
     : defaultToolbarPosition(rect, viewport, toolbarWidth)
@@ -161,6 +164,18 @@ const annotationPreviewOperations = computed(() => {
   if (draftAnnotation.value) operations.push(draftAnnotation.value)
   return operations
 })
+
+const arrowMarkerColors = computed(() => {
+  const colors = new Set<string>(colorPalette)
+  for (const operation of annotationPreviewOperations.value) {
+    if (operation.kind === 'arrow') {
+      colors.add(operationColor(operation))
+    }
+  }
+  return Array.from(colors)
+})
+
+const isTextEditorDarkSurface = computed(() => isHighLuminanceColor(annotationColor.value))
 
 const mosaicPreviewItems = computed(() => annotationPreviewOperations.value
   .map((operation, index) => ({ operation, index }))
@@ -218,6 +233,7 @@ onMounted(async () => {
   document.documentElement.classList.add('capture-overlay-document')
   void prepareWindow()
   window.addEventListener('keydown', handleKeyDown)
+  window.addEventListener('keyup', handleKeyUp)
   const nextSession = await getCaptureOverlaySession(props.sessionId)
   if (overlayUnmounted) return
   if (nextSession) {
@@ -236,6 +252,7 @@ onBeforeUnmount(() => {
   overlayUnmounted = true
   document.documentElement.classList.remove('capture-overlay-document')
   window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('keyup', handleKeyUp)
   clearRedactionPrepareTimer()
   sampleCanvas = null
   sampleContext = null
@@ -397,7 +414,7 @@ function beginToolbarDrag(event: PointerEvent) {
   const bounds = toolbar?.getBoundingClientRect()
   const surface = overlaySurfaceRect()
   const viewport = overlayViewport()
-  const width = bounds?.width ?? Math.min(960, Math.max(1, viewport.width - 24))
+  const width = bounds?.width ?? Math.min(740, Math.max(1, viewport.width - 24))
   const position = toolbarPosition.value ?? {
     left: (bounds?.left ?? surface.left) - surface.left,
     top: (bounds?.top ?? surface.top) - surface.top,
@@ -417,7 +434,7 @@ function moveToolbarDrag(event: PointerEvent) {
   const toolbar = document.querySelector<HTMLElement>('.capture-overlay-toolbar')
   const bounds = toolbar?.getBoundingClientRect()
   const viewport = overlayViewport()
-  const width = bounds?.width ?? Math.min(960, Math.max(1, viewport.width - 24))
+  const width = bounds?.width ?? Math.min(740, Math.max(1, viewport.width - 24))
   const height = bounds?.height ?? 78
   toolbarPosition.value = clampToolbarPosition(
     { left: origin.position.left + point.x - origin.point.x, top: origin.position.top + point.y - origin.point.y },
@@ -449,13 +466,9 @@ function beginResizeSelection(anchor: ResizeAnchor, event: PointerEvent) {
   event.preventDefault()
   toolbarPosition.value = null
   if (textEditor.value) commitTextAnnotation()
-  if (annotationOperations.value.length) {
-    annotationOperations.value = []
-    redoAnnotationOperations.value = []
-    selectedAnnotationIndex.value = null
-    hoveredAnnotationIndex.value = null
-    showFeedback('调整选区后已清空标注')
-  }
+  resizeAnnotationSnapshot = annotationOperations.value.map(cloneAnnotationOperation)
+  selectedAnnotationIndex.value = null
+  hoveredAnnotationIndex.value = null
   resizeAnchor.value = anchor
   resizePointerId.value = event.pointerId
   resizeOrigin.value = { ...selection.value }
@@ -479,6 +492,11 @@ function moveResizeSelection(event: PointerEvent) {
   if (resizeAnchor.value.includes('t')) top = point.y
   if (resizeAnchor.value.includes('b')) bottom = point.y
   applySelectionRect(left, top, right, bottom)
+  if (resizeAnnotationSnapshot.length && selection.value) {
+    const deltaX = origin.left - selection.value.left
+    const deltaY = origin.top - selection.value.top
+    annotationOperations.value = resizeAnnotationSnapshot.map((operation) => translateAnnotationOperation(operation, deltaX, deltaY))
+  }
 }
 
 function endResizeSelection(event: PointerEvent) {
@@ -491,6 +509,7 @@ function endResizeSelection(event: PointerEvent) {
   resizePointerId.value = null
   resizeAnchor.value = null
   resizeOrigin.value = null
+  resizeAnnotationSnapshot = []
   if (hasSelection.value) {
     scheduleSelectionRedactionPrepare()
   }
@@ -501,6 +520,7 @@ function cancelResizeSelection(event: PointerEvent) {
   resizePointerId.value = null
   resizeAnchor.value = null
   resizeOrigin.value = null
+  resizeAnnotationSnapshot = []
 }
 
 function handleContextMenu(event: MouseEvent) {
@@ -513,6 +533,7 @@ function handleContextMenu(event: MouseEvent) {
 }
 
 async function runSelectionAction(action: CaptureOverlaySelectionRequest['action'], savedPath = '') {
+  if (isBusy.value || isClosing.value) return
   if (textEditor.value) commitTextAnnotation()
   const current = session.value
   const rect = selection.value
@@ -521,6 +542,7 @@ async function runSelectionAction(action: CaptureOverlaySelectionRequest['action
     return
   }
   isBusy.value = true
+  let scheduledClose = false
   try {
     const operations = annotationOperations.value.map(cloneAnnotationOperation)
     const visualRect = mapSelectionToVisualRect(rect)
@@ -544,15 +566,18 @@ async function runSelectionAction(action: CaptureOverlaySelectionRequest['action
       operations: sessionOperations,
       renderedImage: await renderAnnotatedSelectionPNG(sourceRect, sessionOperations),
     })
-    await handleResult(result, action)
+    scheduledClose = await handleResult(result, action)
   } catch (error) {
     showFeedback(error instanceof Error ? error.message : '截图失败')
   } finally {
-    isBusy.value = false
+    if (!scheduledClose) {
+      isBusy.value = false
+    }
   }
 }
 
 async function runSaveAsAction() {
+  if (isBusy.value || isClosing.value) return
   const rect = selection.value
   if (!rect || rect.width < 2 || rect.height < 2) {
     showFeedback('先拖拽选择区域')
@@ -615,7 +640,7 @@ async function prepareSelectionRedaction(token: number) {
   }
 }
 
-async function handleResult(result: CaptureOverlayResult, action: CaptureOverlaySelectionRequest['action']) {
+async function handleResult(result: CaptureOverlayResult, action: CaptureOverlaySelectionRequest['action']): Promise<boolean> {
   if (action === 'qr' && result.qr?.ok && result.qr.text) {
     try {
       await WailsClipboard.SetText(result.qr.text)
@@ -623,16 +648,21 @@ async function handleResult(result: CaptureOverlayResult, action: CaptureOverlay
     } catch {
       showFeedback(`已识别二维码: ${clip(result.qr.text, 38)}`)
     }
+    isClosing.value = true
     window.setTimeout(() => void closeWindow(false), 500)
-    return
+    return true
   }
   showFeedback(result.savedPath ? `${result.message}: ${clip(result.savedPath, 44)}` : result.message || (result.ok ? '已保存截图' : '截图失败'))
   if (result.ok) {
+    isClosing.value = true
     window.setTimeout(() => void closeWindow(false), 450)
+    return true
   }
+  return false
 }
 
 async function closeWindow(cancel = true) {
+  isClosing.value = true
   if (cancel && session.value?.id) {
     await cancelCaptureOverlay(session.value.id)
   }
@@ -654,6 +684,7 @@ function resetSelection() {
   resizePointerId.value = null
   resizeAnchor.value = null
   resizeOrigin.value = null
+  resizeAnnotationSnapshot = []
   editMode.value = false
   annotationStart.value = null
   annotationPointerId.value = null
@@ -668,7 +699,33 @@ function resetSelection() {
   feedback.value = ''
 }
 
+function handleTextEditorEnter(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  event.stopPropagation()
+  commitTextAnnotation()
+}
+
+function handleKeyUp(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Shift' && shiftPressedSolo) {
+    shiftPressedSolo = false
+    if (!textEditor.value && !isClosing.value) {
+      colorFormat.value = colorFormat.value === 'rgb' ? 'hex' : 'rgb'
+      showFeedback(`取色格式: ${colorFormat.value.toUpperCase()}`)
+    }
+  }
+}
+
 function handleKeyDown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Shift') {
+    if (!event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      shiftPressedSolo = true
+    }
+    return
+  }
+  shiftPressedSolo = false
   if (textEditor.value) {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -676,54 +733,60 @@ function handleKeyDown(event: KeyboardEvent) {
     }
     return
   }
+  if (isBusy.value || isClosing.value) {
+    if (event.key === 'Escape' && !isClosing.value) {
+      void closeWindow(true)
+    }
+    return
+  }
+  const hasPrimaryModifier = event.ctrlKey || event.metaKey
+  const hasAnyModifier = hasPrimaryModifier || event.altKey
+  const lowerKey = event.key.toLowerCase()
   if (event.key === 'Escape') {
     void closeWindow(true)
-  } else if (event.key === 'Shift' && !event.repeat) {
-    colorFormat.value = colorFormat.value === 'rgb' ? 'hex' : 'rgb'
-    showFeedback(`取色格式: ${colorFormat.value.toUpperCase()}`)
-  } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'z') {
+  } else if (hasPrimaryModifier && event.shiftKey && lowerKey === 'z') {
     event.preventDefault()
     redoAnnotation()
-  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+  } else if (hasPrimaryModifier && !event.shiftKey && lowerKey === 'z') {
     event.preventDefault()
     undoAnnotation()
-  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+  } else if (hasPrimaryModifier && lowerKey === 'y') {
     event.preventDefault()
     redoAnnotation()
-  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+  } else if (hasPrimaryModifier && lowerKey === 's') {
     event.preventDefault()
     void runSaveAsAction()
-  } else if (event.shiftKey && event.key === 'Enter') {
+  } else if (event.shiftKey && !hasPrimaryModifier && !event.altKey && event.key === 'Enter') {
     event.preventDefault()
     void runSelectionAction('redact_copy')
-  } else if (event.key === 'Enter') {
+  } else if (!hasAnyModifier && !event.shiftKey && event.key === 'Enter') {
     event.preventDefault()
     void runSelectionAction('copy')
-  } else if (event.key.toLowerCase() === 'p') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'p') {
     void runSelectionAction('pin')
-  } else if (event.key.toLowerCase() === 'q') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'q') {
     void runSelectionAction('qr')
-  } else if (event.key.toLowerCase() === 'r') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'r') {
     toggleAnnotationTool('rect')
-  } else if (event.key.toLowerCase() === 'l') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'l') {
     toggleAnnotationTool('line')
-  } else if (event.key.toLowerCase() === 'a') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'a') {
     toggleAnnotationTool('arrow')
-  } else if (event.key.toLowerCase() === 'b') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'b') {
     toggleAnnotationTool('pen')
-  } else if (event.key.toLowerCase() === 'h') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'h') {
     toggleAnnotationTool('highlight')
-  } else if (event.key.toLowerCase() === 'm') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'm') {
     toggleAnnotationTool('mosaic')
-  } else if (event.key.toLowerCase() === 't') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 't') {
     toggleAnnotationTool('text')
-  } else if (event.key.toLowerCase() === 'n') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'n') {
     toggleAnnotationTool('number')
-  } else if (event.key.toLowerCase() === 'e') {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'e') {
     toggleAnnotationTool('eraser')
-  } else if (event.key.toLowerCase() === 'v' && !event.ctrlKey && !event.metaKey) {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'v') {
     activateAnnotationSelect()
-  } else if (event.key.toLowerCase() === 'c' && !event.ctrlKey && !event.metaKey) {
+  } else if (!hasAnyModifier && !event.shiftKey && lowerKey === 'c') {
     event.preventDefault()
     void copyPointerColor()
   } else if ((event.key === 'Backspace' || event.key === 'Delete') && selectedAnnotationIndex.value !== null) {
@@ -1617,6 +1680,22 @@ function operationColor(operation: CaptureOverlayAnnotationOperation) {
   return operation.color || annotationColor.value
 }
 
+function arrowMarkerId(color: string) {
+  const normalized = color.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'default'
+  return `capture-arrow-head-${normalized}`
+}
+
+function isHighLuminanceColor(color: string) {
+  const match = /^#([0-9a-f]{6})$/i.exec(color.trim())
+  if (!match) return false
+  const hex = match[1]!
+  const r = Number.parseInt(hex.slice(0, 2), 16) / 255
+  const g = Number.parseInt(hex.slice(2, 4), 16) / 255
+  const b = Number.parseInt(hex.slice(4, 6), 16) / 255
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  return luminance > 0.65
+}
+
 function operationStrokeWidth(operation: CaptureOverlayAnnotationOperation) {
   return Math.max(1, Number(operation.strokeWidth ?? annotationThickness.value))
 }
@@ -1900,7 +1979,20 @@ function clampNumber(value: number, min: number, max: number) {
       >
         <defs>
           <marker id="capture-arrow-head" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-            <path d="M 0 0 L 8 4 L 0 8 z" fill="#dc2626" />
+            <path d="M 0 0 L 8 4 L 0 8 z" fill="context-stroke" />
+          </marker>
+          <marker
+            v-for="color in arrowMarkerColors"
+            :key="color"
+            :id="arrowMarkerId(color)"
+            markerWidth="8"
+            markerHeight="8"
+            refX="7"
+            refY="4"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
+            <path d="M 0 0 L 8 4 L 0 8 z" :fill="color" />
           </marker>
         </defs>
         <template v-for="(operation, index) in annotationPreviewOperations" :key="`${operation.kind}-${index}`">
@@ -1933,6 +2025,8 @@ function clampNumber(value: number, min: number, max: number) {
             :y2="operation.endY"
             :stroke="operationColor(operation)"
             :stroke-width="operationStrokeWidth(operation)"
+            :marker-end="`url(#${arrowMarkerId(operationColor(operation))})`"
+            :style="{ markerEnd: `url(#${arrowMarkerId(operationColor(operation))})` }"
           />
           <polyline
             v-else-if="operation.kind === 'pen'"
@@ -2050,10 +2144,11 @@ function clampNumber(value: number, min: number, max: number) {
         ref="textInputRef"
         v-model="textEditor.text"
         class="capture-text-editor"
+        :class="{ 'is-dark-surface': isTextEditorDarkSurface }"
         :style="textEditorStyle(textEditor)"
         rows="2"
         @pointerdown.stop
-        @keydown.enter.exact.prevent.stop="commitTextAnnotation"
+        @keydown.enter.exact="handleTextEditorEnter"
         @keydown.escape.prevent.stop="textEditor = null"
         @blur="commitTextAnnotation"
       />

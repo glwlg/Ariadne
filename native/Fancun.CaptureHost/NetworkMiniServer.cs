@@ -21,7 +21,7 @@ internal sealed class NetworkMiniServer(string pipeName, Dispatcher dispatcher) 
     {
         _stop.Cancel();
         try { _listenTask?.GetAwaiter().GetResult(); }
-        catch (OperationCanceledException) { }
+        catch (Exception) { }
         _stop.Dispose();
     }
 

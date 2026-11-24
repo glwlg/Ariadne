@@ -1,4 +1,5 @@
 import type { ReleaseBackupRequest, ReleaseBackupResult, ReleaseBackupStatus, ReleaseRestoreRequest, ReleaseRestoreResult } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 async function tryReleaseBinding() {
   try {
@@ -14,9 +15,15 @@ export async function getReleaseBackupStatus(): Promise<ReleaseBackupStatus> {
   if (binding) {
     try {
       return await binding.Status()
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取回滚备份状态失败'))
+      }
       return fallbackReleaseBackupStatus()
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('回滚备份服务绑定不可用')
   }
   return fallbackReleaseBackupStatus()
 }
@@ -27,8 +34,11 @@ export async function createRollbackCheckpoint(request: ReleaseBackupRequest = {
     try {
       return await binding.CreateRollbackCheckpoint(request)
     } catch (error) {
-      return fallbackReleaseBackupResult(error instanceof Error ? error.message : '回滚检查点服务调用失败')
+      return fallbackReleaseBackupResult(formatRpcError(error, '回滚检查点服务调用失败'))
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('回滚备份服务绑定不可用')
   }
   return fallbackReleaseBackupResult('开发态 fallback 未连接 Go release 服务，未创建检查点。')
 }
@@ -39,8 +49,11 @@ export async function restoreRollbackCheckpoint(request: ReleaseRestoreRequest):
     try {
       return await binding.RestoreRollbackCheckpoint(request)
     } catch (error) {
-      return fallbackReleaseRestoreResult(error instanceof Error ? error.message : '回滚恢复服务调用失败')
+      return fallbackReleaseRestoreResult(formatRpcError(error, '回滚恢复服务调用失败'))
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('回滚备份服务绑定不可用')
   }
   return fallbackReleaseRestoreResult('开发态 fallback 未连接 Go release 服务，未恢复检查点。')
 }

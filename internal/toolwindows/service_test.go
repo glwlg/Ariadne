@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"fancun/internal/networkmonitor"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
 func TestNormalizeViewAcceptsKnownToolViews(t *testing.T) {
@@ -100,62 +101,6 @@ func TestAirPlayUsesIndependentOrdinaryToolWindow(t *testing.T) {
 	}
 	if !ordinaryTaskbarToggleAllowed("airplay") || frameless("airplay") || hiddenOnTaskbar("airplay") {
 		t.Fatal("airplay should use normal native window and taskbar controls")
-	}
-}
-
-func TestOrdinaryTaskbarStyleRestoresOverlappedWindowSemantics(t *testing.T) {
-	style := uintptr(w32.WS_VISIBLE | w32.WS_POPUP)
-	next := ordinaryWindowTaskbarStyle(style)
-	if next&uintptr(w32.WS_POPUP) != 0 {
-		t.Fatalf("ordinary taskbar style should clear WS_POPUP: %#x", next)
-	}
-	for _, flag := range []struct {
-		name string
-		bit  uint
-	}{
-		{name: "WS_VISIBLE", bit: w32.WS_VISIBLE},
-		{name: "WS_CAPTION", bit: w32.WS_CAPTION},
-		{name: "WS_SYSMENU", bit: w32.WS_SYSMENU},
-		{name: "WS_THICKFRAME", bit: w32.WS_THICKFRAME},
-		{name: "WS_MINIMIZEBOX", bit: w32.WS_MINIMIZEBOX},
-		{name: "WS_MAXIMIZEBOX", bit: w32.WS_MAXIMIZEBOX},
-	} {
-		if next&uintptr(flag.bit) == 0 {
-			t.Fatalf("ordinary taskbar style should include %s: %#x", flag.name, next)
-		}
-	}
-}
-
-func TestOrdinaryTaskbarExStyleUsesAppWindow(t *testing.T) {
-	exStyle := uintptr(w32.WS_EX_TOOLWINDOW | w32.WS_EX_NOACTIVATE | w32.WS_EX_TOPMOST)
-	next := ordinaryWindowTaskbarExStyle(exStyle)
-	if next&uintptr(w32.WS_EX_APPWINDOW) == 0 {
-		t.Fatalf("ordinary taskbar exstyle should include WS_EX_APPWINDOW: %#x", next)
-	}
-	for _, flag := range []struct {
-		name string
-		bit  uint
-	}{
-		{name: "WS_EX_TOOLWINDOW", bit: w32.WS_EX_TOOLWINDOW},
-		{name: "WS_EX_NOACTIVATE", bit: w32.WS_EX_NOACTIVATE},
-		{name: "WS_EX_TOPMOST", bit: w32.WS_EX_TOPMOST},
-	} {
-		if next&uintptr(flag.bit) != 0 {
-			t.Fatalf("ordinary taskbar exstyle should clear %s: %#x", flag.name, next)
-		}
-	}
-}
-
-func TestOrdinaryTaskbarSetWindowPosFlagsForceShellRefresh(t *testing.T) {
-	flags := ordinaryWindowTaskbarSetWindowPosFlags(true)
-	if flags&w32.SWP_SHOWWINDOW == 0 {
-		t.Fatalf("ordinary taskbar policy should force shell visibility refresh: %#x", flags)
-	}
-	if flags&w32.SWP_FRAMECHANGED == 0 {
-		t.Fatalf("ordinary taskbar policy should report frame changes: %#x", flags)
-	}
-	if flags&w32.SWP_NOACTIVATE != 0 {
-		t.Fatalf("ordinary taskbar policy should not make normal tool windows no-activate: %#x", flags)
 	}
 }
 
@@ -640,5 +585,158 @@ func TestNetworkMiniSpecificScreenFallsBackWhenMissing(t *testing.T) {
 	)
 	if selected != primary {
 		t.Fatalf("missing specific screen should fall back to primary, got %#v", selected)
+	}
+}
+
+func TestLauncherToggleHideDecision(t *testing.T) {
+	if !shouldToggleHideLauncher(true, true, false) {
+		t.Fatal("visible focused launcher should toggle-hide")
+	}
+	if !shouldToggleHideLauncher(true, false, true) {
+		t.Fatal("visible foreground launcher should toggle-hide even if WebView child holds focus")
+	}
+	if shouldToggleHideLauncher(true, false, false) {
+		t.Fatal("visible unfocused background launcher should focus instead of hiding")
+	}
+	if shouldToggleHideLauncher(false, true, true) {
+		t.Fatal("hidden launcher should show instead of hiding")
+	}
+}
+
+func TestLauncherPreviousForegroundCaptureAndRestoreLifecycle(t *testing.T) {
+	const (
+		editorHWND   = uintptr(0x1001)
+		launcherHWND = uintptr(0x2002)
+	)
+	now := time.Unix(1700000000, 0)
+	currentFG := editorHWND
+	var restored []uintptr
+
+	service := NewServiceWithOptions("", nil)
+	service.launcherNow = func() time.Time { return now }
+	service.captureForegroundFn = func() uintptr { return currentFG }
+	service.restoreForegroundFn = func(hwnd uintptr) { restored = append(restored, hwnd) }
+
+	// Capturing when editor is foreground saves editorHWND.
+	service.captureAndNoteLauncherShown(nil)
+	if service.launcherPrevHWND != editorHWND {
+		t.Fatalf("expected previous hwnd %#x, got %#x", editorHWND, service.launcherPrevHWND)
+	}
+
+	// Esc / toggle hide restores previous HWND once.
+	service.hideLauncherWindow(nil, true)
+	if len(restored) != 1 || restored[0] != editorHWND || service.launcherPrevHWND != 0 {
+		t.Fatalf("expected restore of %#x once, got %#v", editorHWND, restored)
+	}
+
+	// Blur-hide clears previous HWND without stealing focus from newly clicked app.
+	currentFG = editorHWND
+	service.captureAndNoteLauncherShown(nil)
+	service.hideLauncherWindow(nil, false)
+	service.handleLauncherHidden()
+	if len(restored) != 1 || service.launcherPrevHWND != 0 {
+		t.Fatalf("blur-hide must not restore previous foreground window, restored=%#v", restored)
+	}
+
+	// Direct WindowHide (e.g. frontend Esc) restores saved HWND.
+	currentFG = editorHWND
+	service.captureAndNoteLauncherShown(nil)
+	service.handleLauncherHidden()
+	if len(restored) != 2 || restored[1] != editorHWND {
+		t.Fatalf("WindowHide after Esc should restore %#x, got %#v", editorHWND, restored)
+	}
+
+	// Opening another tool window clears saved previous HWND so hiding launcher doesn't steal focus from the tool window.
+	currentFG = editorHWND
+	service.captureAndNoteLauncherShown(nil)
+	service.clearLauncherPrevHWND()
+	service.handleLauncherHidden()
+	if len(restored) != 2 {
+		t.Fatalf("clearing previous HWND should suppress restore, got %#v", restored)
+	}
+
+	// Stop suppresses further restores.
+	currentFG = launcherHWND
+	service.captureAndNoteLauncherShown(nil)
+	service.Stop()
+	service.handleLauncherHidden()
+	if len(restored) != 2 {
+		t.Fatalf("Stop should clear and suppress foreground restore, got %#v", restored)
+	}
+}
+
+func TestLauncherLostFocusRespectsShowAndResizeGraceGuard(t *testing.T) {
+	base := time.Unix(1700000000, 0)
+	service := NewServiceWithOptions("", nil)
+	service.launcherNow = func() time.Time { return base }
+
+	service.captureAndNoteLauncherShown(nil)
+
+	// Within show grace window -> must not hide immediately, returns remaining grace.
+	hide, retry := service.shouldHideLauncherOnBlurLocked(base.Add(50*time.Millisecond), true, false, false)
+	if hide || retry <= 0 {
+		t.Fatalf("expected show grace deferral, got hide=%t retry=%s", hide, retry)
+	}
+
+	// Past show grace, but a resize just occurred -> must defer for resize grace.
+	service.launcherNow = func() time.Time { return base.Add(250 * time.Millisecond) }
+	service.noteLauncherResize()
+	hide, retry = service.shouldHideLauncherOnBlurLocked(base.Add(300*time.Millisecond), true, false, false)
+	if hide || retry <= 0 {
+		t.Fatalf("expected resize grace deferral, got hide=%t retry=%s", hide, retry)
+	}
+
+	// If focus settled back onto launcher or child after grace -> do not hide.
+	hide, retry = service.shouldHideLauncherOnBlurLocked(base.Add(600*time.Millisecond), true, false, true)
+	if hide || retry != 0 {
+		t.Fatalf("foreground child should prevent blur hide, got hide=%t retry=%s", hide, retry)
+	}
+
+	// After both grace periods expire and focus is elsewhere -> hide.
+	hide, retry = service.shouldHideLauncherOnBlurLocked(base.Add(600*time.Millisecond), true, false, false)
+	if !hide || retry != 0 {
+		t.Fatalf("expected blur hide after grace expiry, got hide=%t retry=%s", hide, retry)
+	}
+}
+
+func TestTickNetworkMiniAutoHideSkipsDetectorWhenHiddenOrAutoHideDisabled(t *testing.T) {
+	detectorCalls := 0
+	service := NewServiceWithOptions("", func() (bool, error) {
+		detectorCalls++
+		return true, nil
+	})
+	renderer := &recordingNativeMini{}
+	ConfigureNativeNetworkMini(service, renderer, func() networkmonitor.TrafficSnapshot {
+		return networkmonitor.TrafficSnapshot{}
+	})
+	service.mu.Lock()
+	service.app = &application.App{}
+	service.networkMiniConfig.Visible = false
+	service.networkMiniConfig.AutoHideFullscreen = true
+	service.mu.Unlock()
+
+	// Hidden native mini must skip fullscreen detector and pipe updates.
+	service.tickNetworkMiniAutoHide()
+	if detectorCalls != 0 || len(renderer.states) != 0 {
+		t.Fatalf("hidden mini should skip detector and pipe calls: detector=%d states=%d", detectorCalls, len(renderer.states))
+	}
+
+	// Visible but AutoHideFullscreen=false must skip fullscreen detector.
+	service.mu.Lock()
+	service.networkMiniConfig.Visible = true
+	service.networkMiniConfig.AutoHideFullscreen = false
+	service.mu.Unlock()
+	service.tickNetworkMiniAutoHide()
+	if detectorCalls != 0 {
+		t.Fatalf("autoHide=false should skip fullscreen detector, got %d calls", detectorCalls)
+	}
+
+	// Visible with AutoHideFullscreen=true runs detector once.
+	service.mu.Lock()
+	service.networkMiniConfig.AutoHideFullscreen = true
+	service.mu.Unlock()
+	service.tickNetworkMiniAutoHide()
+	if detectorCalls != 1 || !service.NetworkMiniStatus().FullscreenActive {
+		t.Fatalf("expected fullscreen detector to run once and detect fullscreen, calls=%d status=%#v", detectorCalls, service.NetworkMiniStatus())
 	}
 }

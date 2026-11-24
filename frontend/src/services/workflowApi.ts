@@ -6,6 +6,7 @@ import type {
   WorkflowRunResult,
   WorkflowStatus,
 } from '../types/fancun'
+import { isDesktopRuntime } from './runtimeEnv'
 
 let fallbackWorkflows: WorkflowDefinition[] = [
   {
@@ -44,6 +45,9 @@ export async function getWorkflowStatus(): Promise<WorkflowStatus> {
   if (binding) {
     return normalizeStatus(await binding.Status())
   }
+  if (isDesktopRuntime()) {
+    throw new Error('工作流服务绑定不可用')
+  }
   return fallbackStatus
 }
 
@@ -52,6 +56,9 @@ export async function listWorkflows(): Promise<WorkflowDefinition[]> {
   if (binding) {
     return normalizeWorkflows(await binding.List())
   }
+  if (isDesktopRuntime()) {
+    throw new Error('工作流服务绑定不可用')
+  }
   return fallbackWorkflows
 }
 
@@ -59,6 +66,9 @@ export async function newWorkflow(): Promise<WorkflowStatus> {
   const binding = await tryWorkflowBinding()
   if (binding) {
     return normalizeStatus(await binding.NewWorkflow())
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('工作流服务绑定不可用')
   }
   const id = uniqueFallbackId()
   fallbackWorkflows = [...fallbackWorkflows, {
@@ -76,6 +86,9 @@ export async function upsertWorkflow(workflow: WorkflowDefinition): Promise<Work
   if (binding) {
     return normalizeStatus(await binding.Upsert(workflow))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('工作流服务绑定不可用')
+  }
   const normalized = normalizeWorkflow(workflow)
   fallbackWorkflows = [
     ...fallbackWorkflows.filter((item) => item.id !== normalized.id),
@@ -90,6 +103,9 @@ export async function removeWorkflow(id: string): Promise<WorkflowStatus> {
   if (binding) {
     return normalizeStatus(await binding.Remove(id))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('工作流服务绑定不可用')
+  }
   fallbackWorkflows = fallbackWorkflows.filter((item) => item.id !== id)
   fallbackStatus = { ...fallbackStatus, count: fallbackWorkflows.length, workflows: fallbackWorkflows }
   return fallbackStatus
@@ -99,6 +115,9 @@ export async function exportWorkflows(): Promise<WorkflowExportResult> {
   const binding = await tryWorkflowBinding()
   if (binding) {
     return normalizeExportResult(await binding.ExportData())
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('工作流服务绑定不可用')
   }
   const json = JSON.stringify({ version: 1, exportedBy: 'Fancun fallback', exportedAt: Math.floor(Date.now() / 1000), workflows: fallbackWorkflows }, null, 2)
   return {
@@ -115,6 +134,9 @@ export async function importWorkflows(raw: string): Promise<WorkflowImportResult
   const binding = await tryWorkflowBinding()
   if (binding) {
     return normalizeImportResult(await binding.ImportData(raw))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('工作流服务绑定不可用')
   }
   try {
     const parsed = JSON.parse(raw) as { workflows?: WorkflowDefinition[] } | WorkflowDefinition[]
@@ -139,6 +161,9 @@ export async function runWorkflow(request: WorkflowRunRequest): Promise<Workflow
   const binding = await tryWorkflowBinding()
   if (binding) {
     return normalizeRunResult(await binding.Run(request))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('工作流服务绑定不可用')
   }
   const workflow = fallbackWorkflows.find((item) => item.id === request.workflowId)
   if (!workflow) {

@@ -99,7 +99,7 @@ func (b *usnIndexBuilder) CachedIndex(ctx context.Context) (IndexBuildResult, er
 	}
 	var lastErr error
 	for _, path := range b.readPathSnapshot() {
-		index, err := openLineFileIndex(path)
+		index, err := openLineFileIndexContext(ctx, path)
 		if err == nil {
 			return IndexBuildResult{
 				Index:        index,
@@ -107,6 +107,9 @@ func (b *usnIndexBuilder) CachedIndex(ctx context.Context) (IndexBuildResult, er
 				Volumes:      index.Volumes(),
 				Elevated:     isProcessElevated(),
 			}, nil
+		}
+		if ctx.Err() != nil {
+			return IndexBuildResult{}, ctx.Err()
 		}
 		lastErr = err
 	}

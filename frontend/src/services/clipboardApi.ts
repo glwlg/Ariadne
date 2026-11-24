@@ -1,4 +1,6 @@
+import { Events } from '@wailsio/runtime'
 import type { ActionResult, CaptureHistoryStatus, ClipboardHistoryEntry, ClipboardHistoryStatus, QRScanResult } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 let fallbackEntries: ClipboardHistoryEntry[] = []
 
@@ -27,14 +29,33 @@ async function tryClipboardBinding() {
   }
 }
 
+export function onClipboardUpdated(listener: () => void): () => void {
+  if (typeof Events?.On !== 'function') {
+    return () => {}
+  }
+  try {
+    return Events.On('fancun:clipboard-updated', () => {
+      listener()
+    })
+  } catch {
+    return () => {}
+  }
+}
+
 export async function getClipboardStatus(): Promise<ClipboardHistoryStatus> {
   const binding = await tryClipboardBinding()
   if (binding) {
     try {
       return normalizeStatus(await binding.Status())
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取剪贴板状态失败'))
+      }
       return normalizeStatus(fallbackStatus)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
   }
   return normalizeStatus(fallbackStatus)
 }
@@ -44,9 +65,15 @@ export async function listClipboardEntries(query = '', limit = 200): Promise<Cli
   if (binding) {
     try {
       return normalizeEntries(await binding.List(query, limit))
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取剪贴板列表失败'))
+      }
       return fallbackList(query, limit)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
   }
   return fallbackList(query, limit)
 }
@@ -55,6 +82,9 @@ export async function addClipboardText(text: string, source = 'manual'): Promise
   const binding = await tryClipboardBinding()
   if (binding) {
     return normalizeStatus(await binding.AddText(text, source))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
   }
   const entry = normalizeEntry({
     id: crypto.randomUUID(),
@@ -78,6 +108,9 @@ export async function collectCurrentClipboard(source = 'manual'): Promise<Clipbo
   if (binding) {
     return normalizeStatus(await binding.CollectCurrent(source))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
+  }
   try {
     const text = await navigator.clipboard?.readText?.()
     if (text?.trim()) {
@@ -94,6 +127,9 @@ export async function copyClipboardImage(id: string): Promise<ActionResult> {
   if (binding) {
     return normalizeActionResult(await binding.CopyImage(id))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
+  }
   return { ok: false, message: '开发态不支持复制图片' }
 }
 
@@ -102,9 +138,15 @@ export async function getClipboardImageDataURL(id: string): Promise<string> {
   if (binding) {
     try {
       return String(await binding.ImageDataURL(id))
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取剪贴板图片失败'))
+      }
       return ''
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
   }
   return ''
 }
@@ -117,9 +159,15 @@ export async function getClipboardThumbnailDataURL(id: string): Promise<string> 
         return String(await binding.ThumbnailDataURL(id))
       }
       return String(await binding.ImageDataURL(id))
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取剪贴板缩略图失败'))
+      }
       return ''
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
   }
   return ''
 }
@@ -128,6 +176,9 @@ export async function addClipboardImageToCapture(id: string): Promise<CaptureHis
   const binding = await tryClipboardBinding()
   if (binding) {
     return normalizeCaptureStatus(await binding.AddImageToCapture(id))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
   }
   return {
     path: '%APPDATA%/Fancun/fancun.sqlite',
@@ -151,10 +202,13 @@ export async function decodeClipboardImageQRCode(id: string): Promise<QRScanResu
     } catch (error) {
       return {
         ok: false,
-        error: error instanceof Error ? error.message : '二维码识别失败',
+        error: formatRpcError(error, '二维码识别失败'),
         decodedAt: Math.floor(Date.now() / 1000),
       }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
   }
   return {
     ok: false,
@@ -169,6 +223,9 @@ export async function toggleClipboardPin(id: string): Promise<ClipboardHistorySt
   if (binding) {
     return normalizeStatus(await binding.TogglePin(id))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
+  }
   fallbackEntries = fallbackEntries.map((item) => (item.id === id ? { ...item, pinned: !item.pinned } : item))
   fallbackStatus = normalizeStatus({ ...fallbackStatus, entries: fallbackEntries })
   return fallbackStatus
@@ -179,6 +236,9 @@ export async function deleteClipboardEntry(id: string): Promise<ClipboardHistory
   if (binding) {
     return normalizeStatus(await binding.Delete(id))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
+  }
   fallbackEntries = fallbackEntries.filter((item) => item.id !== id)
   fallbackStatus = normalizeStatus({ ...fallbackStatus, entries: fallbackEntries })
   return fallbackStatus
@@ -188,6 +248,9 @@ export async function clearUnpinnedClipboardEntries(): Promise<ClipboardHistoryS
   const binding = await tryClipboardBinding()
   if (binding) {
     return normalizeStatus(await binding.ClearUnpinned())
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('剪贴板服务绑定不可用')
   }
   fallbackEntries = fallbackEntries.filter((item) => item.pinned)
   fallbackStatus = normalizeStatus({ ...fallbackStatus, entries: fallbackEntries })

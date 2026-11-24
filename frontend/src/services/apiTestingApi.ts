@@ -15,6 +15,7 @@ import type {
   APITestingStatus,
   APIVariable,
 } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 async function tryAPITestingBinding() {
   try {
@@ -82,12 +83,17 @@ export async function getAPITestingStatus(): Promise<APITestingStatus> {
   if (binding) {
     try {
       const status = normalizeStatus(await binding.Status())
-      if (status.collections.length) {
+      if (status.collections.length || isDesktopRuntime()) {
         return status
       }
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取 API 测试状态失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   return clone(fallbackStatus)
 }
@@ -97,9 +103,14 @@ export async function upsertAPICollection(collection: APICollection): Promise<AP
   if (binding) {
     try {
       return normalizeStatus(await binding.UpsertCollection(collection))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '保存 API 集合失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   const next = normalizeCollection(collection)
   const index = fallbackStatus.collections.findIndex((item) => item.id === next.id)
@@ -118,9 +129,14 @@ export async function createAPICollection(): Promise<APITestingStatus> {
   if (binding) {
     try {
       return normalizeStatus(await binding.NewCollection())
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '创建 API 集合失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   const collection = normalizeCollection({
     id: id('col'),
@@ -143,9 +159,14 @@ export async function deleteAPICollection(collectionId: string): Promise<APITest
   if (binding) {
     try {
       return normalizeStatus(await binding.RemoveCollection(collectionId))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '删除 API 集合失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   fallbackStatus.collections = fallbackStatus.collections.filter((collection) => collection.id !== collectionId)
   if (!fallbackStatus.collections.length) {
@@ -163,9 +184,14 @@ export async function setActiveAPICollection(collectionId: string): Promise<APIT
   if (binding) {
     try {
       return normalizeStatus(await binding.SetActiveCollection(collectionId))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '切换 API 集合失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   if (fallbackStatus.collections.some((collection) => collection.id === collectionId)) {
     fallbackStatus.activeCollectionId = collectionId
@@ -178,9 +204,14 @@ export async function runAPIRequest(request: APIRunRequest): Promise<APIRunResul
   if (binding) {
     try {
       return normalizeRunResult(await binding.Run(request))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '发送 API 请求失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   return fallbackRun(request)
 }
@@ -190,9 +221,14 @@ export async function stopAPIRequest(runId: string): Promise<APIRunStopResult> {
   if (binding?.StopRun) {
     try {
       return normalizeRunStopResult(await binding.StopRun(runId))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '停止 API 请求失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   const controller = fallbackRunControllers.get(runId)
   if (!controller) {
@@ -208,9 +244,14 @@ export async function getAPIRunSnapshot(runId: string): Promise<APIRunSnapshot> 
   if (binding?.RunSnapshot) {
     try {
       return normalizeRunSnapshot(await binding.RunSnapshot(runId))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '获取请求快照失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   return fallbackRunSnapshots.get(runId) ?? normalizeRunSnapshot({ ok: false, running: false, message: '请求已结束' })
 }
@@ -220,9 +261,14 @@ export async function importAPIRequests(path: string, collectionId: string): Pro
   if (binding?.ImportRequests) {
     try {
       return normalizeImportResult(await binding.ImportRequests(path, collectionId))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '导入 API 请求失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   return {
     ok: false,
@@ -237,9 +283,14 @@ export async function configureAPIGit(collectionId: string, path: string, remote
   if (binding?.ConfigureGit) {
     try {
       return normalizeGitStatus(await binding.ConfigureGit(collectionId, path, remote))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '配置 Git 同步失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   return { ok: false, message: '当前环境不支持 Git 同步', dirty: false }
 }
@@ -249,9 +300,14 @@ export async function getAPIGitStatus(collectionId: string): Promise<APIGitStatu
   if (binding?.GitStatus) {
     try {
       return normalizeGitStatus(await binding.GitStatus(collectionId))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取 Git 状态失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   return { ok: false, message: '当前环境不支持 Git 同步', dirty: false }
 }
@@ -261,9 +317,14 @@ export async function pullAPIGit(collectionId: string): Promise<APIGitStatus> {
   if (binding?.GitPull) {
     try {
       return normalizeGitStatus(await binding.GitPull(collectionId))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '拉取 Git 更新失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   return { ok: false, message: '当前环境不支持 Git 同步', dirty: false }
 }
@@ -273,9 +334,14 @@ export async function commitPushAPIGit(collectionId: string, message: string): P
   if (binding?.GitCommitPush) {
     try {
       return normalizeGitStatus(await binding.GitCommitPush(collectionId, message))
-    } catch {
-      // Desktop bindings are unavailable in browser-only dev mode.
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '提交推送 Git 失败'))
+      }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('API 测试服务绑定不可用')
   }
   return { ok: false, message: '当前环境不支持 Git 同步', dirty: false }
 }

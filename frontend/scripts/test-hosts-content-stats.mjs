@@ -33,4 +33,15 @@ assert.deepEqual(loaded.calculateHostsContentStats([
   duplicateRules: 1,
 })
 
+assert.equal(loaded.countHostsLines(''), 0)
+assert.equal(loaded.countHostsLines('127.0.0.1 localhost'), 1)
+assert.equal(loaded.countHostsLines('a\nb\n'), 3)
+assert.equal(loaded.countHostsLines('a\r\nb\rc'), 3)
+
+const largeLines = Array.from({ length: 20000 }, (_, i) => `10.0.${(i >> 8) & 255}.${i & 255} host-${i}.local`)
+const largeStats = loaded.calculateHostsContentStats(largeLines.join('\r\n'))
+assert.equal(largeStats.totalLines, 20000)
+assert.equal(largeStats.validRules, 20000)
+assert.equal(largeStats.duplicateRules, 0)
+
 console.log('hostsContentStats tests passed')

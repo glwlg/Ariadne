@@ -1,4 +1,5 @@
 import type { QRScanResult } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 async function tryQRScanBinding() {
   try {
@@ -18,6 +19,9 @@ export async function decodeCaptureQRCode(captureId: string): Promise<QRScanResu
       return failure(error)
     }
   }
+  if (isDesktopRuntime()) {
+    throw new Error('二维码识别服务绑定不可用')
+  }
   return {
     ok: false,
     captureId,
@@ -34,6 +38,9 @@ export async function decodeCurrentScreenQRCode(): Promise<QRScanResult> {
     } catch (error) {
       return failure(error)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('二维码识别服务绑定不可用')
   }
   return {
     ok: false,
@@ -61,7 +68,7 @@ function normalizeResult(result: QRScanResult): QRScanResult {
 function failure(error: unknown): QRScanResult {
   return {
     ok: false,
-    error: error instanceof Error ? error.message : '二维码识别失败',
+    error: formatRpcError(error, '二维码识别失败'),
     decodedAt: Math.floor(Date.now() / 1000),
   }
 }

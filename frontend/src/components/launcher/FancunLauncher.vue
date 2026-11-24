@@ -32,13 +32,21 @@ import { Window } from '@wailsio/runtime'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import FancunButton from '../ui/FancunButton.vue'
 import { applyLauncherWindowGeometry } from '../../lib/launcherGeometry'
+import { getCaptureThumbnailDataURL } from '../../services/captureApi'
+import { getClipboardThumbnailDataURL } from '../../services/clipboardApi'
 import { useLauncherStore } from '../../stores/launcher'
+import { isComposingKeyboardEvent, resolveLauncherKeyAction } from './launcherKeyGuard'
+import { qrTextToDataUrl } from './qrPreview'
 import type { CommandParam, CommandSchema, PreviewAction, SearchResult, SearchResultType } from '../../types/fancun'
 
 const launcher = useLauncherStore()
 const searchInput = ref<HTMLInputElement | null>(null)
+const resultsPaneRef = ref<HTMLElement | null>(null)
 const commandParamDrafts = ref<Record<string, string>>({})
 const failedIconAssets = ref<Set<string>>(new Set())
+const previewImageUrl = ref('')
+const previewImageLoading = ref(false)
+let previewImageSeq = 0
 
 const iconMap = {
   app: AppWindow,
@@ -182,14 +190,6 @@ function applyCurrentCommand() {
   void applyCommandSuggestion(pluginCommandReady.value && draft ? draft : `${command.keyword} `)
 }
 
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-  const tag = target.tagName.toLowerCase()
-  return tag === 'input' || tag === 'textarea' || target.isContentEditable
-}
-
 function sourceTone(type: SearchResult['type']) {
   if (type === 'clipboard') return 'text-[var(--warning)]'
   if (type === 'workflow') return 'text-[var(--success)]'
@@ -197,6 +197,11 @@ function sourceTone(type: SearchResult['type']) {
   return 'text-[var(--muted)]'
 }
 
+function onCommandParamEnter(event: KeyboardEvent) {
+  if (isComposingKeyboardEvent(event)) return
+  event.preventDefault()
+  applyCurrentCommand()
+}
 
 function triggerResultAction(result: SearchResult, action?: PreviewAction) {
   if (!action) return
@@ -205,6 +210,7 @@ function triggerResultAction(result: SearchResult, action?: PreviewAction) {
 }
 
 async function hideLauncher() {
+  launcher.reset()
   try {
     await Window.SetAlwaysOnTop(false)
     await Window.Hide()
@@ -214,21 +220,26 @@ async function hideLauncher() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') {
+  const action = resolveLauncherKeyAction(
+    event,
+    searchInput.value,
+    (selector) => document.querySelector(selector),
+  )
+  if (action === 'ignore') {
+    return
+  }
+  if (action === 'escape') {
     event.preventDefault()
     void hideLauncher()
     return
   }
-  if (event.target !== searchInput.value && isEditableTarget(event.target)) {
-    return
-  }
-  if (event.key === 'ArrowDown') {
+  if (action === 'down') {
     event.preventDefault()
     launcher.moveSelection(1)
-  } else if (event.key === 'ArrowUp') {
+  } else if (action === 'up') {
     event.preventDefault()
     launcher.moveSelection(-1)
-  } else if (event.key === 'Enter') {
+  } else if (action === 'enter') {
     event.preventDefault()
     if (pluginCommand.value) {
       applyCurrentCommand()
@@ -238,9 +249,63 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+function onVisibilityChange() {
+  if (document.hidden) {
+    launcher.reset()
+  }
+}
+
+async function loadSelectedPreviewImage(result: SearchResult | null) {
+  const seq = ++previewImageSeq
+  previewImageUrl.value = ''
+  previewImageLoading.value = false
+  if (!result || result.preview.kind !== 'image') {
+    return
+  }
+  const payload = isRecord(result.payload) ? result.payload : null
+  const qrText = typeof payload?.qrText === 'string' ? payload.qrText : ''
+  if (qrText) {
+    previewImageUrl.value = qrTextToDataUrl(qrText)
+    return
+  }
+  const captureId = typeof payload?.captureId === 'string'
+    ? payload.captureId
+    : payload?.source === 'capture_history' && typeof payload?.sourceId === 'string'
+      ? payload.sourceId
+      : ''
+  const clipboardId = typeof payload?.clipboardId === 'string'
+    ? payload.clipboardId
+    : payload?.source === 'clipboard_history' && typeof payload?.sourceId === 'string'
+      ? payload.sourceId
+      : ''
+  if (!captureId && !clipboardId) {
+    return
+  }
+  previewImageLoading.value = true
+  try {
+    const dataUrl = captureId
+      ? await getCaptureThumbnailDataURL(captureId)
+      : await getClipboardThumbnailDataURL(clipboardId)
+    if (seq !== previewImageSeq || selected.value?.id !== result.id) {
+      return
+    }
+    previewImageUrl.value = dataUrl
+  } catch {
+    if (seq === previewImageSeq) {
+      previewImageUrl.value = ''
+    }
+  } finally {
+    if (seq === previewImageSeq) {
+      previewImageLoading.value = false
+    }
+  }
+}
+
 function focusLauncher(event?: Event) {
   if (event instanceof CustomEvent && event.detail?.reset) {
     launcher.reset()
+  } else {
+    launcher.clearLastAction()
   }
   void resizePalette(launcher.isExpanded)
   searchInput.value?.focus()
@@ -252,11 +317,13 @@ function focusLauncher(event?: Event) {
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('fancun:focus-launcher', focusLauncher)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   focusLauncher()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('fancun:focus-launcher', focusLauncher)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 watch(
@@ -264,19 +331,33 @@ watch(
   (expanded) => {
     void resizePalette(expanded)
   },
-  { immediate: true },
+)
+
+watch(
+  () => launcher.selectedId,
+  () => {
+    void nextTick(() => {
+      const container = resultsPaneRef.value
+      const activeRow = container?.querySelector('.result-row.is-selected')
+      if (activeRow && typeof (activeRow as HTMLElement).scrollIntoView === 'function') {
+        ;(activeRow as HTMLElement).scrollIntoView({ block: 'nearest' })
+      }
+    })
+  },
 )
 
 watch(
   () => selected.value?.id,
   () => {
     commandParamDrafts.value = {}
+    void loadSelectedPreviewImage(selected.value)
   },
+  { immediate: true },
 )
 </script>
 
 <template>
-  <main class="launcher-surface min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+  <main class="launcher-surface min-h-screen text-[var(--foreground)]">
     <div class="app-frame">
       <section
         class="launcher-shell palette-shell"
@@ -297,10 +378,10 @@ watch(
         </div>
 
         <div v-if="launcher.isExpanded" class="palette-results" aria-label="搜索结果">
-          <section class="results-pane">
+          <section ref="resultsPaneRef" class="results-pane">
             <div class="pane-title">
               <span>搜索结果</span>
-              <small class="result-count-pill">{{ launcher.results.length }}</small>
+              <small class="result-count-pill">{{ launcher.isSearching ? '搜索中...' : launcher.results.length }}</small>
             </div>
 
             <div
@@ -309,7 +390,7 @@ watch(
               class="result-row"
               :class="{ 'is-selected': result.id === launcher.selectedId }"
               role="button"
-              tabindex="0"
+              tabindex="-1"
               @click="launcher.select(result.id)"
               @dblclick="triggerResultAction(result, result.actions[0])"
               @keydown.enter.stop.prevent="triggerResultAction(result, result.actions[0])"
@@ -330,7 +411,11 @@ watch(
               </span>
             </div>
 
-            <div v-if="!launcher.results.length" class="empty-state">
+            <div v-if="!launcher.results.length && launcher.isSearching" class="tool-loading-state">
+              <Search :size="20" />
+              <span>正在搜索线索...</span>
+            </div>
+            <div v-else-if="!launcher.results.length" class="empty-state">
               <Database :size="22" />
               <span>没有找到匹配线索</span>
             </div>
@@ -371,8 +456,17 @@ watch(
 
             <section class="preview-details" aria-label="结果属性">
               <div v-if="preview.kind === 'image'" class="preview-image">
-                <Database :size="24" />
-                <span>{{ preview.imageHint || '图片预览' }}</span>
+                <img
+                  v-if="previewImageUrl"
+                  class="max-h-[92px] max-w-full rounded object-contain"
+                  :src="previewImageUrl"
+                  :alt="preview.title || selected.title"
+                />
+                <span v-else-if="previewImageLoading">正在加载预览图...</span>
+                <template v-else>
+                  <Database :size="24" />
+                  <span>{{ preview.imageHint || '图片预览' }}</span>
+                </template>
               </div>
 
               <pre
@@ -404,7 +498,7 @@ watch(
                       :placeholder="param.placeholder"
                       spellcheck="false"
                       @input="updateParam(param, ($event.target as HTMLInputElement).value)"
-                      @keydown.enter.prevent="applyCurrentCommand"
+                      @keydown.enter="onCommandParamEnter"
                     />
                   </label>
                 </div>
@@ -444,6 +538,14 @@ watch(
               </div>
             </section>
           </aside>
+
+          <aside v-else class="preview-pane palette-preview" aria-label="结果预览">
+            <div class="tool-empty-state">
+              <Search :size="22" />
+              <span>{{ launcher.isSearching ? '正在检索结果...' : '输入关键词或选择左侧结果查看预览' }}</span>
+              <small v-if="!launcher.isSearching">支持文件、应用、剪贴板、截图、工作流与内置命令</small>
+            </div>
+          </aside>
         </div>
 
         <footer v-if="launcher.isExpanded || launcher.lastAction" class="status-strip palette-status-strip">
@@ -451,7 +553,14 @@ watch(
             <span>搜索耗时 {{ launcher.elapsedMs }} 毫秒</span>
             <span v-if="selected && !launcher.lastAction" class="status-sep">|</span>
             <span v-if="selected && !launcher.lastAction">按 Enter {{ selected.actions[0]?.label ?? '打开' }}</span>
-            <span v-if="launcher.lastAction" class="inline-feedback" :class="{ 'is-confirmation': launcher.lastAction.requiresConfirmation }">
+            <span
+              v-if="launcher.lastAction"
+              class="inline-feedback"
+              :class="{
+                'is-confirmation': launcher.lastAction.requiresConfirmation,
+                'is-danger': !launcher.lastAction.ok && !launcher.lastAction.requiresConfirmation,
+              }"
+            >
               {{ launcher.lastAction.message }}
             </span>
           </div>

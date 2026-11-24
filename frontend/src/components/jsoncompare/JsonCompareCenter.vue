@@ -144,9 +144,14 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
             <FileText :size="14" />
             示例
           </FancunButton>
-          <FancunButton size="sm" variant="secondary" @click="jsonCompare.clearAll()">
+          <FancunButton
+            size="sm"
+            variant="secondary"
+            :class="{ 'is-armed-danger': jsonCompare.clearArmed }"
+            @click="jsonCompare.confirmClearAll()"
+          >
             <Trash2 :size="14" />
-            清空
+            {{ jsonCompare.clearArmed ? '确认清空' : '清空' }}
           </FancunButton>
           <label class="json-sort-toggle">
             <input
@@ -187,7 +192,7 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
                 <textarea
                   v-model="jsonCompare.leftText"
                   spellcheck="false"
-                  @input="jsonCompare.compare()"
+                  @input="jsonCompare.scheduleCompare()"
                 />
               </label>
               <label
@@ -202,7 +207,7 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
                 <textarea
                   v-model="jsonCompare.rightText"
                   spellcheck="false"
-                  @input="jsonCompare.compare()"
+                  @input="jsonCompare.scheduleCompare()"
                 />
               </label>
             </div>
@@ -210,7 +215,7 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
             <div class="json-formatted-grid">
               <section>
                 <div class="json-section-title">
-                  <span>LEFT NORMALIZED</span>
+                  <span>左侧规范化</span>
                   <FancunButton size="sm" variant="secondary" @click="jsonCompare.formatSide('left')">
                     <RefreshCw :size="13" />
                     格式化左侧
@@ -220,7 +225,7 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
               </section>
               <section>
                 <div class="json-section-title">
-                  <span>RIGHT NORMALIZED</span>
+                  <span>右侧规范化</span>
                   <FancunButton size="sm" variant="secondary" @click="jsonCompare.formatSide('right')">
                     <RefreshCw :size="13" />
                     格式化右侧
@@ -256,14 +261,14 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
 
             <section class="json-report-block">
               <div class="json-section-title">
-                <span>SEMANTIC REPORT</span>
+                <span>语义差异报告</span>
               </div>
               <pre class="json-code-preview is-report">{{ jsonCompare.result?.report || '暂无报告' }}</pre>
             </section>
 
             <section class="json-report-block">
               <div class="json-section-title">
-                <span>UNIFIED DIFF</span>
+                <span>行差异</span>
               </div>
               <pre class="json-code-preview is-diff">{{ jsonCompare.result?.unifiedDiff || '暂无行差异' }}</pre>
             </section>
@@ -283,7 +288,11 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
             <RefreshCw :size="14" />
             {{ jsonCompare.result.performanceNote || '大输入已按性能预算处理' }}
           </span>
-          <span v-if="jsonCompare.feedback" class="inline-feedback">{{ jsonCompare.feedback }}</span>
+          <span
+            v-if="jsonCompare.feedback"
+            class="inline-feedback"
+            :class="{ 'is-danger': jsonCompare.feedbackTone === 'danger' }"
+          >{{ jsonCompare.feedback }}</span>
         </footer>
       </section>
     </div>

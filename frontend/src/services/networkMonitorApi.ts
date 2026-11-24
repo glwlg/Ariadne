@@ -1,4 +1,5 @@
 import type { NetworkAdapterTraffic, NetworkTrafficSnapshot, ProcessNetworkSnapshot, ProcessNetworkTraffic } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 async function tryNetworkMonitorBinding() {
   try {
@@ -15,8 +16,14 @@ export async function getNetworkTrafficSnapshot(): Promise<NetworkTrafficSnapsho
     try {
       return normalizeSnapshot(await binding.Snapshot())
     } catch (error) {
-      return { ...fallbackSnapshot(), lastError: error instanceof Error ? error.message : String(error) }
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取网络监控快照失败'))
+      }
+      return { ...fallbackSnapshot(), lastError: formatRpcError(error, '读取网络监控快照失败') }
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('网络监控服务绑定不可用')
   }
   return fallbackSnapshot()
 }

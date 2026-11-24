@@ -135,17 +135,48 @@ internal static partial class NativeMethods
         return (1, 1);
     }
 
-    public static IReadOnlyList<Int32Rect> MonitorBounds()
+    public static (double ScaleX, double ScaleY) DpiScaleForMonitor(IntPtr monitor, Int32Rect bounds)
     {
-        var bounds = new List<Int32Rect>();
+        if (monitor != IntPtr.Zero)
+        {
+            try
+            {
+                if (GetDpiForMonitor(monitor, 0, out var dpiX, out var dpiY) == 0 && dpiX > 0 && dpiY > 0)
+                {
+                    return (dpiX / 96.0, dpiY / 96.0);
+                }
+            }
+            catch
+            {
+                // Fall through to point/DC fallback.
+            }
+        }
+        return DpiScaleForPoint(bounds.X + Math.Max(0, bounds.Width / 2), bounds.Y + Math.Max(0, bounds.Height / 2));
+    }
+
+    public static IReadOnlyList<(Int32Rect Bounds, double ScaleX, double ScaleY)> MonitorTargets()
+    {
+        var targets = new List<(Int32Rect Bounds, double ScaleX, double ScaleY)>();
         MonitorEnumProc callback = (IntPtr monitor, IntPtr dc, ref RECT rect, IntPtr data) =>
         {
-            bounds.Add(new Int32Rect(rect.Left, rect.Top, Math.Max(1, rect.Right - rect.Left), Math.Max(1, rect.Bottom - rect.Top)));
+            var bounds = new Int32Rect(rect.Left, rect.Top, Math.Max(1, rect.Right - rect.Left), Math.Max(1, rect.Bottom - rect.Top));
+            var (scaleX, scaleY) = DpiScaleForMonitor(monitor, bounds);
+            targets.Add((bounds, scaleX, scaleY));
             return true;
         };
         if (!EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero))
         {
             throw LastWin32Error("EnumDisplayMonitors");
+        }
+        return targets;
+    }
+
+    public static IReadOnlyList<Int32Rect> MonitorBounds()
+    {
+        var bounds = new List<Int32Rect>();
+        foreach (var target in MonitorTargets())
+        {
+            bounds.Add(target.Bounds);
         }
         return bounds;
     }

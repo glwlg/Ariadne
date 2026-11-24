@@ -613,6 +613,8 @@ export interface HostsStatus {
   virtualizedPath?: string
   virtualizedExists: boolean
   virtualizedBytes: number
+  canRollback?: boolean
+  lastBackupAt?: string
 }
 
 export interface WorkflowStep {

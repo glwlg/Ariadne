@@ -19,6 +19,13 @@ import FancunButton from '../ui/FancunButton.vue'
 import { useAppShellStore } from '../../stores/appShell'
 import { useWorkflowsStore } from '../../stores/workflows'
 
+const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 const appShell = useAppShellStore()
 const workflows = useWorkflowsStore()
 
@@ -30,12 +37,7 @@ onMounted(() => {
 
 function formatTime(seconds?: number) {
   if (!seconds) return '未保存'
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(seconds * 1000))
+  return timeFormatter.format(new Date(seconds * 1000))
 }
 </script>
 
@@ -68,15 +70,21 @@ function formatTime(seconds?: number) {
         </header>
 
         <div class="tool-toolbar workflow-toolbar">
-          <FancunButton size="sm" variant="primary" @click="workflows.createWorkflow()">
+          <FancunButton size="sm" variant="primary" :disabled="workflows.isSaving" @click="workflows.createWorkflow()">
             <Plus :size="14" />
             新建工作流
           </FancunButton>
           <FancunButton size="sm" variant="secondary" :disabled="!workflows.draft || workflows.isSaving" @click="workflows.saveDraft()">
             <Save :size="14" />
-            保存工作流
+            {{ workflows.isSaving ? '保存中...' : workflows.draftModified ? '保存修改' : '保存工作流' }}
           </FancunButton>
-          <FancunButton size="sm" variant="secondary" :disabled="!selected" @click="workflows.deleteWorkflow(selected)">
+          <FancunButton
+            size="sm"
+            variant="secondary"
+            :class="{ 'is-armed-danger': Boolean(selected && workflows.deleteArmedId === selected.id) }"
+            :disabled="!selected || workflows.isSaving"
+            @click="workflows.deleteWorkflow(selected)"
+          >
             <Trash2 :size="14" />
             {{ selected && workflows.deleteArmedId === selected.id ? '确认删除' : '删除工作流' }}
           </FancunButton>
@@ -93,33 +101,55 @@ function formatTime(seconds?: number) {
               placeholder="可选输入，步骤中用 {input} 引用..."
             />
           </div>
-          <FancunButton size="sm" variant="primary" :disabled="!selected || workflows.isRunning" @click="workflows.runSelected(selected)">
+          <FancunButton
+            size="sm"
+            variant="primary"
+            :class="{ 'is-armed-danger': Boolean(selected && workflows.riskArmedId === selected.id) }"
+            :disabled="!selected || workflows.isRunning || workflows.isSaving"
+            @click="workflows.runSelected(selected)"
+          >
             <Play :size="14" />
-            {{ selected && workflows.riskArmedId === selected.id ? '确认运行' : '运行' }}
+            {{ workflows.isRunning ? '运行中...' : selected && workflows.riskArmedId === selected.id ? '确认运行' : '运行' }}
           </FancunButton>
         </div>
 
         <div class="workflow-workspace">
           <section class="workflow-list" aria-label="工作流列表">
-            <button
-              v-for="workflow in workflows.workflows"
-              :key="workflow.id"
-              class="workflow-row"
-              :class="{ 'is-selected': workflow.id === workflows.selectedId }"
-              @click="workflows.select(workflow.id)"
-            >
-              <span class="workflow-row-icon">
-                <Workflow :size="15" />
-              </span>
-              <span class="workflow-row-main">
-                <span class="workflow-row-title">{{ workflow.name }}</span>
-                <span class="workflow-row-meta">{{ workflow.id }} · {{ workflow.steps.length }} 步 · {{ formatTime(workflow.updatedAt) }}</span>
-              </span>
-            </button>
-
-            <div v-if="!workflows.workflows.length" class="empty-state">
+            <div v-if="workflows.isLoading && !workflows.workflows.length" class="tool-loading-state">
               <Workflow :size="22" />
-              <span>还没有工作流</span>
+              <strong>正在加载工作流...</strong>
+              <small>读取本地工作流配置</small>
+            </div>
+
+            <div v-else-if="workflows.loadError && !workflows.workflows.length" class="tool-error-state">
+              <Workflow :size="22" />
+              <strong>工作流加载失败</strong>
+              <small>{{ workflows.loadError }}</small>
+              <FancunButton size="sm" variant="secondary" @click="workflows.load()">重试加载</FancunButton>
+            </div>
+
+            <template v-else-if="workflows.workflows.length">
+              <button
+                v-for="workflow in workflows.workflows"
+                :key="workflow.id"
+                class="workflow-row"
+                :class="{ 'is-selected': workflow.id === workflows.selectedId }"
+                @click="workflows.select(workflow.id)"
+              >
+                <span class="workflow-row-icon">
+                  <Workflow :size="15" />
+                </span>
+                <span class="workflow-row-main">
+                  <span class="workflow-row-title">{{ workflow.name }}</span>
+                  <span class="workflow-row-meta">{{ workflow.id }} · {{ workflow.steps.length }} 步 · {{ formatTime(workflow.updatedAt) }}</span>
+                </span>
+              </button>
+            </template>
+
+            <div v-else class="tool-empty-state">
+              <Workflow :size="22" />
+              <strong>还没有工作流</strong>
+              <small>点击左上角“新建工作流”开始创建</small>
             </div>
           </section>
 
@@ -161,7 +191,7 @@ function formatTime(seconds?: number) {
 
               <div class="workflow-step-header">
                 <div>
-                  <span class="preview-kicker">STEPS</span>
+                  <span class="preview-kicker">步骤</span>
                   <h2>命令链步骤</h2>
                 </div>
                 <FancunButton size="sm" variant="secondary" @click="workflows.addStep()">
@@ -200,9 +230,21 @@ function formatTime(seconds?: number) {
               </div>
             </template>
 
-            <div v-else class="empty-state">
+            <div v-else-if="workflows.isLoading" class="tool-loading-state">
               <Workflow :size="22" />
-              <span>选择一个工作流进行编辑</span>
+              <strong>正在载入工作流...</strong>
+            </div>
+
+            <div v-else-if="workflows.loadError" class="tool-error-state">
+              <Workflow :size="22" />
+              <strong>无法载入工作流</strong>
+              <small>{{ workflows.loadError }}</small>
+              <FancunButton size="sm" variant="secondary" @click="workflows.load()">重试加载</FancunButton>
+            </div>
+
+            <div v-else class="tool-empty-state">
+              <Workflow :size="22" />
+              <strong>选择一个工作流进行编辑</strong>
             </div>
           </section>
 
@@ -282,7 +324,11 @@ function formatTime(seconds?: number) {
             <Braces :size="14" />
             不允许递归调用工作流
           </span>
-          <span v-if="workflows.feedback" class="inline-feedback">{{ workflows.feedback }}</span>
+          <span
+            v-if="workflows.feedback"
+            class="inline-feedback"
+            :class="{ 'is-danger': workflows.feedbackTone === 'danger' }"
+          >{{ workflows.feedback }}</span>
         </footer>
       </section>
     </div>

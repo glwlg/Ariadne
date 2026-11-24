@@ -290,7 +290,7 @@ func nativeCaptureRequest(policy ScreenshotPolicy) nativecapture.Request {
 	return nativecapture.Request{
 		Command:             "capture",
 		AutoPin:             policy.AutoPin,
-		DirectClipboardCopy: true,
+		DirectClipboardCopy: !policy.AutoRedact,
 	}
 }
 
@@ -545,7 +545,7 @@ func (s *Service) captureNativeSelection(response nativecapture.Response, policy
 
 	pngBytes, err := base64.StdEncoding.DecodeString(response.PNGBase64)
 	if err != nil || len(pngBytes) == 0 {
-		if nativeClipboardSatisfied(response, action) {
+		if nativeClipboardSatisfied(response, action, policy) {
 			return CaptureResult{OK: true, Message: firstNonEmpty(response.Message, "已复制截图"), Width: response.Width, Height: response.Height}
 		}
 		return CaptureResult{OK: false, Message: "原生截图结果无效"}
@@ -554,7 +554,7 @@ func (s *Service) captureNativeSelection(response nativecapture.Response, policy
 	if width <= 0 || height <= 0 {
 		config, decodeErr := png.DecodeConfig(bytes.NewReader(pngBytes))
 		if decodeErr != nil {
-			if nativeClipboardSatisfied(response, action) {
+			if nativeClipboardSatisfied(response, action, policy) {
 				return CaptureResult{OK: true, Message: firstNonEmpty(response.Message, "已复制截图"), Width: response.Width, Height: response.Height}
 			}
 			return CaptureResult{OK: false, Message: "原生截图尺寸无效"}
@@ -565,7 +565,7 @@ func (s *Service) captureNativeSelection(response nativecapture.Response, policy
 	operations := nativeAnnotationOperations(response.Operations)
 	shouldCopy := action != "qr" && (action == "copy" || action == "redact_copy" || policy.AutoCopy)
 	shouldPin := action != "qr" && (action == "pin" || policy.AutoPin || response.Pinned)
-	if nativeClipboardSatisfied(response, action) {
+	if nativeClipboardSatisfied(response, action, policy) {
 		go s.persistNativeCopiedSelection(response, policy, append([]byte(nil), pngBytes...), width, height, operations)
 		message := firstNonEmpty(response.Message, selectionResultMessage(action, len(operations), ""))
 		if action == "copy" {
@@ -733,8 +733,14 @@ func (s *Service) captureNativeSelection(response nativecapture.Response, policy
 	return result
 }
 
-func nativeClipboardSatisfied(response nativecapture.Response, action string) bool {
-	return response.ClipboardWritten && (action == "copy" || action == "redact_copy")
+func nativeClipboardSatisfied(response nativecapture.Response, action string, policy ScreenshotPolicy) bool {
+	if !response.ClipboardWritten {
+		return false
+	}
+	if action == "redact_copy" {
+		return true
+	}
+	return action == "copy" && !policy.AutoRedact
 }
 
 func (s *Service) persistNativeCopiedSelection(response nativecapture.Response, policy ScreenshotPolicy, pngBytes []byte, width int, height int, operations []AnnotationOperation) {

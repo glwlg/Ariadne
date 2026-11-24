@@ -68,6 +68,26 @@ func TestElevatedInstallArgsPreserveFileSearchServiceChoice(t *testing.T) {
 	if !strings.Contains(joined, ` --legacy-roaming-source C:\Users\luwei\AppData\Roaming\Ariadne `) {
 		t.Fatalf("elevated retry should preserve selected legacy profile: %#v", args)
 	}
+	argsWithBases := elevatedInstallArgs(commandOptions{
+		InstallDir:         `C:\Apps\Fancun`,
+		RoamingBase:        `C:\Users\luwei\AppData\Roaming`,
+		LocalBase:          `C:\Users\luwei\AppData\Local`,
+		PicturesBase:       `C:\Users\luwei\Pictures`,
+		LaunchAfterInstall: false,
+	})
+	joinedWithBases := " " + strings.Join(argsWithBases, " ") + " "
+	for _, want := range []string{
+		` --roaming-base C:\Users\luwei\AppData\Roaming `,
+		` --local-base C:\Users\luwei\AppData\Local `,
+		` --pictures-base C:\Users\luwei\Pictures `,
+	} {
+		if !strings.Contains(joinedWithBases, want) {
+			t.Fatalf("elevated args missing %q: %#v", want, argsWithBases)
+		}
+	}
+	if strings.Contains(joinedWithBases, " --launch-after-install ") {
+		t.Fatalf("elevated helper args must not include --launch-after-install: %#v", argsWithBases)
+	}
 }
 
 func TestUpdateSelectionPreservesRecordedInstallOptions(t *testing.T) {

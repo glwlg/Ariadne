@@ -69,6 +69,9 @@ type Service struct {
 	openWindow func(PinnedImage) error
 	warmWindow application.Window
 	warming    bool
+	warmStop   chan struct{}
+	warmDone   chan struct{}
+	closed     bool
 }
 
 func NewService(captures CaptureSource, clipboards ClipboardSource) *Service {
@@ -81,12 +84,64 @@ func NewService(captures CaptureSource, clipboards ClipboardSource) *Service {
 
 func (s *Service) Attach(app *application.App) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	prevStop := s.warmStop
+	prevDone := s.warmDone
+	s.warmStop = nil
+	s.warmDone = nil
 	s.app = app
+	s.closed = false
+	if prevStop != nil {
+		close(prevStop)
+	}
+	s.mu.Unlock()
+	if prevDone != nil {
+		<-prevDone
+	}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		close(done)
+		return
+	}
+	s.warmStop = stop
+	s.warmDone = done
+	s.mu.Unlock()
+
 	go func() {
-		time.Sleep(1200 * time.Millisecond)
-		s.ensureWarmWindow()
+		defer close(done)
+		timer := time.NewTimer(1200 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-stop:
+			return
+		case <-timer.C:
+		}
+		s.ensureWarmWindow(stop)
 	}()
+}
+
+func (s *Service) Stop() {
+	s.mu.Lock()
+	s.closed = true
+	stop := s.warmStop
+	done := s.warmDone
+	s.warmStop = nil
+	s.warmDone = nil
+	s.warming = false
+	s.mu.Unlock()
+	if stop != nil {
+		close(stop)
+	}
+	if done != nil {
+		<-done
+	}
+}
+
+func (s *Service) Close() {
+	s.Stop()
 }
 
 func (s *Service) OpenCapture(id string) OpenResult {
@@ -306,9 +361,14 @@ func (s *Service) openWindowWithApp(app *application.App, pin PinnedImage) error
 	return nil
 }
 
-func (s *Service) ensureWarmWindow() {
+func (s *Service) ensureWarmWindow(stop <-chan struct{}) {
+	select {
+	case <-stop:
+		return
+	default:
+	}
 	s.mu.Lock()
-	if s.app == nil || s.openWindow != nil || s.warmWindow != nil || s.warming {
+	if s.closed || s.app == nil || s.openWindow != nil || s.warmWindow != nil || s.warming {
 		s.mu.Unlock()
 		return
 	}
@@ -332,7 +392,16 @@ func (s *Service) ensureWarmWindow() {
 		WindowH: 1,
 	}, true))
 	window.Hide()
-	time.Sleep(800 * time.Millisecond)
+	timer := time.NewTimer(800 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-stop:
+		s.mu.Lock()
+		s.warming = false
+		s.mu.Unlock()
+		return
+	case <-timer.C:
+	}
 	window.Hide()
 	s.mu.Lock()
 	if s.warmWindow == nil {

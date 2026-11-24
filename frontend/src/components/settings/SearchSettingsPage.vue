@@ -171,6 +171,7 @@ function isSearchServiceStateMessage(value: string) {
         size="sm"
         variant="secondary"
         class="danger-action"
+        :class="{ 'is-armed-danger': settings.searchUsageClearArmed }"
         :disabled="settings.isSaving || !(settings.searchUsageStatus?.count ?? 0)"
         @click="settings.clearSearchUsageState()"
       >

@@ -109,9 +109,15 @@ func RunWithRunner(runner Runner, options Options) Report {
 }
 
 func NewDefaultStack() *DefaultStack {
+	return NewDefaultStackWithFileSearch(filesearch.NewService())
+}
+
+func NewDefaultStackWithFileSearch(fileSearchService *filesearch.Service) *DefaultStack {
+	if fileSearchService == nil {
+		fileSearchService = filesearch.NewService()
+	}
 	captureService := capturehistory.NewService()
 	clipboardService := clipboardhistory.NewService(captureService)
-	fileSearchService := filesearch.NewService()
 	appService := apps.NewService()
 	launcherService := launchers.NewService()
 	pluginService := plugins.NewService()
@@ -164,6 +170,9 @@ func (s *DefaultStack) FileSearchStatus() filesearch.FileIndexStatus {
 func (s *DefaultStack) Close() {
 	if s == nil {
 		return
+	}
+	if s.FileSearchService != nil {
+		s.FileSearchService.Close()
 	}
 	if s.ClipboardService != nil {
 		s.ClipboardService.StopWatcher()

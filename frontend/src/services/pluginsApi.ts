@@ -1,4 +1,5 @@
 import type { PluginManifest } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 async function tryPluginsBinding() {
   try {
@@ -14,9 +15,15 @@ export async function listPlugins(): Promise<PluginManifest[]> {
   if (binding) {
     try {
       return await binding.List()
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取插件列表失败'))
+      }
       return []
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('插件服务绑定不可用')
   }
   return []
 }

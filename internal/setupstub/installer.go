@@ -64,7 +64,27 @@ type commandOptions struct {
 	FileSearchServiceExePath string
 	FileSearchSettingsConfig string
 	LegacyRoamingSource      string
+	RoamingBase              string
+	LocalBase                string
+	PicturesBase             string
 }
+
+var (
+	processElevatedFn  = processElevated
+	elevateInstallFn   = runElevatedInstallerInstall
+	launchAppFn        = launchInstalledApp
+	setAutostartFn     = setAutostart
+	cleanupAutostartFn = cleanupAutostart
+	migrateBrandFn     = func(command commandOptions, withCredentials bool) error {
+		return brandmigration.MigrateFromPaths(
+			command.LegacyRoamingSource,
+			command.RoamingBase,
+			command.LocalBase,
+			command.PicturesBase,
+			withCredentials,
+		)
+	}
+)
 
 type installReceipt struct {
 	ProductName    string                 `json:"productName"`
@@ -124,11 +144,18 @@ func Run(payload []byte, options Options) (Result, error) {
 	if command.FileSearchServiceCommand != "" {
 		return runFileSearchServiceCommand(options.ProductName, command.FileSearchServiceCommand, command.FileSearchServiceExePath, command.FileSearchSettingsConfig)
 	}
-	if command.InstallFileSearchService && !command.SkipServiceChanges && !command.ElevatedInstallRetry && !processElevated() {
-		if err := runElevatedInstallerInstall(command); err != nil {
+	if command.InstallFileSearchService && !command.SkipServiceChanges && !command.ElevatedInstallRetry && !processElevatedFn() {
+		resolved := resolveUserInstallContext(options.ProductName, command)
+		if resolved.StartMenuDir == "" {
+			return Result{}, errors.New("无法确定开始菜单目录，安装未完成")
+		}
+		elevated := resolved
+		elevated.ElevatedInstallRetry = true
+		elevated.LaunchAfterInstall = false
+		if err := elevateInstallFn(elevated); err != nil {
 			return Result{}, err
 		}
-		return Result{Action: ActionInstall, InstallDir: command.InstallDir}, nil
+		return finishElevatedInstallInCaller(options, resolved, true)
 	}
 	if len(payload) == 0 {
 		return Result{}, errors.New("installer payload is empty")
@@ -231,6 +258,15 @@ func parseCommandOptions(args []string) (commandOptions, error) {
 		flags.StringVar(&command.FileSearchSettingsConfig, name, "", "")
 	}
 	flags.StringVar(&command.LegacyRoamingSource, "legacy-roaming-source", "", "")
+	for _, name := range []string{"roaming-base", "RoamingBase"} {
+		flags.StringVar(&command.RoamingBase, name, "", "")
+	}
+	for _, name := range []string{"local-base", "LocalBase"} {
+		flags.StringVar(&command.LocalBase, name, "", "")
+	}
+	for _, name := range []string{"pictures-base", "PicturesBase"} {
+		flags.StringVar(&command.PicturesBase, name, "", "")
+	}
 	for _, name := range []string{"Force", "force", "SkipLegacyCheck", "skip-legacy-check"} {
 		flags.BoolVar(&ignored, name, false, "")
 	}
@@ -291,7 +327,7 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 	}
 	// Settings construction for the new service must follow the data import.
 	if strings.EqualFold(options.ProductName, "Fancun") && !command.SkipProcessStop && !command.SkipServiceChanges {
-		if err := brandmigration.MigrateDefaultFrom(command.LegacyRoamingSource); err != nil {
+		if err := migrateBrandFn(command, !command.ElevatedInstallRetry); err != nil {
 			return Result{}, fmt.Errorf("迁移旧版用户数据失败：%w", err)
 		}
 	}
@@ -355,24 +391,18 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 	if err := writeReceipt(filepath.Join(installDir, "install_receipt.json"), receipt); err != nil {
 		return Result{}, err
 	}
-	if command.AutoStart {
-		if err := setAutostart(options.ProductName, exePath); err != nil {
+	if !command.ElevatedInstallRetry {
+		if err := applyUserAutostart(options.ProductName, exePath, command); err != nil {
 			return Result{}, err
 		}
-	} else {
-		cleanupAutostart(options.ProductName)
 	}
 	if command.InstallFileSearchService && !command.SkipServiceChanges {
 		if err := installFileSearchService(options.ProductName, exePath, command.FileSearchSettingsConfig); err != nil {
 			return Result{}, err
 		}
 	}
-	if strings.EqualFold(options.ProductName, "Fancun") && !command.SkipProcessStop && !command.SkipServiceChanges {
-		cleanupAutostart("Ariadne")
-		cleanupAutostart("com.glwlg.ariadne")
-	}
-	if command.LaunchAfterInstall {
-		_ = launchInstalledApp(exePath)
+	if command.LaunchAfterInstall && !command.ElevatedInstallRetry {
+		_ = launchAppFn(exePath)
 	}
 	return Result{Action: ActionInstall, InstallDir: installDir}, nil
 }
@@ -531,17 +561,63 @@ func shouldRetryInstallElevated(command commandOptions, err error) bool {
 }
 
 func retryInstallElevated(options Options, command commandOptions, installDir string) (Result, error) {
-	elevated := command
+	resolved := resolveUserInstallContext(options.ProductName, command)
+	resolved.InstallDir = installDir
+	elevated := resolved
 	elevated.ElevatedInstallRetry = true
 	elevated.LaunchAfterInstall = false
-	if err := runElevatedInstallerInstall(elevated); err != nil {
+	if err := elevateInstallFn(elevated); err != nil {
 		return Result{}, fmt.Errorf("安装程序需要关闭正在运行的 %s: %w", options.ProductName, err)
 	}
+	return finishElevatedInstallInCaller(options, resolved, false)
+}
+
+func resolveUserInstallContext(productName string, command commandOptions) commandOptions {
+	resolved := command
+	resolved.InstallDir = firstNonEmpty(resolved.InstallDir, defaultInstallDir(productName))
+	resolved.StartMenuDir = firstNonEmpty(resolved.StartMenuDir, defaultStartMenuDir())
+	if strings.TrimSpace(resolved.DesktopDir) == "" {
+		resolved.DesktopDir = defaultDesktopDir()
+	}
+	resolved.RoamingBase = firstNonEmpty(resolved.RoamingBase, defaultRoamingBase())
+	resolved.LocalBase = firstNonEmpty(resolved.LocalBase, defaultLocalBase())
+	resolved.PicturesBase = firstNonEmpty(resolved.PicturesBase, defaultPicturesBase())
+	if strings.TrimSpace(resolved.FileSearchSettingsConfig) == "" && resolved.RoamingBase != "" {
+		resolved.FileSearchSettingsConfig = filepath.Join(resolved.RoamingBase, productName, "config.json")
+	}
+	return resolved
+}
+
+func finishElevatedInstallInCaller(options Options, command commandOptions, migrateCredentials bool) (Result, error) {
+	installDir := firstNonEmpty(command.InstallDir, defaultInstallDir(options.ProductName))
+	exePath := filepath.Join(installDir, strings.ToLower(options.ProductName)+".exe")
+	if migrateCredentials && strings.EqualFold(options.ProductName, "Fancun") && !command.SkipProcessStop && !command.SkipServiceChanges {
+		if err := migrateBrandFn(command, true); err != nil {
+			return Result{}, fmt.Errorf("迁移旧版用户数据失败：%w", err)
+		}
+	}
+	if err := applyUserAutostart(options.ProductName, exePath, command); err != nil {
+		return Result{}, err
+	}
 	if command.LaunchAfterInstall {
-		exePath := filepath.Join(installDir, strings.ToLower(options.ProductName)+".exe")
-		_ = launchInstalledApp(exePath)
+		_ = launchAppFn(exePath)
 	}
 	return Result{Action: ActionInstall, InstallDir: installDir}, nil
+}
+
+func applyUserAutostart(productName string, exePath string, command commandOptions) error {
+	if command.AutoStart {
+		if err := setAutostartFn(productName, exePath); err != nil {
+			return err
+		}
+	} else {
+		cleanupAutostartFn(productName)
+	}
+	if strings.EqualFold(productName, "Fancun") && !command.SkipProcessStop && !command.SkipServiceChanges {
+		cleanupAutostartFn("Ariadne")
+		cleanupAutostartFn("com.glwlg.ariadne")
+	}
+	return nil
 }
 
 func copyDir(source string, target string) error {
@@ -699,6 +775,36 @@ func defaultDesktopDir() string {
 		return ""
 	}
 	return filepath.Join(profile, "Desktop")
+}
+
+func defaultRoamingBase() string {
+	if roaming := os.Getenv("APPDATA"); strings.TrimSpace(roaming) != "" {
+		return roaming
+	}
+	if dir, err := os.UserConfigDir(); err == nil {
+		return dir
+	}
+	return ""
+}
+
+func defaultLocalBase() string {
+	if local := os.Getenv("LOCALAPPDATA"); strings.TrimSpace(local) != "" {
+		return local
+	}
+	if dir, err := os.UserCacheDir(); err == nil {
+		return dir
+	}
+	return ""
+}
+
+func defaultPicturesBase() string {
+	if profile := os.Getenv("USERPROFILE"); strings.TrimSpace(profile) != "" {
+		return filepath.Join(profile, "Pictures")
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, "Pictures")
+	}
+	return ""
 }
 
 func removeUserData(productName string) {

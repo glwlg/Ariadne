@@ -11,7 +11,7 @@ html[data-theme='professional-pink'] {
   --muted: #6f5864;
   --muted-foreground: #8c7380;
   --primary: #be185d;
-  --primary-hover: #db2777;
+  --primary-hover: #9d174d;
   --primary-foreground: #fff7fb;
   --primary-soft: rgba(190, 24, 93, 0.1);
   --warning: #b45309;
@@ -44,7 +44,7 @@ html[data-theme='professional-pink'] {
   --flow-ink: #2a1020;
   --flow-ink-soft: #513244;
   --flow-muted: #765869;
-  --flow-muted-soft: #a78394;
+  --flow-muted-soft: #765869;
   --flow-panel: rgba(255, 255, 255, 0.9);
   --flow-panel-strong: #ffffff;
   --flow-panel-muted: rgba(253, 244, 248, 0.8);
@@ -115,7 +115,7 @@ html[data-theme='light-graphite'] {
   --flow-ink: #111827;
   --flow-ink-soft: #334155;
   --flow-muted: #64748b;
-  --flow-muted-soft: #94a3b8;
+  --flow-muted-soft: #64748b;
   --flow-panel: rgba(255, 255, 255, 0.88);
   --flow-panel-strong: #ffffff;
   --flow-panel-muted: rgba(248, 250, 252, 0.78);
@@ -189,7 +189,7 @@ html[data-theme='cloud-blue'] {
   --flow-ink: #0f172a;
   --flow-ink-soft: #334155;
   --flow-muted: #64748b;
-  --flow-muted-soft: #94a3b8;
+  --flow-muted-soft: #64748b;
   --flow-panel: #ffffff;
   --flow-panel-strong: #ffffff;
   --flow-panel-muted: #f8fafc;

@@ -5,6 +5,7 @@ import type {
   JsonFormatRequest,
   JsonFormatResult,
 } from '../types/fancun'
+import { isDesktopRuntime } from './runtimeEnv'
 
 async function tryJsonCompareBinding() {
   try {
@@ -20,6 +21,9 @@ export async function compareJson(request: JsonCompareRequest): Promise<JsonComp
   if (binding) {
     return normalizeCompareResult(await binding.Compare(request))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('JSON 对比服务绑定不可用')
+  }
   return fallbackCompare(request)
 }
 
@@ -27,6 +31,9 @@ export async function formatJson(request: JsonFormatRequest): Promise<JsonFormat
   const binding = await tryJsonCompareBinding()
   if (binding) {
     return normalizeFormatResult(await binding.Format(request))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('JSON 对比服务绑定不可用')
   }
   try {
     const parsed = JSON.parse(request.text)

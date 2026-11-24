@@ -7,6 +7,15 @@ import (
 	"zombiezen.com/go/sqlite/sqlitex"
 )
 
+type hostsBackup struct {
+	ID            int64
+	CreatedAt     int64
+	CreatedAtText string
+	HostsPath     string
+	Content       string
+	Reason        string
+}
+
 func loadProfilesFromSQLite(path string) ([]Profile, bool, error) {
 	conn, err := appdb.OpenForPath(path)
 	if err != nil {
@@ -75,7 +84,88 @@ CREATE TABLE IF NOT EXISTS hosts_profiles(
   updated_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_hosts_profiles_enabled ON hosts_profiles(enabled);
+CREATE TABLE IF NOT EXISTS hosts_backups(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at INTEGER NOT NULL,
+  created_at_text TEXT NOT NULL,
+  hosts_path TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_hosts_backups_created_at ON hosts_backups(id DESC);
 `)
+}
+
+func saveHostsBackupToSQLite(path string, backup hostsBackup) (int64, error) {
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	if err := ensureHostsSchema(conn); err != nil {
+		return 0, err
+	}
+	var insertedID int64
+	err = appdb.Immediate(conn, func() error {
+		if err := sqlitex.Execute(conn, `INSERT INTO hosts_backups(created_at, created_at_text, hosts_path, content, reason) VALUES (?1, ?2, ?3, ?4, ?5)`, &sqlitex.ExecOptions{
+			Args: []any{backup.CreatedAt, backup.CreatedAtText, backup.HostsPath, backup.Content, backup.Reason},
+		}); err != nil {
+			return err
+		}
+		insertedID = conn.LastInsertRowID()
+		return sqlitex.Execute(conn, `DELETE FROM hosts_backups WHERE id NOT IN (SELECT id FROM hosts_backups ORDER BY id DESC LIMIT 20)`, nil)
+	})
+	return insertedID, err
+}
+
+func deleteHostsBackupFromSQLite(path string, id int64) error {
+	if path == "" || id <= 0 {
+		return nil
+	}
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := ensureHostsSchema(conn); err != nil {
+		return err
+	}
+	return appdb.Immediate(conn, func() error {
+		return sqlitex.Execute(conn, `DELETE FROM hosts_backups WHERE id = ?1`, &sqlitex.ExecOptions{
+			Args: []any{id},
+		})
+	})
+}
+
+func loadLatestHostsBackupFromSQLite(path string) (hostsBackup, bool, error) {
+	conn, err := appdb.OpenForPath(path)
+	if err != nil {
+		return hostsBackup{}, false, err
+	}
+	defer conn.Close()
+	if err := ensureHostsSchema(conn); err != nil {
+		return hostsBackup{}, false, err
+	}
+	var backup hostsBackup
+	found := false
+	err = sqlitex.Execute(conn, `SELECT id, created_at, created_at_text, hosts_path, content, reason FROM hosts_backups ORDER BY id DESC LIMIT 1`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			backup = hostsBackup{
+				ID:            stmt.ColumnInt64(0),
+				CreatedAt:     stmt.ColumnInt64(1),
+				CreatedAtText: stmt.ColumnText(2),
+				HostsPath:     stmt.ColumnText(3),
+				Content:       stmt.ColumnText(4),
+				Reason:        stmt.ColumnText(5),
+			}
+			found = true
+			return nil
+		},
+	})
+	if err != nil {
+		return hostsBackup{}, false, err
+	}
+	return backup, found, nil
 }
 
 func readProfiles(conn *sqlite.Conn) ([]Profile, bool, error) {
@@ -88,9 +178,14 @@ func readProfiles(conn *sqlite.Conn) ([]Profile, bool, error) {
 	profiles := make([]Profile, 0, count)
 	err := sqlitex.Execute(conn, `SELECT id, title, content, enabled, type, url, updated_at FROM hosts_profiles`, &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
+			id := stmt.ColumnText(0)
+			title := stmt.ColumnText(1)
+			if title == "" {
+				title = id
+			}
 			profiles = append(profiles, normalizeProfile(Profile{
-				ID:        stmt.ColumnText(0),
-				Title:     stmt.ColumnText(1),
+				ID:        id,
+				Title:     title,
 				Content:   stmt.ColumnText(2),
 				Enabled:   stmt.ColumnInt(3) != 0,
 				Type:      stmt.ColumnText(4),

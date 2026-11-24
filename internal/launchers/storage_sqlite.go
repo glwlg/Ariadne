@@ -158,17 +158,26 @@ func readLauncherState(conn *sqlite.Conn) (launcherState, bool, error) {
 	if err != nil {
 		return launcherState{}, false, err
 	}
+	keywordsByLauncher, err := readAllLauncherValues(conn, `launcher_keywords`)
+	if err != nil {
+		return launcherState{}, false, err
+	}
+	tagsByLauncher, err := readAllLauncherValues(conn, `launcher_tags`)
+	if err != nil {
+		return launcherState{}, false, err
+	}
 	for index := range state.Launchers {
-		values, err := readLauncherValues(conn, `launcher_keywords`, state.Launchers[index].ID)
-		if err != nil {
-			return launcherState{}, false, err
+		id := state.Launchers[index].ID
+		if values, ok := keywordsByLauncher[id]; ok {
+			state.Launchers[index].Keywords = values
+		} else {
+			state.Launchers[index].Keywords = []string{}
 		}
-		state.Launchers[index].Keywords = values
-		values, err = readLauncherValues(conn, `launcher_tags`, state.Launchers[index].ID)
-		if err != nil {
-			return launcherState{}, false, err
+		if values, ok := tagsByLauncher[id]; ok {
+			state.Launchers[index].Tags = values
+		} else {
+			state.Launchers[index].Tags = []string{}
 		}
-		state.Launchers[index].Tags = values
 	}
 	if err := sqlitex.Execute(conn, `SELECT id FROM launcher_removed`, &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
@@ -212,14 +221,14 @@ func insertLauncherValues(conn *sqlite.Conn, table string, launcherID string, va
 	return nil
 }
 
-func readLauncherValues(conn *sqlite.Conn, table string, launcherID string) ([]string, error) {
-	values := []string{}
-	err := sqlitex.Execute(conn, `SELECT value FROM `+table+` WHERE launcher_id = ?1 ORDER BY position`, &sqlitex.ExecOptions{
-		Args: []any{launcherID},
+func readAllLauncherValues(conn *sqlite.Conn, table string) (map[string][]string, error) {
+	valuesByLauncher := map[string][]string{}
+	err := sqlitex.Execute(conn, `SELECT launcher_id, value FROM `+table+` ORDER BY launcher_id, position`, &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
-			values = append(values, stmt.ColumnText(0))
+			launcherID := stmt.ColumnText(0)
+			valuesByLauncher[launcherID] = append(valuesByLauncher[launcherID], stmt.ColumnText(1))
 			return nil
 		},
 	})
-	return values, err
+	return valuesByLauncher, err
 }

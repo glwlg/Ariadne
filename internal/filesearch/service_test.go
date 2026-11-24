@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -508,6 +509,176 @@ func TestOrdinaryZeroResultsDoNotReturnCoverageHint(t *testing.T) {
 	}
 	if status := service.Status(); status.CoverageHint != "" {
 		t.Fatalf("ordinary empty query should not set coverage hint: %#v", status)
+	}
+}
+
+type closeRaceBuilder struct {
+	started       chan struct{}
+	release       chan struct{}
+	returnedIndex *closeTrackingIndex
+	watchCalls    atomic.Int32
+}
+
+type closeTrackingIndex struct {
+	closed atomic.Bool
+}
+
+func (c *closeTrackingIndex) Search(string, int) []rawResult { return nil }
+func (c *closeTrackingIndex) Count() int                     { return 5 }
+func (c *closeTrackingIndex) Volumes() []string              { return []string{testRootVolume()} }
+func (c *closeTrackingIndex) Close()                         { c.closed.Store(true) }
+
+func (b *closeRaceBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
+	close(b.started)
+	<-ctx.Done()
+	if b.release != nil {
+		<-b.release
+	}
+	return IndexBuildResult{
+		Index:        b.returnedIndex,
+		IndexedCount: 5,
+		Volumes:      []string{testRootVolume()},
+	}, nil
+}
+
+func (b *closeRaceBuilder) WatchChangeBatches(ctx context.Context, volumes []string, emit func([]rawResult)) error {
+	b.watchCalls.Add(1)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestCloseCancelsAndWaitsForInflightBuildWithoutRepopulatingIndex(t *testing.T) {
+	idx := &closeTrackingIndex{}
+	builder := &closeRaceBuilder{
+		started:       make(chan struct{}),
+		release:       make(chan struct{}),
+		returnedIndex: idx,
+	}
+	service := NewServiceWithIndexer(builder)
+	service.StartIndexing()
+	<-builder.started
+
+	closeDone := make(chan struct{})
+	go func() {
+		service.Close()
+		close(closeDone)
+	}()
+
+	// Close must wait for Build goroutine to finish before returning.
+	select {
+	case <-closeDone:
+		t.Fatal("Close returned while Build goroutine was still running")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	close(builder.release)
+	select {
+	case <-closeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not finish after Build returned")
+	}
+
+	service.mu.Lock()
+	remainingIndex := service.index
+	service.mu.Unlock()
+	if remainingIndex != nil {
+		t.Fatalf("closed service must not repopulate s.index: %#v", remainingIndex)
+	}
+	if !idx.closed.Load() {
+		t.Fatal("index returned by Build after Close must be closed")
+	}
+	if builder.watchCalls.Load() != 0 {
+		t.Fatalf("watcher must not start after Close, got %d calls", builder.watchCalls.Load())
+	}
+}
+
+type blockingCachedIndexBuilder struct {
+	cachedCalled atomic.Int32
+	buildStarted chan struct{}
+	buildRelease chan struct{}
+}
+
+func (b *blockingCachedIndexBuilder) CachedIndex(ctx context.Context) (IndexBuildResult, error) {
+	b.cachedCalled.Add(1)
+	<-ctx.Done()
+	return IndexBuildResult{}, ctx.Err()
+}
+
+func (b *blockingCachedIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
+	close(b.buildStarted)
+	select {
+	case <-b.buildRelease:
+		return IndexBuildResult{}, nil
+	case <-ctx.Done():
+		return IndexBuildResult{}, ctx.Err()
+	}
+}
+
+func TestSearchContextCancelsCachedIndexWithoutStallingSubsequentSearches(t *testing.T) {
+	builder := &blockingCachedIndexBuilder{
+		buildStarted: make(chan struct{}),
+		buildRelease: make(chan struct{}),
+	}
+	service := NewServiceWithIndexer(builder)
+	defer func() {
+		close(builder.buildRelease)
+		service.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	results := service.SearchContext(ctx, "readme")
+	if len(results) != 0 {
+		t.Fatalf("expected nil/empty results when CachedIndex cancelled, got %#v", results)
+	}
+	<-builder.buildStarted
+
+	// Subsequent searches while Build is in progress must not re-call CachedIndex synchronously.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel2()
+	_ = service.SearchContext(ctx2, "readme")
+	if calls := builder.cachedCalled.Load(); calls != 1 {
+		t.Fatalf("expected CachedIndex to be attempted once per cycle, got %d", calls)
+	}
+}
+
+type batchRecordingIndex struct {
+	mu      sync.Mutex
+	batches [][]rawResult
+}
+
+func (b *batchRecordingIndex) Search(string, int) []rawResult { return nil }
+func (b *batchRecordingIndex) Count() int                     { return 0 }
+func (b *batchRecordingIndex) Volumes() []string              { return nil }
+func (b *batchRecordingIndex) Close()                         {}
+func (b *batchRecordingIndex) AppendRawResults(entries []rawResult) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.batches = append(b.batches, append([]rawResult(nil), entries...))
+	return len(entries), nil
+}
+
+func TestApplyChangedPathsBatchesEntriesInSingleAppendCall(t *testing.T) {
+	recorder := &batchRecordingIndex{}
+	service := NewServiceWithIndexer(noopIndexBuilder{})
+	service.ApplyPolicy(noopFileSearchPolicy())
+	service.mu.Lock()
+	service.index = recorder
+	service.mu.Unlock()
+
+	root := testRootVolume()
+	service.applyChangedPaths([]rawResult{
+		{Name: "alpha.txt", Path: filepath.Join(root, "alpha.txt")},
+		{Name: "beta.txt", Path: filepath.Join(root, "beta.txt")},
+	})
+
+	recorder.mu.Lock()
+	defer recorder.mu.Unlock()
+	if len(recorder.batches) != 1 || len(recorder.batches[0]) != 2 {
+		t.Fatalf("expected single batched AppendRawResults call with 2 entries, got %#v", recorder.batches)
+	}
+	if service.Status().IndexedCount != 2 {
+		t.Fatalf("expected indexedCount=2, got %#v", service.Status())
 	}
 }
 

@@ -23,7 +23,16 @@ func OpenForPath(path string) (*sqlite.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn.SetBlockOnBusy()
+	for _, pragma := range []string{
+		`PRAGMA foreign_keys = ON`,
+		`PRAGMA synchronous = NORMAL`,
+		`PRAGMA busy_timeout = 5000`,
+	} {
+		if err := sqlitex.Execute(conn, pragma, nil); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+	}
 	return conn, nil
 }
 

@@ -360,6 +360,195 @@ func TestRemoveShortcutsOnlyRemovesRecordedEntries(t *testing.T) {
 	}
 }
 
+func TestElevatedInstallResolvesCallerPathsAppliesAutostartAndLaunchesUnelevated(t *testing.T) {
+	base := t.TempDir()
+	userAppData := filepath.Join(base, "user-roaming")
+	userLocalAppData := filepath.Join(base, "user-local")
+	userProfile := filepath.Join(base, "user-profile")
+	t.Setenv("APPDATA", userAppData)
+	t.Setenv("LOCALAPPDATA", userLocalAppData)
+	t.Setenv("USERPROFILE", userProfile)
+
+	const productName = "FancunElevationTest"
+	expectedInstallDir := filepath.Join(userLocalAppData, "Programs", productName)
+	expectedStartMenu := filepath.Join(userAppData, "Microsoft", "Windows", "Start Menu", "Programs")
+	expectedDesktop := filepath.Join(userProfile, "Desktop")
+	expectedPictures := filepath.Join(userProfile, "Pictures")
+	expectedSettings := filepath.Join(userAppData, productName, "config.json")
+	expectedExe := filepath.Join(expectedInstallDir, strings.ToLower(productName)+".exe")
+	legacySource := filepath.Join(userAppData, "Ariadne")
+
+	payload := zipPayload(t, map[string]string{
+		"fancun-dev-windows-x64/app/fancunelevationtest.exe": "fake exe",
+		"fancun-dev-windows-x64/app/logo.ico":            "fake icon",
+	})
+
+	origElevated := processElevatedFn
+	origElevate := elevateInstallFn
+	origLaunch := launchAppFn
+	origSetAutostart := setAutostartFn
+	origCleanupAutostart := cleanupAutostartFn
+	t.Cleanup(func() {
+		processElevatedFn = origElevated
+		elevateInstallFn = origElevate
+		launchAppFn = origLaunch
+		setAutostartFn = origSetAutostart
+		cleanupAutostartFn = origCleanupAutostart
+	})
+
+	var elevatedCmd commandOptions
+	var elevatedCalls int
+	var autostartCalls []string
+	var launched []string
+
+	processElevatedFn = func() bool { return false }
+	setAutostartFn = func(prod string, exe string) error {
+		autostartCalls = append(autostartCalls, prod+"="+exe)
+		return nil
+	}
+	cleanupAutostartFn = func(string) {}
+	launchAppFn = func(exe string) error {
+		launched = append(launched, exe)
+		return nil
+	}
+	elevateInstallFn = func(cmd commandOptions) error {
+		elevatedCalls++
+		elevatedCmd = cmd
+		// Simulate elevated child running under a DIFFERENT admin profile environment.
+		adminBase := t.TempDir()
+		t.Setenv("APPDATA", filepath.Join(adminBase, "admin-roaming"))
+		t.Setenv("LOCALAPPDATA", filepath.Join(adminBase, "admin-local"))
+		t.Setenv("USERPROFILE", filepath.Join(adminBase, "admin-profile"))
+
+		// Elevated child must receive caller's resolved paths and must NOT run HKCU autostart or launch app.
+		pkgRoot, err := ExtractPayload(payload, t.TempDir(), productName)
+		if err != nil {
+			return err
+		}
+		childCmd := cmd
+		childCmd.SkipProcessStop = true
+		childCmd.SkipServiceChanges = true
+		_, err = install(pkgRoot, Options{ProductName: productName, Version: "0.1.0-test"}, childCmd)
+		return err
+	}
+
+	result, err := Run(payload, Options{
+		ProductName: productName,
+		Version:     "0.1.0-test",
+		Args: []string{
+			"--launch-after-install",
+			"--legacy-roaming-source", legacySource,
+		},
+	})
+	if err != nil {
+		t.Fatalf("elevated install failed: %v", err)
+	}
+	if elevatedCalls != 1 {
+		t.Fatalf("expected 1 elevated call, got %d", elevatedCalls)
+	}
+	if result.Action != ActionInstall || result.InstallDir != expectedInstallDir {
+		t.Fatalf("unexpected result: %#v (want InstallDir=%q)", result, expectedInstallDir)
+	}
+	if !elevatedCmd.ElevatedInstallRetry || elevatedCmd.LaunchAfterInstall {
+		t.Fatalf("elevated helper must set ElevatedInstallRetry=true and LaunchAfterInstall=false: %#v", elevatedCmd)
+	}
+	if elevatedCmd.InstallDir != expectedInstallDir ||
+		elevatedCmd.StartMenuDir != expectedStartMenu ||
+		elevatedCmd.DesktopDir != expectedDesktop ||
+		elevatedCmd.RoamingBase != userAppData ||
+		elevatedCmd.LocalBase != userLocalAppData ||
+		elevatedCmd.PicturesBase != expectedPictures ||
+		elevatedCmd.FileSearchSettingsConfig != expectedSettings ||
+		elevatedCmd.LegacyRoamingSource != legacySource {
+		t.Fatalf("caller paths not resolved before elevation: %#v", elevatedCmd)
+	}
+	if _, err := os.Stat(filepath.Join(expectedStartMenu, productName+".lnk")); err != nil {
+		t.Fatalf("Start Menu shortcut must be written to invoking user's directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(expectedDesktop, productName+".lnk")); err != nil {
+		t.Fatalf("Desktop shortcut must be written to invoking user's directory: %v", err)
+	}
+	if len(autostartCalls) != 1 || autostartCalls[0] != productName+"="+expectedExe {
+		t.Fatalf("HKCU autostart must run once in unelevated caller, got %#v", autostartCalls)
+	}
+	if len(launched) != 1 || launched[0] != expectedExe {
+		t.Fatalf("app must be launched once unelevated in caller, got %#v", launched)
+	}
+}
+
+func TestElevatedInstallChildMigratesToPassedUserBasesWithoutCredentialMarker(t *testing.T) {
+	base := t.TempDir()
+	userRoaming := filepath.Join(base, "user-roaming")
+	userLocal := filepath.Join(base, "user-local")
+	userPictures := filepath.Join(base, "user-pictures")
+	adminRoaming := filepath.Join(base, "admin-roaming")
+	t.Setenv("APPDATA", adminRoaming)
+	t.Setenv("LOCALAPPDATA", filepath.Join(base, "admin-local"))
+	t.Setenv("USERPROFILE", filepath.Join(base, "admin-profile"))
+
+	if err := os.MkdirAll(filepath.Join(userRoaming, "Ariadne"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userRoaming, "Ariadne", "note.txt"), []byte("user-note"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotWithCreds []bool
+	var gotCommand commandOptions
+	origMigrate := migrateBrandFn
+	origSetAutostart := setAutostartFn
+	origLaunch := launchAppFn
+	t.Cleanup(func() {
+		migrateBrandFn = origMigrate
+		setAutostartFn = origSetAutostart
+		launchAppFn = origLaunch
+	})
+	setAutostartFn = func(string, string) error {
+		t.Fatal("elevated child must not write HKCU autostart")
+		return nil
+	}
+	launchAppFn = func(string) error {
+		t.Fatal("elevated child must not launch app")
+		return nil
+	}
+	migrateBrandFn = func(command commandOptions, withCredentials bool) error {
+		gotCommand = command
+		gotWithCreds = append(gotWithCreds, withCredentials)
+		return origMigrate(command, withCredentials)
+	}
+
+	installDir := filepath.Join(base, "install")
+	startMenuDir := filepath.Join(base, "start-menu")
+	command, err := parseCommandOptions([]string{
+		"--elevated-install-retry",
+		"-InstallDir", installDir,
+		"-StartMenuDir", startMenuDir,
+		"--no-desktop-shortcut",
+		"--roaming-base", userRoaming,
+		"--local-base", userLocal,
+		"--pictures-base", userPictures,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !command.ElevatedInstallRetry || command.RoamingBase != userRoaming || command.LocalBase != userLocal || command.PicturesBase != userPictures {
+		t.Fatalf("unexpected parsed command: %#v", command)
+	}
+	// Verify migrateBrandFn receives withCredentials=false when ElevatedInstallRetry=true.
+	if err := migrateBrandFn(command, !command.ElevatedInstallRetry); err != nil {
+		t.Fatalf("migrateBrandFn failed: %v", err)
+	}
+	if len(gotWithCreds) != 1 || gotWithCreds[0] || gotCommand.RoamingBase != userRoaming {
+		t.Fatalf("expected withCredentials=false and userRoaming=%q, got %#v %#v", userRoaming, gotWithCreds, gotCommand)
+	}
+	if raw, err := os.ReadFile(filepath.Join(userRoaming, "Fancun", "note.txt")); err != nil || string(raw) != "user-note" {
+		t.Fatalf("migrated data missing from invoking user's roaming dir: %q err=%v", raw, err)
+	}
+	if _, err := os.Stat(filepath.Join(adminRoaming, "Fancun")); !os.IsNotExist(err) {
+		t.Fatalf("elevated admin profile must not receive migrated user data: %v", err)
+	}
+}
+
 func zipPayload(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer

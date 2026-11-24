@@ -5,6 +5,7 @@ import type {
   CaptureOverlaySession,
   ScreenBounds,
 } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 async function tryCaptureOverlayBinding() {
   try {
@@ -20,15 +21,26 @@ export async function openCaptureOverlay(): Promise<CaptureOverlayOpenResult> {
   if (binding) {
     return normalizeOpenResult(await binding.Open())
   }
+  if (isDesktopRuntime()) {
+    throw new Error('截图覆盖层服务绑定不可用')
+  }
   return { ok: false, message: '开发态未连接截图覆盖层服务' }
 }
 
 export async function getCaptureOverlaySession(sessionId: string): Promise<CaptureOverlaySession | null> {
   const binding = await tryCaptureOverlayBinding()
-  if (!binding) return null
+  if (!binding) {
+    if (isDesktopRuntime()) {
+      throw new Error('截图覆盖层服务绑定不可用')
+    }
+    return null
+  }
   try {
     return normalizeSession(await binding.GetSession(sessionId))
-  } catch {
+  } catch (error) {
+    if (isDesktopRuntime()) {
+      throw new Error(formatRpcError(error, '读取截图会话失败'))
+    }
     return null
   }
 }

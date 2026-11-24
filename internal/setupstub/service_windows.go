@@ -148,5 +148,14 @@ func elevatedInstallArgs(command commandOptions) []string {
 	if command.LegacyRoamingSource != "" {
 		args = append(args, "--legacy-roaming-source", command.LegacyRoamingSource)
 	}
+	if command.RoamingBase != "" {
+		args = append(args, "--roaming-base", command.RoamingBase)
+	}
+	if command.LocalBase != "" {
+		args = append(args, "--local-base", command.LocalBase)
+	}
+	if command.PicturesBase != "" {
+		args = append(args, "--pictures-base", command.PicturesBase)
+	}
 	return args
 }

@@ -3,6 +3,7 @@
 package toolwindows
 
 import (
+	"crypto/sha1"
 	"fmt"
 	"runtime"
 	"sync"
@@ -116,15 +117,22 @@ func networkMiniTaskbarForegroundWinEventProc(hook uintptr, event uint32, hwnd u
 	return 0
 }
 
-func enableOrdinaryWindowTaskbarToggle(window application.Window) {
+func isOrdinaryWindowAlive(window application.Window) bool {
 	if window == nil {
-		return
+		return false
 	}
 	native := window.NativeWindow()
 	if native == nil {
+		return false
+	}
+	return w32.IsWindow(w32.HWND(native))
+}
+
+func enableOrdinaryWindowTaskbarToggle(window application.Window) {
+	if !isOrdinaryWindowAlive(window) {
 		return
 	}
-	hwnd := w32.HWND(native)
+	hwnd := w32.HWND(window.NativeWindow())
 	frameChanged := false
 
 	style := w32.GetWindowLongPtr(hwnd, w32.GWL_STYLE)
@@ -145,20 +153,68 @@ func enableOrdinaryWindowTaskbarToggle(window application.Window) {
 	w32.SetWindowPos(hwnd, w32.HWND_NOTOPMOST, 0, 0, 0, 0, ordinaryWindowTaskbarSetWindowPosFlags(frameChanged))
 }
 
-func setOrdinaryWindowIcon(window application.Window, icon []byte) {
-	if window == nil || len(icon) == 0 {
-		return
+type ordinaryWindowIconCache struct {
+	mu        sync.Mutex
+	hasHash   bool
+	hash      [20]byte
+	smallIcon w32.HICON
+	largeIcon w32.HICON
+}
+
+var cachedOrdinaryWindowIcons ordinaryWindowIconCache
+
+func (c *ordinaryWindowIconCache) getOrCreate(icon []byte) (w32.HICON, w32.HICON) {
+	sum := sha1.Sum(icon)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.hasHash && c.hash == sum && (c.smallIcon != 0 || c.largeIcon != 0) {
+		return c.smallIcon, c.largeIcon
 	}
-	native := window.NativeWindow()
-	if native == nil {
-		return
-	}
-	hwnd := w32.HWND(native)
+	c.destroyLocked()
 	if smallIcon, err := w32.CreateSmallHIconFromImage(icon); err == nil && smallIcon != 0 {
+		c.smallIcon = smallIcon
+	}
+	if largeIcon, err := w32.CreateLargeHIconFromImage(icon); err == nil && largeIcon != 0 {
+		c.largeIcon = largeIcon
+	}
+	c.hash = sum
+	c.hasHash = true
+	return c.smallIcon, c.largeIcon
+}
+
+func (c *ordinaryWindowIconCache) release() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.destroyLocked()
+}
+
+func (c *ordinaryWindowIconCache) destroyLocked() {
+	if c.smallIcon != 0 {
+		w32.DestroyIcon(c.smallIcon)
+		c.smallIcon = 0
+	}
+	if c.largeIcon != 0 {
+		w32.DestroyIcon(c.largeIcon)
+		c.largeIcon = 0
+	}
+	c.hasHash = false
+}
+
+func releaseOrdinaryWindowIcons() {
+	cachedOrdinaryWindowIcons.release()
+}
+
+func setOrdinaryWindowIcon(window application.Window, icon []byte) {
+	if len(icon) == 0 || !isOrdinaryWindowAlive(window) {
+		return
+	}
+	hwnd := w32.HWND(window.NativeWindow())
+	smallIcon, largeIcon := cachedOrdinaryWindowIcons.getOrCreate(icon)
+	if smallIcon != 0 {
 		w32.SendMessage(hwnd, w32.WM_SETICON, w32.ICON_SMALL, uintptr(smallIcon))
 		w32.SendMessage(hwnd, w32.WM_SETICON, w32.ICON_SMALL2, uintptr(smallIcon))
 	}
-	if largeIcon, err := w32.CreateLargeHIconFromImage(icon); err == nil && largeIcon != 0 {
+	if largeIcon != 0 {
 		w32.SendMessage(hwnd, w32.WM_SETICON, w32.ICON_BIG, uintptr(largeIcon))
 	}
 }

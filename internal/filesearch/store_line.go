@@ -3,6 +3,7 @@ package filesearch
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -15,13 +16,17 @@ import (
 const lineIndexFileName = "file-index.tsv"
 const lineIndexScanBufferSize = 128 * 1024
 const lineIndexPathEnv = "FANCUN_FILE_INDEX_PATH"
+const lineIndexAppendedCacheLimit = 16384
+const lineIndexCancelCheckInterval = 2048
 
 type lineFileIndex struct {
-	mu       sync.RWMutex
-	path     string
-	count    int
-	volumes  []string
-	appended map[string]struct{}
+	mu            sync.RWMutex
+	path          string
+	count         int
+	volumes       []string
+	appended      map[string]struct{}
+	appendedOrder []string
+	appendedHead  int
 }
 
 func defaultLineIndexPath() string {
@@ -76,6 +81,16 @@ func defaultReadLineIndexPaths() []string {
 }
 
 func openLineFileIndex(path string) (*lineFileIndex, error) {
+	return openLineFileIndexContext(context.Background(), path)
+}
+
+func openLineFileIndexContext(ctx context.Context, path string) (*lineFileIndex, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		path = defaultLineIndexPath()
@@ -92,7 +107,10 @@ func openLineFileIndex(path string) (*lineFileIndex, error) {
 		return nil, err
 	}
 	defer file.Close()
-	count, volumes := scanLineFileIndexMetadata(file)
+	count, volumes, err := scanLineFileIndexMetadataContext(ctx, file)
+	if err != nil {
+		return nil, err
+	}
 	if count == 0 {
 		return nil, errors.New("file index cache has no entries")
 	}
@@ -180,11 +198,11 @@ func (idx *lineFileIndex) AppendRawResults(entries []rawResult) (int, error) {
 		if !ok {
 			continue
 		}
-		key := strings.ToLower(filepath.Clean(cleaned.Path))
+		key := strings.ToLower(cleaned.Path)
 		if _, exists := idx.appended[key]; exists {
 			continue
 		}
-		idx.appended[key] = struct{}{}
+		idx.recordAppendedLocked(key)
 		if err := writeLineFileIndexEntry(writer, cleaned); err != nil {
 			_ = file.Close()
 			return added, err
@@ -246,6 +264,25 @@ func writeLineFileIndexEntry(writer *bufio.Writer, entry rawResult) error {
 	return writer.WriteByte('\n')
 }
 
+func (idx *lineFileIndex) recordAppendedLocked(key string) {
+	if idx.appended == nil {
+		idx.appended = map[string]struct{}{}
+	}
+	for len(idx.appended) >= lineIndexAppendedCacheLimit && idx.appendedHead < len(idx.appendedOrder) {
+		oldest := idx.appendedOrder[idx.appendedHead]
+		idx.appendedOrder[idx.appendedHead] = ""
+		idx.appendedHead++
+		delete(idx.appended, oldest)
+	}
+	if idx.appendedHead > 0 && idx.appendedHead >= len(idx.appendedOrder)/2 {
+		remaining := copy(idx.appendedOrder, idx.appendedOrder[idx.appendedHead:])
+		idx.appendedOrder = idx.appendedOrder[:remaining]
+		idx.appendedHead = 0
+	}
+	idx.appended[key] = struct{}{}
+	idx.appendedOrder = append(idx.appendedOrder, key)
+}
+
 func (idx *lineFileIndex) addVolumeLocked(path string) {
 	volume := strings.ToUpper(filepath.VolumeName(path))
 	if volume == "" {
@@ -262,12 +299,27 @@ func (idx *lineFileIndex) addVolumeLocked(path string) {
 }
 
 func scanLineFileIndexMetadata(reader io.Reader) (int, []string) {
+	count, volumes, _ := scanLineFileIndexMetadataContext(context.Background(), reader)
+	return count, volumes
+}
+
+func scanLineFileIndexMetadataContext(ctx context.Context, reader io.Reader) (int, []string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	buffered := bufio.NewReaderSize(reader, lineIndexScanBufferSize)
 	count := 0
 	seenVolumes := map[string]bool{}
 	volumes := []string{}
+	lines := 0
 	for {
+		if lines&(lineIndexCancelCheckInterval*2-1) == 0 {
+			if err := ctx.Err(); err != nil {
+				return 0, nil, err
+			}
+		}
 		line, err := buffered.ReadSlice('\n')
+		lines++
 		if len(line) > 0 {
 			line = bytes.TrimRight(line, "\r\n")
 			if volume, ok := lineFileIndexLineVolume(line); ok {
@@ -288,7 +340,7 @@ func scanLineFileIndexMetadata(reader io.Reader) (int, []string) {
 		break
 	}
 	sort.Strings(volumes)
-	return count, volumes
+	return count, volumes, nil
 }
 
 func lineFileIndexLineVolume(line []byte) (string, bool) {
@@ -310,7 +362,17 @@ func lineFileIndexLineVolume(line []byte) (string, bool) {
 }
 
 func (idx *lineFileIndex) Search(query string, limit int) []rawResult {
+	return idx.SearchContext(context.Background(), query, limit)
+}
+
+func (idx *lineFileIndex) SearchContext(ctx context.Context, query string, limit int) []rawResult {
 	if idx == nil || idx.path == "" {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
 		return nil
 	}
 	query = strings.TrimSpace(query)
@@ -323,6 +385,9 @@ func (idx *lineFileIndex) Search(query string, limit int) []rawResult {
 	}
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
+	if ctx.Err() != nil {
+		return nil
+	}
 	file, err := os.Open(idx.path)
 	if err != nil {
 		return nil
@@ -333,8 +398,8 @@ func (idx *lineFileIndex) Search(query string, limit int) []rawResult {
 		matchQuery = base
 	}
 	pathLike := isPathLikeQuery(query)
-	candidates := scanLineFileIndex(file, []byte(matchQuery), normalized, pathLike, limit*8)
-	if len(candidates) == 0 {
+	candidates := scanLineFileIndexContext(ctx, file, []byte(matchQuery), []byte(normalized), pathLike, limit*8)
+	if ctx.Err() != nil || len(candidates) == 0 {
 		return nil
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -374,17 +439,53 @@ func (idx *lineFileIndex) Volumes() []string {
 func (idx *lineFileIndex) Close() {}
 
 func scanLineFileIndex(reader io.Reader, matchQuery []byte, normalized string, pathLike bool, maxCandidates int) []scoredRawResult {
+	return scanLineFileIndexContext(context.Background(), reader, matchQuery, []byte(normalized), pathLike, maxCandidates)
+}
+
+type lineCandidateSet struct {
+	matchQuery      []byte
+	normalizedBytes []byte
+	normalizedASCII bool
+	pathLike        bool
+	maxCandidates   int
+	seen            map[string]bool
+	candidates      []scoredRawResult
+	worstIndex      int
+	worstScore      float64
+}
+
+func scanLineFileIndexContext(ctx context.Context, reader io.Reader, matchQuery []byte, normalizedBytes []byte, pathLike bool, maxCandidates int) []scoredRawResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
 	if maxCandidates <= 0 {
 		maxCandidates = int(defaultMaxResults)
 	}
 	buffered := bufio.NewReaderSize(reader, lineIndexScanBufferSize)
-	candidates := make([]scoredRawResult, 0, maxCandidates)
-	seen := map[string]bool{}
+	tracker := lineCandidateSet{
+		matchQuery:      matchQuery,
+		normalizedBytes: normalizedBytes,
+		normalizedASCII: isASCIIBytes(normalizedBytes),
+		pathLike:        pathLike,
+		maxCandidates:   maxCandidates,
+		seen:            map[string]bool{},
+		candidates:      make([]scoredRawResult, 0, maxCandidates),
+	}
+	lines := 0
 	for {
+		if lines&(lineIndexCancelCheckInterval-1) == 0 {
+			if ctx.Err() != nil {
+				return nil
+			}
+		}
 		line, err := buffered.ReadSlice('\n')
+		lines++
 		if len(line) > 0 {
 			line = bytes.TrimRight(line, "\r\n")
-			addLineFileCandidate(line, matchQuery, normalized, pathLike, maxCandidates, seen, &candidates)
+			tracker.add(line)
 		}
 		if err == nil {
 			continue
@@ -395,10 +496,13 @@ func scanLineFileIndex(reader io.Reader, matchQuery []byte, normalized string, p
 		}
 		break
 	}
-	return candidates
+	if ctx.Err() != nil {
+		return nil
+	}
+	return tracker.candidates
 }
 
-func addLineFileCandidate(line []byte, matchQuery []byte, normalized string, pathLike bool, maxCandidates int, seen map[string]bool, candidates *[]scoredRawResult) {
+func (s *lineCandidateSet) add(line []byte) {
 	firstTab := bytes.IndexByte(line, '\t')
 	if firstTab <= 0 || firstTab+3 >= len(line) {
 		return
@@ -414,36 +518,103 @@ func addLineFileCandidate(line []byte, matchQuery []byte, normalized string, pat
 	if len(pathBytes) == 0 {
 		return
 	}
-	if pathLike {
-		if !bytes.Contains(bytes.ToLower(pathBytes), []byte(normalized)) {
+	if s.pathLike {
+		if s.normalizedASCII {
+			if !containsASCIIFoldBytes(pathBytes, s.normalizedBytes) {
+				return
+			}
+		} else if !bytes.Contains(bytes.ToLower(pathBytes), s.normalizedBytes) {
 			return
 		}
-	} else if !bytes.Contains(lowerNameBytes, matchQuery) {
+	} else if !bytes.Contains(lowerNameBytes, s.matchQuery) {
+		return
+	}
+	score := fileScoreLowerBytes(lowerNameBytes, s.matchQuery)
+	if len(s.candidates) >= s.maxCandidates && score <= s.worstScore {
 		return
 	}
 	path := string(pathBytes)
-	key := strings.ToLower(filepath.Clean(path))
-	if seen[key] {
+	key := strings.ToLower(path)
+	if s.seen[key] {
 		return
 	}
-	seen[key] = true
-	lowerName := string(lowerNameBytes)
-	score := fileScoreLower(lowerName, "", string(matchQuery))
+	s.seen[key] = true
 	raw := rawResult{Name: filepath.Base(path), Path: path, IsDirectory: isDirectory}
 	item := scoredRawResult{raw: raw, score: score}
-	if len(*candidates) < maxCandidates {
-		*candidates = append(*candidates, item)
+	if len(s.candidates) < s.maxCandidates {
+		s.candidates = append(s.candidates, item)
+		if len(s.candidates) == s.maxCandidates {
+			s.recomputeWorst()
+		}
+		return
+	}
+	s.candidates[s.worstIndex] = item
+	s.recomputeWorst()
+}
+
+func (s *lineCandidateSet) recomputeWorst() {
+	if len(s.candidates) == 0 {
+		s.worstIndex = 0
+		s.worstScore = 0
 		return
 	}
 	worstIndex := 0
-	worstScore := (*candidates)[0].score
-	for index := 1; index < len(*candidates); index++ {
-		if (*candidates)[index].score < worstScore {
+	worstScore := s.candidates[0].score
+	for index := 1; index < len(s.candidates); index++ {
+		if s.candidates[index].score < worstScore {
 			worstIndex = index
-			worstScore = (*candidates)[index].score
+			worstScore = s.candidates[index].score
 		}
 	}
-	if score > worstScore {
-		(*candidates)[worstIndex] = item
+	s.worstIndex = worstIndex
+	s.worstScore = worstScore
+}
+
+func fileScoreLowerBytes(name []byte, query []byte) float64 {
+	if bytes.Equal(name, query) {
+		return 95
 	}
+	if bytes.HasPrefix(name, query) {
+		return 88
+	}
+	if bytes.Contains(name, query) {
+		return 72
+	}
+	return 30
+}
+
+func isASCIIBytes(value []byte) bool {
+	for _, b := range value {
+		if b > 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func containsASCIIFoldBytes(haystack []byte, lowerNeedle []byte) bool {
+	if len(lowerNeedle) == 0 {
+		return true
+	}
+	if len(lowerNeedle) > len(haystack) {
+		return false
+	}
+	first := lowerASCII(lowerNeedle[0])
+	limit := len(haystack) - len(lowerNeedle)
+	for start := 0; start <= limit; start++ {
+		if lowerASCII(haystack[start]) != first {
+			continue
+		}
+		matched := true
+		for offset := 1; offset < len(lowerNeedle); offset++ {
+			if lowerASCII(haystack[start+offset]) != lowerASCII(lowerNeedle[offset]) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }

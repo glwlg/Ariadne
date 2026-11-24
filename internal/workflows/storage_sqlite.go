@@ -128,12 +128,16 @@ func readWorkflowState(conn *sqlite.Conn) (workflowState, bool, error) {
 	if err != nil {
 		return workflowState{}, false, err
 	}
+	stepsByWorkflow, err := readAllWorkflowSteps(conn)
+	if err != nil {
+		return workflowState{}, false, err
+	}
 	for index := range state.Workflows {
-		steps, err := readWorkflowSteps(conn, state.Workflows[index].ID)
-		if err != nil {
-			return workflowState{}, false, err
+		if steps, ok := stepsByWorkflow[state.Workflows[index].ID]; ok {
+			state.Workflows[index].Steps = steps
+		} else {
+			state.Workflows[index].Steps = []Step{}
 		}
-		state.Workflows[index].Steps = steps
 	}
 	if err := sqlitex.Execute(conn, `SELECT id FROM workflow_removed`, &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
@@ -170,14 +174,17 @@ func insertWorkflow(conn *sqlite.Conn, workflow Workflow) error {
 	return nil
 }
 
-func readWorkflowSteps(conn *sqlite.Conn, workflowID string) ([]Step, error) {
-	steps := []Step{}
-	err := sqlitex.Execute(conn, `SELECT command, pick FROM workflow_steps WHERE workflow_id = ?1 ORDER BY position`, &sqlitex.ExecOptions{
-		Args: []any{workflowID},
+func readAllWorkflowSteps(conn *sqlite.Conn) (map[string][]Step, error) {
+	stepsByWorkflow := map[string][]Step{}
+	err := sqlitex.Execute(conn, `SELECT workflow_id, command, pick FROM workflow_steps ORDER BY workflow_id, position`, &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
-			steps = append(steps, Step{Command: stmt.ColumnText(0), Pick: stmt.ColumnText(1)})
+			workflowID := stmt.ColumnText(0)
+			stepsByWorkflow[workflowID] = append(stepsByWorkflow[workflowID], Step{
+				Command: stmt.ColumnText(1),
+				Pick:    stmt.ColumnText(2),
+			})
 			return nil
 		},
 	})
-	return steps, err
+	return stepsByWorkflow, err
 }

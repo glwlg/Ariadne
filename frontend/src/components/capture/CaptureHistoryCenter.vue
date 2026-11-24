@@ -12,6 +12,7 @@ import {
   Search,
   Trash2,
 } from '@lucide/vue'
+import { Window } from '@wailsio/runtime'
 import { computed, onMounted } from 'vue'
 import FancunButton from '../ui/FancunButton.vue'
 import OCRImageOverlay from '../ocr/OCRImageOverlay.vue'
@@ -19,6 +20,13 @@ import { useAppShellStore } from '../../stores/appShell'
 import { useCaptureHistoryStore } from '../../stores/captureHistory'
 import { ocrConfidenceLabel, ocrRectLabel } from '../../lib/ocrDisplay'
 import type { CaptureHistoryEntry } from '../../types/fancun'
+
+const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
 
 const appShell = useAppShellStore()
 const capture = useCaptureHistoryStore()
@@ -29,14 +37,32 @@ onMounted(() => {
   void capture.load()
 })
 
+async function runWithWindowHidden(action: () => Promise<void>) {
+  let hidWindow = false
+  try {
+    await Window.Hide()
+    hidWindow = true
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 220))
+  } catch {
+    // Window.Hide is unavailable in browser-only preview mode.
+  }
+  try {
+    await action()
+  } finally {
+    if (hidWindow) {
+      try {
+        await Window.Show()
+        await Window.Focus()
+      } catch {
+        // Ignore restore failure in browser-only mode.
+      }
+    }
+  }
+}
+
 function formatTime(seconds: number) {
   if (!seconds) return '未知时间'
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(seconds * 1000))
+  return timeFormatter.format(new Date(seconds * 1000))
 }
 
 function dimensions(entry: CaptureHistoryEntry) {
@@ -79,7 +105,7 @@ function formatBytes(bytes: number) {
           </div>
         </header>
 
-        <div class="tool-toolbar">
+        <div class="tool-toolbar capture-toolbar">
           <div class="tool-search">
             <Search :size="17" />
             <input
@@ -89,7 +115,7 @@ function formatBytes(bytes: number) {
               @input="capture.setQuery(($event.target as HTMLInputElement).value)"
             />
           </div>
-          <FancunButton size="sm" variant="primary" :disabled="capture.isCapturing" @click="capture.captureScreen()">
+          <FancunButton size="sm" variant="primary" :disabled="capture.isCapturing" @click="runWithWindowHidden(() => capture.captureScreen())">
             <Camera :size="14" />
             {{ capture.isCapturing ? '捕获中' : '捕获当前屏幕' }}
           </FancunButton>
@@ -97,15 +123,20 @@ function formatBytes(bytes: number) {
             <ImageIcon :size="14" />
             区域截图
           </FancunButton>
-          <FancunButton size="sm" variant="secondary" :disabled="capture.isScanningQR" @click="capture.scanCurrentScreenQRCode()">
+          <FancunButton size="sm" variant="secondary" :disabled="capture.isScanningQR" @click="runWithWindowHidden(() => capture.scanCurrentScreenQRCode())">
             <QrCode :size="14" />
             {{ capture.isScanningQR ? '识别中' : '识别当前屏幕' }}
           </FancunButton>
-          <FancunButton size="sm" variant="secondary" :disabled="capture.isRecognizingOCR" @click="capture.recognizeCurrentScreenText()">
+          <FancunButton size="sm" variant="secondary" :disabled="capture.isRecognizingOCR" @click="runWithWindowHidden(() => capture.recognizeCurrentScreenText())">
             <FileText :size="14" />
             {{ capture.isRecognizingOCR ? 'OCR 中' : 'OCR 当前屏幕' }}
           </FancunButton>
-          <FancunButton size="sm" variant="secondary" @click="capture.clearUnpinned()">
+          <FancunButton
+            size="sm"
+            variant="secondary"
+            :class="{ 'is-armed-danger': capture.clearArmed }"
+            @click="capture.clearUnpinned()"
+          >
             <Trash2 :size="14" />
             {{ capture.clearArmed ? '确认清空' : '清空未置顶' }}
           </FancunButton>
@@ -113,28 +144,44 @@ function formatBytes(bytes: number) {
 
         <div class="capture-workspace">
           <section class="capture-list" aria-label="截图条目">
-            <button
-              v-for="entry in capture.entries"
-              :key="entry.id"
-              class="capture-row"
-              :class="{ 'is-selected': entry.id === capture.selectedId }"
-              @click="capture.select(entry.id)"
-            >
-              <span class="capture-row-icon" :class="{ 'is-pinned': entry.pinned }">
-                <Pin v-if="entry.pinned" :size="15" />
-                <ImageIcon v-else :size="15" />
-              </span>
-              <span class="capture-row-main">
-                <span class="capture-row-title">{{ dimensions(entry) }}</span>
-                <span class="capture-row-meta">
-                  {{ formatTime(entry.createdAt) }} · {{ entry.source }} · {{ formatBytes(entry.bytes) }}
-                </span>
-              </span>
-            </button>
-
-            <div v-if="!capture.entries.length" class="empty-state">
+            <div v-if="capture.isLoading && !capture.entries.length" class="tool-loading-state">
               <Camera :size="22" />
-              <span>还没有匹配的截图记录</span>
+              <strong>正在加载截图历史...</strong>
+              <small>读取本地截图记录与索引</small>
+            </div>
+
+            <div v-else-if="capture.loadError && !capture.entries.length" class="tool-error-state">
+              <Camera :size="22" />
+              <strong>截图历史加载失败</strong>
+              <small>{{ capture.loadError }}</small>
+              <FancunButton size="sm" variant="secondary" @click="capture.load()">重试加载</FancunButton>
+            </div>
+
+            <template v-else-if="capture.entries.length">
+              <button
+                v-for="entry in capture.entries"
+                :key="entry.id"
+                class="capture-row"
+                :class="{ 'is-selected': entry.id === capture.selectedId }"
+                @click="capture.select(entry.id)"
+              >
+                <span class="capture-row-icon" :class="{ 'is-pinned': entry.pinned }">
+                  <Pin v-if="entry.pinned" :size="15" />
+                  <ImageIcon v-else :size="15" />
+                </span>
+                <span class="capture-row-main">
+                  <span class="capture-row-title">{{ dimensions(entry) }}</span>
+                  <span class="capture-row-meta">
+                    {{ formatTime(entry.createdAt) }} · {{ entry.source }} · {{ formatBytes(entry.bytes) }}
+                  </span>
+                </span>
+              </button>
+            </template>
+
+            <div v-else class="tool-empty-state">
+              <Camera :size="22" />
+              <strong>还没有匹配的截图记录</strong>
+              <small>尝试调整搜索词或使用上方按钮捕获新截图</small>
             </div>
           </section>
 
@@ -153,8 +200,12 @@ function formatBytes(bytes: number) {
               </div>
 
               <div class="capture-preview-frame">
+                <div v-if="capture.isLoadingImage" class="tool-loading-state">
+                  <ImageIcon :size="24" />
+                  <strong>正在加载预览图...</strong>
+                </div>
                 <OCRImageOverlay
-                  v-if="capture.imageDataUrl"
+                  v-else-if="capture.imageDataUrl"
                   :src="capture.imageDataUrl"
                   :width="capture.ocrResult?.width || selected.width"
                   :height="capture.ocrResult?.height || selected.height"
@@ -197,10 +248,31 @@ function formatBytes(bytes: number) {
                   <Pin :size="14" />
                   {{ selected.pinned ? '取消置顶' : '置顶' }}
                 </FancunButton>
-                <FancunButton size="sm" variant="secondary" @click="capture.deleteEntry(selected)">
+                <FancunButton
+                  size="sm"
+                  variant="secondary"
+                  :class="{ 'is-armed-danger': capture.deleteArmedId === selected.id }"
+                  @click="capture.deleteEntry(selected)"
+                >
                   <Trash2 :size="14" />
                   {{ capture.deleteArmedId === selected.id ? '确认删除' : '删除' }}
                 </FancunButton>
+              </div>
+
+              <div v-if="capture.isScanningQR" class="qr-result-panel" aria-live="polite">
+                <div class="side-title">
+                  <QrCode :size="15" />
+                  正在识别二维码...
+                </div>
+                <p>正在解析图像中的二维码内容，请稍候。</p>
+              </div>
+
+              <div v-if="capture.isRecognizingOCR" class="qr-result-panel" aria-live="polite">
+                <div class="side-title">
+                  <FileText :size="15" />
+                  正在执行 OCR 文字识别...
+                </div>
+                <p>正在提取图片中的文本与位置框，请稍候。</p>
               </div>
 
               <div v-if="capture.qrResult" class="qr-result-panel" :class="{ 'is-success': capture.qrResult.ok }">
@@ -297,9 +369,9 @@ function formatBytes(bytes: number) {
               </div>
             </template>
 
-            <div v-else class="empty-state">
+            <div v-else class="tool-empty-state">
               <Camera :size="22" />
-              <span>选择一张截图查看详情</span>
+              <strong>选择一张截图查看详情</strong>
             </div>
           </section>
         </div>
@@ -313,10 +385,14 @@ function formatBytes(bytes: number) {
             <Pin :size="14" />
             置顶截图不会被清空未置顶删除
           </span>
-          <span v-if="capture.status?.lastCaptureError" class="inline-feedback">
+          <span v-if="capture.status?.lastCaptureError" class="inline-feedback is-danger">
             {{ capture.status.lastCaptureError }}
           </span>
-          <span v-else-if="capture.feedback" class="inline-feedback">{{ capture.feedback }}</span>
+          <span
+            v-else-if="capture.feedback"
+            class="inline-feedback"
+            :class="{ 'is-danger': capture.feedbackTone === 'danger' }"
+          >{{ capture.feedback }}</span>
         </footer>
       </section>
     </div>

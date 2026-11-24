@@ -17,10 +17,14 @@ import (
 	"fancun/internal/toolregistry"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 const (
 	launcherWindowName       = "tool-launcher"
+	launcherShowFocusGrace   = 220 * time.Millisecond
+	launcherResizeFocusGrace = 180 * time.Millisecond
+	launcherBlurSettleDelay  = 50 * time.Millisecond
 	networkMiniView          = "network-mini"
 	networkMiniContextMenu   = "network-mini-menu"
 	networkMiniDefaultAnchor = "taskbar-left"
@@ -28,6 +32,7 @@ const (
 	networkMiniFillRatio     = 82
 	networkMiniLayerRefresh  = 30 * time.Second
 	networkMiniLayerWatch    = 500 * time.Millisecond
+	nativeNetworkMiniWatch   = time.Second
 )
 
 var (
@@ -106,6 +111,18 @@ type Service struct {
 	nativeMiniTraffic    networkmonitor.TrafficSnapshot
 	nativeMiniSampleAt   time.Time
 	nativeMiniWasVisible bool
+	launcherInitMu       sync.Mutex
+	launcherPrevHWND     uintptr
+	launcherShownAt      time.Time
+	launcherResizeAt     time.Time
+	launcherStopping     bool
+	launcherBlurTimer    *time.Timer
+	launcherBlurToken    uint64
+	launcherNow          func() time.Time
+	captureForegroundFn  func() uintptr
+	restoreForegroundFn  func(uintptr)
+	launcherForegroundFn func(application.Window) bool
+	windowHWNDGetter     func(application.Window) uintptr
 }
 
 func NewService() *Service {
@@ -117,9 +134,14 @@ func NewServiceWithOptions(networkMiniPath string, detector FullscreenDetector) 
 		detector = func() (bool, error) { return false, nil }
 	}
 	service := &Service{
-		networkMiniPath:    networkMiniPath,
-		networkMiniConfig:  defaultNetworkMiniConfig(),
-		fullscreenDetector: detector,
+		networkMiniPath:      networkMiniPath,
+		networkMiniConfig:    defaultNetworkMiniConfig(),
+		fullscreenDetector:   detector,
+		launcherNow:          time.Now,
+		captureForegroundFn:  captureForegroundWindowHWND,
+		restoreForegroundFn:  restoreForegroundWindowHWND,
+		launcherForegroundFn: isLauncherOrChildForeground,
+		windowHWNDGetter:     windowHWND,
 	}
 	service.loadNetworkMiniConfig()
 	return service
@@ -232,14 +254,48 @@ func (s *Service) Open(view string) OpenResult {
 	return OpenResult{OK: true, Message: toolTitle(view) + " 已打开", View: view}
 }
 
-func (s *Service) ShowLauncher() OpenResult {
+func WarmLauncher(service *Service) {
+	if service == nil {
+		return
+	}
+	service.warmLauncher()
+}
+
+func (s *Service) warmLauncher() {
+	s.launcherInitMu.Lock()
+	defer s.launcherInitMu.Unlock()
+
 	s.mu.RLock()
 	app := s.app
+	stopping := s.launcherStopping
 	s.mu.RUnlock()
-	if app == nil {
+	if app == nil || stopping {
+		return
+	}
+	if _, ok := app.Window.Get(launcherWindowName); ok {
+		return
+	}
+	window := s.createLauncherWindow(app, true)
+	window.Hide()
+}
+
+func (s *Service) ShowLauncher() OpenResult {
+	s.launcherInitMu.Lock()
+	defer s.launcherInitMu.Unlock()
+
+	s.mu.RLock()
+	app := s.app
+	stopping := s.launcherStopping
+	s.mu.RUnlock()
+	if app == nil || stopping {
 		return OpenResult{OK: false, Message: "Fancun 窗口服务尚未就绪", View: "launcher"}
 	}
 	if existing, ok := app.Window.Get(launcherWindowName); ok {
+		if shouldToggleHideLauncher(existing.IsVisible(), existing.IsFocused(), s.isLauncherForeground(existing)) {
+			s.hideLauncherWindow(existing, true)
+			return OpenResult{OK: true, Message: "启动器已隐藏", View: "launcher"}
+		}
+		s.captureAndNoteLauncherShown(existing)
 		existing.Restore()
 		existing.SetAlwaysOnTop(false)
 		launcherwindow.ApplyCollapsed(existing, app.Screen.GetPrimary())
@@ -248,6 +304,15 @@ func (s *Service) ShowLauncher() OpenResult {
 		return OpenResult{OK: true, Message: "启动器已打开", View: "launcher"}
 	}
 
+	s.captureAndNoteLauncherShown(nil)
+	window := s.createLauncherWindow(app, false)
+	launcherwindow.ApplyCollapsed(window, app.Screen.GetPrimary())
+	window.Show().Focus()
+	focusLauncher(window)
+	return OpenResult{OK: true, Message: "启动器已打开", View: "launcher"}
+}
+
+func (s *Service) createLauncherWindow(app *application.App, hidden bool) application.Window {
 	launcherPosition, launcherX, launcherY, launcherScreen := launcherwindow.InitialPlacement(app.Screen.GetPrimary())
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             launcherWindowName,
@@ -264,6 +329,7 @@ func (s *Service) ShowLauncher() OpenResult {
 		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		InitialPosition:  launcherPosition,
 		Screen:           launcherScreen,
+		Hidden:           hidden,
 		Windows: application.WindowsWindow{
 			Theme:                             application.Light,
 			DisableIcon:                       true,
@@ -271,10 +337,232 @@ func (s *Service) ShowLauncher() OpenResult {
 			HiddenOnTaskbar:                   true,
 		},
 	})
-	launcherwindow.ApplyCollapsed(window, app.Screen.GetPrimary())
-	window.Show().Focus()
-	focusLauncher(window)
-	return OpenResult{OK: true, Message: "启动器已打开", View: "launcher"}
+	s.bindLauncherHooks(window)
+	return window
+}
+
+func (s *Service) bindLauncherHooks(window application.Window) {
+	if window == nil {
+		return
+	}
+	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if s.isLauncherStopping() {
+			return
+		}
+		event.Cancel()
+		s.hideLauncherWindow(window, true)
+	})
+	window.OnWindowEvent(events.Common.WindowDidResize, func(*application.WindowEvent) {
+		s.noteLauncherResize()
+	})
+	window.OnWindowEvent(events.Common.WindowFocus, func(*application.WindowEvent) {
+		s.cancelLauncherBlurTimer()
+	})
+	window.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
+		s.scheduleLauncherBlurCheck(window)
+	})
+	window.OnWindowEvent(events.Common.WindowHide, func(*application.WindowEvent) {
+		s.handleLauncherHidden()
+	})
+}
+
+func shouldToggleHideLauncher(visible bool, focused bool, isForeground bool) bool {
+	return visible && (focused || isForeground)
+}
+
+func (s *Service) now() time.Time {
+	if s.launcherNow != nil {
+		return s.launcherNow()
+	}
+	return time.Now()
+}
+
+func (s *Service) captureForeground() uintptr {
+	if s.captureForegroundFn != nil {
+		return s.captureForegroundFn()
+	}
+	return captureForegroundWindowHWND()
+}
+
+func (s *Service) restoreForeground(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+	if s.restoreForegroundFn != nil {
+		s.restoreForegroundFn(hwnd)
+		return
+	}
+	restoreForegroundWindowHWND(hwnd)
+}
+
+func (s *Service) isLauncherForeground(window application.Window) bool {
+	if window == nil {
+		return false
+	}
+	if s.launcherForegroundFn != nil {
+		return s.launcherForegroundFn(window)
+	}
+	return isLauncherOrChildForeground(window)
+}
+
+func (s *Service) windowHWND(window application.Window) uintptr {
+	if window == nil {
+		return 0
+	}
+	if s.windowHWNDGetter != nil {
+		return s.windowHWNDGetter(window)
+	}
+	return windowHWND(window)
+}
+
+func (s *Service) captureAndNoteLauncherShown(existing application.Window) {
+	launcherHWND := s.windowHWND(existing)
+	fg := s.captureForeground()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelLauncherBlurTimerLocked()
+	s.launcherShownAt = s.now()
+	if fg != 0 && fg != launcherHWND {
+		s.launcherPrevHWND = fg
+	}
+}
+
+func (s *Service) clearLauncherPrevHWND() {
+	s.mu.Lock()
+	s.launcherPrevHWND = 0
+	s.cancelLauncherBlurTimerLocked()
+	s.mu.Unlock()
+}
+
+func (s *Service) noteLauncherResize() {
+	s.mu.Lock()
+	s.launcherResizeAt = s.now()
+	s.mu.Unlock()
+}
+
+func (s *Service) isLauncherStopping() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.launcherStopping
+}
+
+func (s *Service) cancelLauncherBlurTimer() {
+	s.mu.Lock()
+	s.cancelLauncherBlurTimerLocked()
+	s.mu.Unlock()
+}
+
+func (s *Service) cancelLauncherBlurTimerLocked() {
+	s.launcherBlurToken++
+	if s.launcherBlurTimer != nil {
+		s.launcherBlurTimer.Stop()
+		s.launcherBlurTimer = nil
+	}
+}
+
+func (s *Service) launcherRemainingGraceLocked(now time.Time) time.Duration {
+	var remaining time.Duration
+	if !s.launcherShownAt.IsZero() {
+		if d := s.launcherShownAt.Add(launcherShowFocusGrace).Sub(now); d > remaining {
+			remaining = d
+		}
+	}
+	if !s.launcherResizeAt.IsZero() {
+		if d := s.launcherResizeAt.Add(launcherResizeFocusGrace).Sub(now); d > remaining {
+			remaining = d
+		}
+	}
+	return remaining
+}
+
+func (s *Service) shouldHideLauncherOnBlurLocked(now time.Time, visible bool, focused bool, isForeground bool) (bool, time.Duration) {
+	if s.launcherStopping || !visible || focused || isForeground {
+		return false, 0
+	}
+	if rem := s.launcherRemainingGraceLocked(now); rem > 0 {
+		return false, rem
+	}
+	return true, 0
+}
+
+func (s *Service) scheduleLauncherBlurCheck(window application.Window) {
+	if window == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.launcherStopping {
+		s.mu.Unlock()
+		return
+	}
+	delay := max(launcherBlurSettleDelay, s.launcherRemainingGraceLocked(s.now()))
+	s.launcherBlurToken++
+	token := s.launcherBlurToken
+	if s.launcherBlurTimer != nil {
+		s.launcherBlurTimer.Stop()
+	}
+	s.launcherBlurTimer = time.AfterFunc(delay, func() {
+		s.runLauncherBlurCheck(window, token)
+	})
+	s.mu.Unlock()
+}
+
+func (s *Service) runLauncherBlurCheck(window application.Window, token uint64) {
+	visible := window != nil && window.IsVisible()
+	focused := window != nil && window.IsFocused()
+	isForeground := s.isLauncherForeground(window)
+
+	s.mu.Lock()
+	if token != s.launcherBlurToken {
+		s.mu.Unlock()
+		return
+	}
+	hide, retryAfter := s.shouldHideLauncherOnBlurLocked(s.now(), visible, focused, isForeground)
+	if !hide && retryAfter > 0 {
+		s.launcherBlurToken++
+		nextToken := s.launcherBlurToken
+		s.launcherBlurTimer = time.AfterFunc(retryAfter, func() {
+			s.runLauncherBlurCheck(window, nextToken)
+		})
+		s.mu.Unlock()
+		return
+	}
+	s.launcherBlurTimer = nil
+	s.mu.Unlock()
+
+	if hide {
+		s.hideLauncherWindow(window, false)
+	}
+}
+
+func (s *Service) hideLauncherWindow(window application.Window, restoreFocus bool) {
+	var prev uintptr
+	s.mu.Lock()
+	s.cancelLauncherBlurTimerLocked()
+	if restoreFocus {
+		prev = s.launcherPrevHWND
+	}
+	s.launcherPrevHWND = 0
+	s.mu.Unlock()
+
+	if window != nil {
+		window.SetAlwaysOnTop(false)
+		window.Hide()
+	}
+	if restoreFocus && prev != 0 {
+		s.restoreForeground(prev)
+	}
+}
+
+func (s *Service) handleLauncherHidden() {
+	s.mu.Lock()
+	s.cancelLauncherBlurTimerLocked()
+	prev := s.launcherPrevHWND
+	s.launcherPrevHWND = 0
+	stopping := s.launcherStopping
+	s.mu.Unlock()
+	if !stopping && prev != 0 {
+		s.restoreForeground(prev)
+	}
 }
 
 func (s *Service) OpenFromShell(view string) bool {
@@ -427,6 +715,9 @@ func (s *Service) CloseNetworkMini() OpenResult {
 
 func (s *Service) Stop() {
 	s.mu.Lock()
+	s.launcherStopping = true
+	s.cancelLauncherBlurTimerLocked()
+	s.launcherPrevHWND = 0
 	stop := s.monitorStop
 	done := s.monitorDone
 	s.monitorStop = nil
@@ -435,6 +726,7 @@ func (s *Service) Stop() {
 		close(stop)
 		<-done
 	}
+	releaseOrdinaryWindowIcons()
 }
 
 func (s *Service) open(view string) error {
@@ -448,6 +740,7 @@ func (s *Service) open(view string) error {
 		s.markNetworkMiniVisible()
 		return s.syncNativeNetworkMini()
 	}
+	s.clearLauncherPrevHWND()
 
 	name := "tool-" + view
 	if existing, ok := app.Window.Get(name); ok {
@@ -520,7 +813,6 @@ func focusLauncher(window application.Window) {
 	if window == nil {
 		return
 	}
-	window.EmitEvent("fancun:focus-launcher", map[string]any{"selectAll": true})
 	window.ExecJS(`window.dispatchEvent(new CustomEvent("fancun:focus-launcher", { detail: { selectAll: true } }));`)
 }
 
@@ -597,10 +889,13 @@ func ordinaryTaskbarToggleAllowed(view string) bool {
 func (s *Service) applyOrdinaryWindowPolicy(window application.Window) {
 	icon := s.windowIconSnapshot()
 	applyOrdinaryWindowPolicyNow(window, icon)
-	refreshOrdinaryWindowPolicy(window, icon)
+	s.refreshOrdinaryWindowPolicy(window, icon)
 }
 
 func applyOrdinaryWindowPolicyNow(window application.Window, icon []byte) {
+	if !isOrdinaryWindowAlive(window) {
+		return
+	}
 	enableOrdinaryWindowTaskbarToggle(window)
 	setOrdinaryWindowIcon(window, icon)
 }
@@ -614,14 +909,30 @@ func (s *Service) windowIconSnapshot() []byte {
 	return append([]byte(nil), s.windowIcon...)
 }
 
-func refreshOrdinaryWindowPolicy(window application.Window, icon []byte) {
+func (s *Service) refreshOrdinaryWindowPolicy(window application.Window, icon []byte) {
 	if window == nil {
+		return
+	}
+	s.mu.RLock()
+	stop := s.monitorStop
+	stopping := s.launcherStopping
+	s.mu.RUnlock()
+	if stopping {
 		return
 	}
 	icon = append([]byte(nil), icon...)
 	go func() {
 		for _, delay := range ordinaryWindowPolicyRetryDelays() {
-			time.Sleep(delay)
+			timer := time.NewTimer(delay)
+			select {
+			case <-stop:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			if s.isLauncherStopping() || !isOrdinaryWindowAlive(window) {
+				return
+			}
 			applyOrdinaryWindowPolicyNow(window, icon)
 		}
 	}()
@@ -884,9 +1195,9 @@ func (s *Service) startNetworkMiniMonitorLocked() {
 }
 
 func (s *Service) runNetworkMiniMonitor(stop <-chan struct{}) {
-	ticker := time.NewTicker(networkMiniLayerWatch)
-	defer ticker.Stop()
 	if s.usesNativeNetworkMini() {
+		ticker := time.NewTicker(nativeNetworkMiniWatch)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-stop:
@@ -896,6 +1207,8 @@ func (s *Service) runNetworkMiniMonitor(stop <-chan struct{}) {
 			}
 		}
 	}
+	ticker := time.NewTicker(networkMiniLayerWatch)
+	defer ticker.Stop()
 	taskbarEvents := make(chan struct{}, 1)
 	go func() {
 		_ = watchNetworkMiniTaskbarForeground(stop, func() {
@@ -927,12 +1240,39 @@ func (s *Service) tickNetworkMiniAutoHide() {
 	app := s.app
 	config := s.networkMiniConfig
 	detector := s.fullscreenDetector
+	capturePaused := s.captureFocusPaused
 	s.mu.RUnlock()
 
 	if app == nil {
 		return
 	}
-	fullscreen, err := detector()
+	nativeMode := s.usesNativeNetworkMini()
+	if !config.Visible {
+		s.mu.Lock()
+		s.fullscreenActive = false
+		s.mu.Unlock()
+		if nativeMode {
+			s.nativeMiniMu.Lock()
+			wasVisible := s.nativeMiniWasVisible
+			s.nativeMiniMu.Unlock()
+			if wasVisible {
+				_ = s.syncNativeNetworkMini()
+			}
+			return
+		}
+		if window, ok := app.Window.Get("tool-" + networkMiniView); !ok || !window.IsVisible() {
+			s.mu.Lock()
+			s.networkMiniHidden = false
+			s.mu.Unlock()
+			return
+		}
+	}
+
+	var fullscreen bool
+	var err error
+	if config.Visible && config.AutoHideFullscreen && (!nativeMode || !capturePaused) {
+		fullscreen, err = detector()
+	}
 	s.mu.Lock()
 	s.fullscreenActive = fullscreen
 	if err != nil {
@@ -947,7 +1287,7 @@ func (s *Service) tickNetworkMiniAutoHide() {
 	if err != nil {
 		return
 	}
-	if s.usesNativeNetworkMini() {
+	if nativeMode {
 		_ = s.syncNativeNetworkMini()
 		return
 	}

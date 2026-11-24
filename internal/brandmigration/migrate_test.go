@@ -379,6 +379,91 @@ func TestRewritePathRequiresDirectoryBoundaryAndPreservesUserText(t *testing.T) 
 	}
 }
 
+func TestExistingRoamingFancunWithoutReceiptIsPreservedAsAuthoritative(t *testing.T) {
+	t.Run("without_legacy_ariadne", func(t *testing.T) {
+		base := t.TempDir()
+		roaming := filepath.Join(base, "roaming")
+		fancunConfig := filepath.Join(roaming, "Fancun", "config.json")
+		writeFile(t, fancunConfig, []byte(`{"theme":"light"}`))
+
+		if err := Run(Options{RoamingBase: roaming}); err != nil {
+			t.Fatalf("existing Fancun dir without receipt must not fail startup: %v", err)
+		}
+		raw, err := os.ReadFile(fancunConfig)
+		if err != nil || string(raw) != `{"theme":"light"}` {
+			t.Fatalf("existing Fancun data was altered: %q err=%v", raw, err)
+		}
+	})
+
+	t.Run("with_legacy_ariadne_and_credentials", func(t *testing.T) {
+		base := t.TempDir()
+		roaming := filepath.Join(base, "roaming")
+		local := filepath.Join(base, "local")
+		fancunConfig := filepath.Join(roaming, "Fancun", "config.json")
+		legacyConfig := filepath.Join(roaming, "Ariadne", "config.json")
+		writeFile(t, fancunConfig, []byte(`{"theme":"fancun-user"}`))
+		writeFile(t, legacyConfig, []byte(`{"theme":"old-ariadne"}`))
+		store := &credentialStore{values: map[string]string{
+			"Ariadne/OpenAI/APIKey":    "legacy-openai",
+			"Fancun/OpenAI/APIKey":     "existing-fancun-openai",
+			"Ariadne/Embedding/APIKey": "legacy-embed",
+		}}
+
+		if err := Run(Options{RoamingBase: roaming, LocalBase: local, Credentials: store}); err != nil {
+			t.Fatalf("existing Fancun dir without receipt must remain authoritative: %v", err)
+		}
+		raw, err := os.ReadFile(fancunConfig)
+		if err != nil || string(raw) != `{"theme":"fancun-user"}` {
+			t.Fatalf("existing Fancun roaming data was overwritten: %q err=%v", raw, err)
+		}
+		legacyRaw, err := os.ReadFile(legacyConfig)
+		if err != nil || string(legacyRaw) != `{"theme":"old-ariadne"}` {
+			t.Fatalf("legacy Ariadne data was modified: %q err=%v", legacyRaw, err)
+		}
+		if store.values["Fancun/OpenAI/APIKey"] != "existing-fancun-openai" {
+			t.Fatalf("existing Fancun credential must be preserved: %#v", store.values)
+		}
+		if store.values["Ariadne/OpenAI/APIKey"] != "legacy-openai" || store.values["Ariadne/Embedding/APIKey"] != "legacy-embed" {
+			t.Fatalf("legacy Ariadne credentials must be preserved: %#v", store.values)
+		}
+		if store.values["Fancun/Embedding/APIKey"] != "legacy-embed" {
+			t.Fatalf("missing Fancun credential should still migrate safely: %#v", store.values)
+		}
+	})
+}
+
+func TestExistingRoamingFancunWithInvalidReceiptStopsBeforeImport(t *testing.T) {
+	base := t.TempDir()
+	roaming := filepath.Join(base, "roaming")
+	writeFile(t, filepath.Join(roaming, "Fancun", receiptName), []byte("{corrupt"))
+	writeFile(t, filepath.Join(roaming, "Ariadne", "old.txt"), []byte("old"))
+
+	err := Run(Options{RoamingBase: roaming})
+	if err == nil || !strings.Contains(err.Error(), "目录冲突") {
+		t.Fatalf("corrupted receipt must still be rejected: %v", err)
+	}
+}
+
+func TestMigrateFromPathsRespectsExplicitBasesAndWithCredentialsFlag(t *testing.T) {
+	base := t.TempDir()
+	roaming := filepath.Join(base, "roaming")
+	local := filepath.Join(base, "local")
+	pictures := filepath.Join(base, "Pictures")
+	writeFile(t, filepath.Join(roaming, "Ariadne", "note.txt"), []byte("from-ariadne"))
+	writeFile(t, filepath.Join(local, "Ariadne", "cache.txt"), []byte("cache"))
+	writeFile(t, filepath.Join(pictures, "Ariadne", "pic.png"), []byte("pic"))
+
+	if err := MigrateFromPaths("", roaming, local, pictures, false); err != nil {
+		t.Fatalf("MigrateFromPaths failed: %v", err)
+	}
+	if raw, err := os.ReadFile(filepath.Join(roaming, "Fancun", "note.txt")); err != nil || string(raw) != "from-ariadne" {
+		t.Fatalf("roaming file not migrated: %q err=%v", raw, err)
+	}
+	if _, err := os.Stat(filepath.Join(roaming, "Fancun", ".brand-credentials-migrated")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("withCredentials=false must not write credential migration marker: %v", err)
+	}
+}
+
 func writeFile(t *testing.T, path string, contents []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

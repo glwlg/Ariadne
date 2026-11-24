@@ -420,6 +420,20 @@ export class Status {
              */
             this["virtualizedBytes"] = 0;
         }
+        if (!("canRollback" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["canRollback"] = false;
+        }
+        if (/** @type {any} */(false)) {
+            /**
+             * @member
+             * @type {string | undefined}
+             */
+            this["lastBackupAt"] = undefined;
+        }
 
         Object.assign(this, $$source);
     }

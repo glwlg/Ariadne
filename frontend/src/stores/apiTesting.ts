@@ -27,6 +27,8 @@ import type { APIAssertion, APICollection, APIEnvironment, APIGitStatus, APIHead
 export type APIEditorTab = 'params' | 'headers' | 'body' | 'variables' | 'assertions'
 export type APIResponseTab = 'body' | 'headers' | 'assertions'
 
+const ARMED_TIMEOUT_MS = 5000
+
 export const useAPITestingStore = defineStore('api-testing', () => {
   const status = ref<APITestingStatus | null>(null)
   const draftCollection = ref<APICollection | null>(null)
@@ -39,18 +41,41 @@ export const useAPITestingStore = defineStore('api-testing', () => {
   const responseByRequestId = ref<Record<string, APIRunResult>>({})
   const openRequestIds = ref<string[]>([])
   const feedback = ref('')
+  const feedbackTone = ref<'success' | 'danger'>('success')
   const saveFeedback = ref('')
+  const saveFeedbackTone = ref<'success' | 'danger'>('success')
+  const loadError = ref('')
   const isLoading = ref(false)
   const isSaving = ref(false)
-  const isRunning = ref(false)
-  const isStopping = ref(false)
+  const runningRequestIds = ref<Record<string, boolean>>({})
+  const stoppingRequestIds = ref<Record<string, boolean>>({})
+  const runIdByRequestId = ref<Record<string, string>>({})
+  const runStartedAtByRequestId = ref<Record<string, number>>({})
+  const requestTimeoutSeconds = ref(30)
   const isImporting = ref(false)
   const isGitSyncing = ref(false)
   const isDirty = ref(false)
   const isEnvironmentPanelOpen = ref(false)
-  const currentRunId = ref('')
+  const envDeleteArmedId = ref('')
   const gitStatus = ref<APIGitStatus | null>(null)
-  let runSnapshotTimer: number | undefined
+  const snapshotTimers = new Map<string, number>()
+  const lastSnapshotMetaByRunId = new Map<string, { bodySize: number; statusCode: number; running: boolean }>()
+  let feedbackTimer: number | undefined
+  let saveFeedbackTimer: number | undefined
+  let envDeleteArmedTimer: number | undefined
+
+  const isRunning = computed(() => Boolean(selectedRequestId.value && runningRequestIds.value[selectedRequestId.value]))
+  const isStopping = computed(() => Boolean(selectedRequestId.value && stoppingRequestIds.value[selectedRequestId.value]))
+  const currentRunId = computed(() => (selectedRequestId.value ? runIdByRequestId.value[selectedRequestId.value] ?? '' : ''))
+  const currentRunStartedAt = computed(() => (selectedRequestId.value ? runStartedAtByRequestId.value[selectedRequestId.value] ?? 0 : 0))
+
+  function isRequestRunning(requestId: string) {
+    return Boolean(requestId && runningRequestIds.value[requestId])
+  }
+
+  function isRequestStopping(requestId: string) {
+    return Boolean(requestId && stoppingRequestIds.value[requestId])
+  }
 
   const collections = computed(() => status.value?.collections ?? [])
   const treeCollections = computed(() => {
@@ -78,10 +103,17 @@ export const useAPITestingStore = defineStore('api-testing', () => {
 
   async function load() {
     isLoading.value = true
+    loadError.value = ''
     try {
       status.value = await getAPITestingStatus()
       selectCollection(status.value.activeCollectionId || status.value.collections[0]?.id || '')
-      showFeedback(status.value.lastLoadError || '')
+      if (status.value.lastLoadError) {
+        loadError.value = status.value.lastLoadError
+        showFeedback(status.value.lastLoadError, 'danger')
+      }
+    } catch (error) {
+      loadError.value = formatError(error, 'API 测试加载失败')
+      showFeedback(loadError.value, 'danger')
     } finally {
       isLoading.value = false
     }
@@ -164,35 +196,65 @@ export const useAPITestingStore = defineStore('api-testing', () => {
   }
 
   async function createCollection() {
-    status.value = await createAPICollection()
-    selectCollection(status.value.activeCollectionId)
-    showFeedback('集合已创建')
+    try {
+      const nextStatus = await createAPICollection()
+      status.value = nextStatus
+      if (nextStatus.lastSaveError) {
+        showFeedback(`创建失败：${nextStatus.lastSaveError}`, 'danger')
+        return
+      }
+      selectCollection(nextStatus.activeCollectionId)
+      showFeedback('集合已创建', 'success')
+    } catch (error) {
+      showFeedback(`创建失败：${formatError(error, '创建集合失败')}`, 'danger')
+    }
   }
 
   async function removeCurrentCollection() {
     if (!draftCollection.value || collections.value.length <= 1) {
-      showFeedback('至少保留一个集合')
+      showFeedback('至少保留一个集合', 'danger')
       return
     }
-    status.value = await deleteAPICollection(draftCollection.value.id)
-    selectCollection(status.value.activeCollectionId)
-    showFeedback('集合已删除')
+    try {
+      const nextStatus = await deleteAPICollection(draftCollection.value.id)
+      status.value = nextStatus
+      if (nextStatus.lastSaveError) {
+        showFeedback(`删除失败：${nextStatus.lastSaveError}`, 'danger')
+        return
+      }
+      selectCollection(nextStatus.activeCollectionId)
+      showFeedback('集合已删除', 'success')
+    } catch (error) {
+      showFeedback(`删除失败：${formatError(error, '删除集合失败')}`, 'danger')
+    }
   }
 
-  async function saveCollection() {
-    if (!draftCollection.value) return
+  async function saveCollection(): Promise<boolean> {
+    if (!draftCollection.value) return false
     const id = draftCollection.value.id
     const previousOpenIds = [...openRequestIds.value]
     const previousRequestId = selectedRequestId.value
     const previousEnvironmentId = selectedEnvironmentId.value
     isSaving.value = true
     try {
-      status.value = await upsertAPICollection(clone(draftCollection.value))
+      const nextStatus = await upsertAPICollection(clone(draftCollection.value))
+      status.value = nextStatus
+      if (nextStatus.lastSaveError) {
+        const message = `保存失败：${nextStatus.lastSaveError}`
+        showSaveFeedback(message, 'danger')
+        showFeedback(message, 'danger')
+        return false
+      }
       restoreDraftAfterSave(id, previousRequestId, previousOpenIds, previousEnvironmentId)
       isDirty.value = false
-      const message = status.value.lastSaveError ? `保存失败：${status.value.lastSaveError}` : '保存成功'
-      showSaveFeedback(message)
-      showFeedback(message)
+      showSaveFeedback('保存成功', 'success')
+      showFeedback('保存成功', 'success')
+      return true
+    } catch (error) {
+      const message = `保存失败：${formatError(error, '保存集合失败')}`
+      showSaveFeedback(message, 'danger')
+      showFeedback(message, 'danger')
+      return false
     } finally {
       isSaving.value = false
     }
@@ -235,7 +297,9 @@ export const useAPITestingStore = defineStore('api-testing', () => {
       gitStatus.value = result
       status.value = await getAPITestingStatus()
       restoreDraftAfterSave(collectionId, previousRequestId, previousOpenIds, previousEnvironmentId)
-      showFeedback(result.ok ? result.message : result.error || result.message)
+      showFeedback(result.ok ? result.message : result.error || result.message, result.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(formatError(error, '配置 Git 同步失败'), 'danger')
     } finally {
       isGitSyncing.value = false
     }
@@ -249,6 +313,8 @@ export const useAPITestingStore = defineStore('api-testing', () => {
     isGitSyncing.value = true
     try {
       gitStatus.value = await getAPIGitStatus(draftCollection.value.id)
+    } catch (error) {
+      showFeedback(formatError(error, '读取 Git 状态失败'), 'danger')
     } finally {
       isGitSyncing.value = false
     }
@@ -266,7 +332,9 @@ export const useAPITestingStore = defineStore('api-testing', () => {
       gitStatus.value = result
       status.value = await getAPITestingStatus()
       restoreDraftAfterSave(collectionId, previousRequestId, previousOpenIds, previousEnvironmentId)
-      showFeedback(result.ok ? result.message : result.error || result.message)
+      showFeedback(result.ok ? result.message : result.error || result.message, result.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(formatError(error, 'Git 拉取失败'), 'danger')
     } finally {
       isGitSyncing.value = false
     }
@@ -277,10 +345,13 @@ export const useAPITestingStore = defineStore('api-testing', () => {
     isGitSyncing.value = true
     const collectionId = draftCollection.value.id
     try {
-      await saveCollection()
+      const saved = await saveCollection()
+      if (!saved) return
       const result = await commitPushAPIGit(collectionId, message)
       gitStatus.value = result
-      showFeedback(result.ok ? result.message : result.error || result.message)
+      showFeedback(result.ok ? result.message : result.error || result.message, result.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(formatError(error, 'Git 提交推送失败'), 'danger')
     } finally {
       isGitSyncing.value = false
     }
@@ -468,13 +539,45 @@ export const useAPITestingStore = defineStore('api-testing', () => {
   function removeSelectedEnvironment() {
     if (!draftCollection.value || !selectedEnvironment.value) return
     if (draftCollection.value.environments.length <= 1) {
-      showFeedback('至少保留一个环境')
+      showFeedback('至少保留一个环境', 'danger')
       return
     }
+    disarmEnvDelete()
     draftCollection.value.environments = draftCollection.value.environments.filter((environment) => environment.id !== selectedEnvironmentId.value)
     selectedEnvironmentId.value = draftCollection.value.environments[0]?.id ?? ''
     draftCollection.value.activeEnvironmentId = selectedEnvironmentId.value
     touchDraft()
+  }
+
+  function confirmRemoveSelectedEnvironment() {
+    if (!draftCollection.value || !selectedEnvironment.value) return
+    if (draftCollection.value.environments.length <= 1) {
+      showFeedback('至少保留一个环境', 'danger')
+      return
+    }
+    if (envDeleteArmedId.value !== selectedEnvironment.value.id) {
+      armEnvDelete(selectedEnvironment.value.id)
+      showFeedback('再次点击确认删除环境', 'danger')
+      return
+    }
+    removeSelectedEnvironment()
+  }
+
+  function armEnvDelete(id: string) {
+    disarmEnvDelete()
+    envDeleteArmedId.value = id
+    envDeleteArmedTimer = window.setTimeout(() => {
+      envDeleteArmedTimer = undefined
+      if (envDeleteArmedId.value === id) envDeleteArmedId.value = ''
+    }, ARMED_TIMEOUT_MS)
+  }
+
+  function disarmEnvDelete() {
+    envDeleteArmedId.value = ''
+    if (envDeleteArmedTimer !== undefined) {
+      window.clearTimeout(envDeleteArmedTimer)
+      envDeleteArmedTimer = undefined
+    }
   }
 
   function addEnvironmentVariable() {
@@ -499,6 +602,7 @@ export const useAPITestingStore = defineStore('api-testing', () => {
   }
 
   function closeEnvironmentPanel() {
+    disarmEnvDelete()
     isEnvironmentPanelOpen.value = false
   }
 
@@ -519,67 +623,145 @@ export const useAPITestingStore = defineStore('api-testing', () => {
     touchDraft()
   }
 
-  async function runSelectedRequest() {
-    if (!draftCollection.value || !selectedRequest.value || isRunning.value) return
+  async function runSelectedRequest(timeoutOverride?: number) {
+    if (!draftCollection.value || !selectedRequest.value) return
     const request = clone(selectedRequest.value)
     const requestId = request.id
+    if (isRequestRunning(requestId)) return
     const runId = newRunId()
     const stream = shouldKeepConnectionOpen(request)
-    isRunning.value = true
-    isStopping.value = false
-    currentRunId.value = runId
+    const timeoutSeconds = stream ? 0 : Math.max(1, Math.round(timeoutOverride ?? requestTimeoutSeconds.value ?? 30))
+
+    runningRequestIds.value = { ...runningRequestIds.value, [requestId]: true }
+    stoppingRequestIds.value = { ...stoppingRequestIds.value, [requestId]: false }
+    runIdByRequestId.value = { ...runIdByRequestId.value, [requestId]: runId }
+    runStartedAtByRequestId.value = { ...runStartedAtByRequestId.value, [requestId]: Date.now() }
+
     clearResponseForRequest(requestId)
-    lastResult.value = null
+    if (selectedRequestId.value === requestId) {
+      lastResult.value = null
+    }
     startRunSnapshotPolling(runId, requestId)
     try {
       const result = await runAPIRequest({
         collectionId: draftCollection.value.id,
         environmentId: selectedEnvironmentId.value,
         request,
-        timeoutSeconds: stream ? 0 : 30,
+        timeoutSeconds,
         runId,
         stream,
       })
       setResponseForRequest(requestId, result)
-      showFeedback(result.message || (result.ok ? '请求完成' : '请求失败'))
+      showFeedback(result.message || (result.ok ? '请求完成' : '请求失败'), result.ok ? 'success' : 'danger')
+    } catch (error) {
+      const message = formatError(error, '请求发送失败')
+      setResponseForRequest(requestId, {
+        ok: false,
+        message,
+        method: request.method,
+        requestUrl: request.url,
+        statusCode: 0,
+        statusText: '',
+        durationMs: Math.max(0, Date.now() - (runStartedAtByRequestId.value[requestId] ?? Date.now())),
+        headers: [],
+        body: '',
+        bodySize: 0,
+        bodyTruncated: false,
+        contentType: '',
+        assertionResults: [],
+        passed: 0,
+        failed: 0,
+        error: message,
+      })
+      showFeedback(message, 'danger')
     } finally {
-      stopRunSnapshotPolling()
-      isRunning.value = false
-      isStopping.value = false
-      currentRunId.value = ''
+      stopRunSnapshotPolling(runId)
+      const nextRunning = { ...runningRequestIds.value }
+      delete nextRunning[requestId]
+      runningRequestIds.value = nextRunning
+
+      const nextStopping = { ...stoppingRequestIds.value }
+      delete nextStopping[requestId]
+      stoppingRequestIds.value = nextStopping
+
+      const nextRunIds = { ...runIdByRequestId.value }
+      if (nextRunIds[requestId] === runId) {
+        delete nextRunIds[requestId]
+      }
+      runIdByRequestId.value = nextRunIds
+
+      const nextStartedAt = { ...runStartedAtByRequestId.value }
+      delete nextStartedAt[requestId]
+      runStartedAtByRequestId.value = nextStartedAt
     }
   }
 
   async function stopSelectedRequest() {
-    if (!currentRunId.value || isStopping.value) return
-    isStopping.value = true
-    const result = await stopAPIRequest(currentRunId.value)
-    showFeedback(result.message)
-    if (!result.ok) {
-      isStopping.value = false
+    const requestId = selectedRequestId.value
+    const runId = requestId ? runIdByRequestId.value[requestId] : ''
+    if (!requestId || !runId || isRequestStopping(requestId)) return
+    stoppingRequestIds.value = { ...stoppingRequestIds.value, [requestId]: true }
+    try {
+      const result = await stopAPIRequest(runId)
+      showFeedback(result.message, result.ok ? 'success' : 'danger')
+      if (!result.ok) {
+        stoppingRequestIds.value = { ...stoppingRequestIds.value, [requestId]: false }
+      }
+    } catch (error) {
+      stoppingRequestIds.value = { ...stoppingRequestIds.value, [requestId]: false }
+      showFeedback(formatError(error, '停止请求失败'), 'danger')
     }
   }
 
   function startRunSnapshotPolling(runId: string, requestId: string) {
-    stopRunSnapshotPolling()
+    stopRunSnapshotPolling(runId)
     const poll = async () => {
-      if (currentRunId.value !== runId) return
-      const snapshot = await getAPIRunSnapshot(runId)
-      if (currentRunId.value !== runId) return
-      if (snapshot.ok && snapshot.running && snapshot.result.requestUrl) {
-        setResponseForRequest(requestId, snapshot.result)
+      if (runIdByRequestId.value[requestId] !== runId) return
+      try {
+        const snapshot = await getAPIRunSnapshot(runId)
+        if (runIdByRequestId.value[requestId] !== runId) return
+        if (snapshot.ok && snapshot.running && snapshot.result.requestUrl) {
+          const prevMeta = lastSnapshotMetaByRunId.get(runId)
+          if (
+            !prevMeta ||
+            prevMeta.bodySize !== snapshot.result.bodySize ||
+            prevMeta.statusCode !== snapshot.result.statusCode ||
+            prevMeta.running !== snapshot.running
+          ) {
+            lastSnapshotMetaByRunId.set(runId, {
+              bodySize: snapshot.result.bodySize,
+              statusCode: snapshot.result.statusCode,
+              running: snapshot.running,
+            })
+            setResponseForRequest(requestId, snapshot.result)
+          }
+        }
+      } catch {
+        // Snapshot polling failures are non-fatal while main Run() is active.
       }
     }
     void poll()
-    runSnapshotTimer = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       void poll()
     }, 300)
+    snapshotTimers.set(runId, timer)
   }
 
-  function stopRunSnapshotPolling() {
-    if (runSnapshotTimer === undefined) return
-    window.clearInterval(runSnapshotTimer)
-    runSnapshotTimer = undefined
+  function stopRunSnapshotPolling(runId?: string) {
+    if (runId) {
+      const timer = snapshotTimers.get(runId)
+      if (timer !== undefined) {
+        window.clearInterval(timer)
+        snapshotTimers.delete(runId)
+      }
+      lastSnapshotMetaByRunId.delete(runId)
+      return
+    }
+    for (const timer of snapshotTimers.values()) {
+      window.clearInterval(timer)
+    }
+    snapshotTimers.clear()
+    lastSnapshotMetaByRunId.clear()
   }
 
   function setResponseForRequest(requestId: string, result: APIRunResult) {
@@ -627,15 +809,19 @@ export const useAPITestingStore = defineStore('api-testing', () => {
   async function copyResponseBody() {
     const text = lastResult.value?.body ?? ''
     if (!text) {
-      showFeedback('没有可复制的响应体')
+      showFeedback('没有可复制的响应体', 'danger')
       return
     }
     try {
       await Clipboard.SetText(text)
-      showFeedback('响应体已复制')
+      showFeedback('响应体已复制', 'success')
     } catch {
-      await navigator.clipboard?.writeText(text)
-      showFeedback('响应体已复制')
+      try {
+        await navigator.clipboard?.writeText(text)
+        showFeedback('响应体已复制', 'success')
+      } catch (error) {
+        showFeedback(formatError(error, '复制响应体失败'), 'danger')
+      }
     }
   }
 
@@ -646,20 +832,34 @@ export const useAPITestingStore = defineStore('api-testing', () => {
     isDirty.value = true
   }
 
-  function showFeedback(message: string) {
+  function showFeedback(message: string, tone: 'success' | 'danger' = 'success') {
     if (!message) return
+    if (feedbackTimer !== undefined) {
+      window.clearTimeout(feedbackTimer)
+      feedbackTimer = undefined
+    }
     feedback.value = message
-    window.setTimeout(() => {
+    feedbackTone.value = tone
+    const duration = tone === 'danger' ? 5000 : 2000
+    feedbackTimer = window.setTimeout(() => {
+      feedbackTimer = undefined
       if (feedback.value === message) feedback.value = ''
-    }, 1800)
+    }, duration)
   }
 
-  function showSaveFeedback(message: string) {
+  function showSaveFeedback(message: string, tone: 'success' | 'danger' = 'success') {
     if (!message) return
+    if (saveFeedbackTimer !== undefined) {
+      window.clearTimeout(saveFeedbackTimer)
+      saveFeedbackTimer = undefined
+    }
     saveFeedback.value = message
-    window.setTimeout(() => {
+    saveFeedbackTone.value = tone
+    const duration = tone === 'danger' ? 5000 : 2200
+    saveFeedbackTimer = window.setTimeout(() => {
+      saveFeedbackTimer = undefined
       if (saveFeedback.value === message) saveFeedback.value = ''
-    }, 2200)
+    }, duration)
   }
 
   return {
@@ -673,15 +873,28 @@ export const useAPITestingStore = defineStore('api-testing', () => {
     lastResult,
     openRequestIds,
     feedback,
+    feedbackTone,
     saveFeedback,
+    saveFeedbackTone,
+    loadError,
     isLoading,
     isSaving,
     isRunning,
     isStopping,
+    runningRequestIds,
+    stoppingRequestIds,
+    runIdByRequestId,
+    runStartedAtByRequestId,
+    currentRunId,
+    currentRunStartedAt,
+    requestTimeoutSeconds,
+    isRequestRunning,
+    isRequestStopping,
     isImporting,
     isGitSyncing,
     isDirty,
     isEnvironmentPanelOpen,
+    envDeleteArmedId,
     gitStatus,
     collections,
     treeCollections,
@@ -728,6 +941,7 @@ export const useAPITestingStore = defineStore('api-testing', () => {
     duplicateEnvironment,
     updateEnvironment,
     removeSelectedEnvironment,
+    confirmRemoveSelectedEnvironment,
     addEnvironmentVariable,
     updateEnvironmentVariable,
     removeEnvironmentVariable,
@@ -742,6 +956,12 @@ export const useAPITestingStore = defineStore('api-testing', () => {
     copyResponseBody,
   }
 })
+
+function formatError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message.trim()
+  if (typeof error === 'string' && error.trim()) return error.trim()
+  return fallback
+}
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T

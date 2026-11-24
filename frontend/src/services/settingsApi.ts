@@ -1,4 +1,5 @@
 import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 const fallbackSettings: AppSettings = {
   version: 23,
@@ -120,9 +121,15 @@ export async function getSettings(): Promise<AppSettings> {
   if (binding) {
     try {
       return await binding.GetSettings()
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取设置失败'))
+      }
       return structuredClone(fallbackCurrent)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('设置服务绑定不可用')
   }
   return structuredClone(fallbackCurrent)
 }
@@ -131,6 +138,9 @@ export async function updateSettings(settings: AppSettings): Promise<AppSettings
   const binding = await trySettingsBinding()
   if (binding) {
     return await binding.UpdateSettings(toPlainSettings(settings))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('设置服务绑定不可用')
   }
   fallbackCurrent = normalizeFallback(settings)
   return structuredClone(fallbackCurrent)
@@ -141,6 +151,9 @@ export async function resetSettings(): Promise<AppSettings> {
   if (binding) {
     return await binding.ResetSettings()
   }
+  if (isDesktopRuntime()) {
+    throw new Error('设置服务绑定不可用')
+  }
   fallbackCurrent = structuredClone(fallbackSettings)
   return structuredClone(fallbackCurrent)
 }
@@ -150,9 +163,15 @@ export async function getLegacyConfigStatus(): Promise<LegacyConfigStatus> {
   if (binding) {
     try {
       return await binding.LegacyConfigStatus()
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取旧版配置状态失败'))
+      }
       return fallbackLegacyStatus()
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('设置服务绑定不可用')
   }
   return fallbackLegacyStatus()
 }
@@ -162,9 +181,15 @@ export async function getSettingsStorageStatus(): Promise<SettingsStorageStatus>
   if (binding) {
     try {
       return await binding.StorageStatus()
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取设置存储状态失败'))
+      }
       return fallbackStorageStatus()
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('设置服务绑定不可用')
   }
   return fallbackStorageStatus()
 }
@@ -173,6 +198,9 @@ export async function importLegacyConfig(): Promise<AppSettings> {
   const binding = await trySettingsBinding()
   if (binding) {
     return await binding.ImportLegacyConfig()
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('设置服务绑定不可用')
   }
   return structuredClone(fallbackCurrent)
 }

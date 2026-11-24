@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"fancun/internal/appdb"
+	"fancun/internal/elevation"
 )
 
 const (
@@ -89,6 +89,8 @@ type Status struct {
 	VirtualizedPath   string    `json:"virtualizedPath,omitempty"`
 	VirtualizedExists bool      `json:"virtualizedExists"`
 	VirtualizedBytes  int64     `json:"virtualizedBytes"`
+	CanRollback       bool      `json:"canRollback"`
+	LastBackupAt      string    `json:"lastBackupAt,omitempty"`
 }
 
 type Service struct {
@@ -102,8 +104,12 @@ type Service struct {
 	lastApplyError  string
 	lastRemoteError string
 	legacyImported  bool
+	lastBackup      *hostsBackup
 	httpClient      *http.Client
+	writeHosts      func(string, string) error
 }
+
+var runasWaitFn = elevation.RunasWait
 
 func NewService() *Service {
 	return NewServiceWithPaths(defaultConfigPath(), defaultHostsPath(), defaultLegacyPath())
@@ -115,6 +121,7 @@ func NewServiceWithPaths(configPath string, hostsPath string, legacyPath string)
 		hostsPath:  hostsPath,
 		legacyPath: legacyPath,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
+		writeHosts: writeHostsContent,
 	}
 	service.load()
 	return service
@@ -137,12 +144,19 @@ func (s *Service) List() []Profile {
 func (s *Service) Upsert(next Profile) Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	rawID := strings.TrimSpace(next.ID)
+	rawTitle := strings.TrimSpace(next.Title)
+	if next.System || rawID == systemProfileID {
+		s.lastSaveError = "系统 Hosts 方案不能直接修改"
+		return s.statusLocked()
+	}
+	if rawTitle == "" {
+		s.lastSaveError = "Hosts 方案标题不能为空"
+		return s.statusLocked()
+	}
 	next = normalizeProfile(next)
 	if next.ID == "" {
 		next.ID = "hosts-" + stableID(next.Title+"|"+strconvUnixNano())
-	}
-	if next.System || next.ID == systemProfileID || next.Title == "" {
-		return s.statusLocked()
 	}
 	next.System = false
 	next.UpdatedAt = time.Now().Unix()
@@ -278,11 +292,40 @@ func (s *Service) ApplyEnabledProfiles(confirmed bool) ApplyResult {
 		}
 	}
 	finalContent := preview.FinalContent
+	previousContent, readErr := readHostsBackupContent(s.hostsPath)
+	if readErr != nil {
+		s.lastApplyError = readErr.Error()
+		s.mu.Unlock()
+		return ApplyResult{OK: false, Message: "读取当前系统 Hosts 失败", Preview: preview, LastApplyError: s.lastApplyError}
+	}
+	now := time.Now().UTC()
+	backup := hostsBackup{
+		CreatedAt:     now.Unix(),
+		CreatedAtText: now.Format(time.RFC3339),
+		HostsPath:     s.hostsPath,
+		Content:       previousContent,
+		Reason:        "pre_apply",
+	}
+	prevBackup := s.lastBackup
+	if s.configPath != "" {
+		id, err := saveHostsBackupToSQLite(s.configPath, backup)
+		if err != nil {
+			s.lastApplyError = err.Error()
+			s.mu.Unlock()
+			return ApplyResult{OK: false, Message: "保存系统 Hosts 备份失败", Preview: preview, LastApplyError: s.lastApplyError}
+		}
+		backup.ID = id
+	}
+	s.lastBackup = &backup
 	s.mu.Unlock()
 
-	if err := writeHostsContent(s.hostsPath, finalContent); err != nil {
+	if err := s.writeHostsFile(s.hostsPath, finalContent); err != nil {
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		if s.configPath != "" && backup.ID > 0 {
+			_ = deleteHostsBackupFromSQLite(s.configPath, backup.ID)
+		}
+		s.lastBackup = prevBackup
 		s.lastApplyError = err.Error()
 		return ApplyResult{OK: false, Message: "写入系统 Hosts 失败", Preview: preview, LastApplyError: s.lastApplyError}
 	}
@@ -292,6 +335,84 @@ func (s *Service) ApplyEnabledProfiles(confirmed bool) ApplyResult {
 	s.lastApplyError = ""
 	s.refreshSystemProfileLocked()
 	return ApplyResult{OK: true, Message: "已写入系统 Hosts", Preview: preview}
+}
+
+func (s *Service) RollbackHosts() ApplyResult {
+	s.mu.Lock()
+	s.refreshSystemProfileLocked()
+	backup, ok := s.latestBackupLocked()
+	if !ok {
+		s.lastApplyError = "没有可回滚的系统 Hosts 备份"
+		preview := s.applyPreviewLocked()
+		s.mu.Unlock()
+		return ApplyResult{
+			OK:             false,
+			Message:        "没有可回滚的系统 Hosts 备份",
+			Preview:        preview,
+			LastApplyError: "没有可回滚的系统 Hosts 备份",
+		}
+	}
+	current := systemContent(s.profiles)
+	added, removed := lineDelta(current, backup.Content)
+	preview := ApplyPreview{
+		HostsPath:       s.hostsPath,
+		LineCount:       len(splitLines(backup.Content)),
+		AddedLines:      added,
+		RemovedLines:    removed,
+		Changed:         current != backup.Content,
+		CurrentContent:  current,
+		FinalContent:    backup.Content,
+		DiffText:        simpleDiff(current, backup.Content, 240),
+		RequiresConfirm: false,
+	}
+	s.mu.Unlock()
+
+	if err := s.writeHostsFile(s.hostsPath, backup.Content); err != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.lastApplyError = err.Error()
+		return ApplyResult{OK: false, Message: "回滚系统 Hosts 失败", Preview: preview, LastApplyError: s.lastApplyError}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastApplyError = ""
+	s.refreshSystemProfileLocked()
+	return ApplyResult{OK: true, Message: "已回滚系统 Hosts", Preview: preview}
+}
+
+func (s *Service) latestBackupLocked() (hostsBackup, bool) {
+	if s.configPath != "" {
+		if backup, ok, err := loadLatestHostsBackupFromSQLite(s.configPath); err == nil && ok {
+			s.lastBackup = &backup
+			return backup, true
+		}
+	}
+	if s.lastBackup != nil {
+		return *s.lastBackup, true
+	}
+	return hostsBackup{}, false
+}
+
+func (s *Service) writeHostsFile(path string, content string) error {
+	if s.writeHosts != nil {
+		return s.writeHosts(path, content)
+	}
+	return writeHostsContent(path, content)
+}
+
+func readHostsBackupContent(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("缺少 Hosts 路径")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.ToValidUTF8(string(raw), ""), nil
 }
 
 func (s *Service) fetchURL(rawURL string) (string, error) {
@@ -316,6 +437,9 @@ func (s *Service) load() {
 	if s.configPath != "" {
 		if profiles, ok, err := loadProfilesFromSQLite(s.configPath); err == nil && ok {
 			loaded = normalizeProfiles(profiles)
+		}
+		if backup, ok, err := loadLatestHostsBackupFromSQLite(s.configPath); err == nil && ok {
+			s.lastBackup = &backup
 		}
 	}
 	if len(loaded) == 0 {
@@ -399,6 +523,10 @@ func (s *Service) statusLocked() Status {
 		VirtualizedPath:   virtualizedPath,
 		VirtualizedExists: virtualizedExists,
 		VirtualizedBytes:  virtualizedBytes,
+	}
+	if s.lastBackup != nil {
+		status.CanRollback = true
+		status.LastBackupAt = s.lastBackup.CreatedAtText
 	}
 	for _, profile := range s.profiles {
 		if profile.Enabled && !profile.System {
@@ -677,9 +805,6 @@ func normalizeProfile(profile Profile) Profile {
 	if profile.ID == "" && profile.Title != "" {
 		profile.ID = "hosts-" + stableID(profile.Title)
 	}
-	if profile.Title == "" && profile.ID != "" {
-		profile.Title = profile.ID
-	}
 	return profile
 }
 
@@ -865,9 +990,13 @@ func writeHostsContentElevated(hostsPath string, content string) error {
 		_ = os.Remove(scriptPath)
 	}()
 
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-		"Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \""+scriptPath+"\"' -Verb RunAs -Wait -WindowStyle Hidden")
-	if err := cmd.Run(); err != nil {
+	if err := runasWaitFn("powershell.exe", elevatedPowershellArgs(scriptPath)); err != nil {
+		if raw, readErr := os.ReadFile(resultPath); readErr == nil {
+			result := strings.TrimSpace(strings.TrimPrefix(string(raw), "\ufeff"))
+			if result != "" && !strings.Contains(result, "SUCCESS") {
+				return errors.New(result)
+			}
+		}
 		return err
 	}
 	raw, err := os.ReadFile(resultPath)
@@ -882,6 +1011,18 @@ func writeHostsContentElevated(hostsPath string, content string) error {
 		result = "未知执行错误"
 	}
 	return errors.New(result)
+}
+
+func elevatedPowershellArgs(scriptPath string) []string {
+	return []string{
+		"-NoProfile",
+		"-ExecutionPolicy",
+		"Bypass",
+		"-WindowStyle",
+		"Hidden",
+		"-File",
+		scriptPath,
+	}
 }
 
 func psEscape(path string) string {

@@ -1,4 +1,5 @@
 import type { CaptureHistoryEntry, CaptureHistoryStatus } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 let fallbackEntries: CaptureHistoryEntry[] = []
 
@@ -33,9 +34,15 @@ export async function getCaptureStatus(): Promise<CaptureHistoryStatus> {
   if (binding) {
     try {
       return normalizeStatus(await binding.Status())
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取截图历史状态失败'))
+      }
       return normalizeStatus(fallbackStatus)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('截图历史服务绑定不可用')
   }
   return normalizeStatus(fallbackStatus)
 }
@@ -45,9 +52,15 @@ export async function listCaptureEntries(query = '', limit = 300): Promise<Captu
   if (binding) {
     try {
       return normalizeEntries(await binding.List(query, limit))
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取截图历史列表失败'))
+      }
       return fallbackList(query, limit)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('截图历史服务绑定不可用')
   }
   return fallbackList(query, limit)
 }
@@ -56,6 +69,9 @@ export async function captureCurrentScreen(source = 'manual'): Promise<CaptureHi
   const binding = await tryCaptureBinding()
   if (binding) {
     return normalizeStatus(await binding.CaptureScreen(source))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('截图历史服务绑定不可用')
   }
   const entry = normalizeEntry({
     id: crypto.randomUUID(),
@@ -80,6 +96,9 @@ export async function toggleCapturePin(id: string): Promise<CaptureHistoryStatus
   if (binding) {
     return normalizeStatus(await binding.TogglePin(id))
   }
+  if (isDesktopRuntime()) {
+    throw new Error('截图历史服务绑定不可用')
+  }
   fallbackEntries = fallbackEntries.map((item) => (item.id === id ? { ...item, pinned: !item.pinned } : item))
   fallbackStatus = normalizeStatus({ ...fallbackStatus, entries: fallbackEntries })
   return fallbackStatus
@@ -89,6 +108,9 @@ export async function deleteCaptureEntry(id: string): Promise<CaptureHistoryStat
   const binding = await tryCaptureBinding()
   if (binding) {
     return normalizeStatus(await binding.Delete(id))
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('截图历史服务绑定不可用')
   }
   fallbackEntries = fallbackEntries.filter((item) => item.id !== id)
   fallbackStatus = normalizeStatus({ ...fallbackStatus, entries: fallbackEntries })
@@ -100,6 +122,9 @@ export async function clearUnpinnedCaptureEntries(): Promise<CaptureHistoryStatu
   if (binding) {
     return normalizeStatus(await binding.ClearUnpinned())
   }
+  if (isDesktopRuntime()) {
+    throw new Error('截图历史服务绑定不可用')
+  }
   fallbackEntries = fallbackEntries.filter((item) => item.pinned)
   fallbackStatus = normalizeStatus({ ...fallbackStatus, entries: fallbackEntries })
   return fallbackStatus
@@ -110,9 +135,15 @@ export async function getCaptureImageDataURL(id: string): Promise<string> {
   if (binding) {
     try {
       return String(await binding.ImageDataURL(id))
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取截图原图失败'))
+      }
       return ''
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('截图历史服务绑定不可用')
   }
   return ''
 }
@@ -125,9 +156,15 @@ export async function getCaptureThumbnailDataURL(id: string): Promise<string> {
         return String(await binding.ThumbnailDataURL(id))
       }
       return String(await binding.ImageDataURL(id))
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取截图缩略图失败'))
+      }
       return ''
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('截图历史服务绑定不可用')
   }
   return ''
 }

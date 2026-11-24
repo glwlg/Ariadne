@@ -59,6 +59,10 @@ type fileIndex interface {
 	Close()
 }
 
+type contextFileIndex interface {
+	SearchContext(ctx context.Context, query string, limit int) []rawResult
+}
+
 type indexBuilder interface {
 	Build(ctx context.Context) (IndexBuildResult, error)
 }
@@ -69,6 +73,10 @@ type cachedIndexBuilder interface {
 
 type changeWatchingIndexBuilder interface {
 	WatchChanges(ctx context.Context, volumes []string, emit func(rawResult)) error
+}
+
+type batchChangeWatchingIndexBuilder interface {
+	WatchChangeBatches(ctx context.Context, volumes []string, emit func([]rawResult)) error
 }
 
 type mutableFileIndex interface {
@@ -83,9 +91,14 @@ type PolicyProvider func() FileSearchPolicy
 
 type Service struct {
 	mu              sync.Mutex
+	rootCtx         context.Context
+	rootCancel      context.CancelFunc
+	closed          bool
+	wg              sync.WaitGroup
 	builder         indexBuilder
 	index           fileIndex
 	indexStarted    bool
+	cacheChecked    bool
 	indexing        bool
 	indexStartedAt  int64
 	indexFinishedAt int64
@@ -147,7 +160,15 @@ func NewServiceWithIndexer(builder indexBuilder) *Service {
 		builder = noopIndexBuilder{}
 	}
 	policy := DefaultFileSearchPolicy()
-	service := &Service{builder: builder, policy: policy, filter: newFileSearchFilter(policy), fileIcons: NewFileIconStore()}
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	service := &Service{
+		rootCtx:    rootCtx,
+		rootCancel: rootCancel,
+		builder:    builder,
+		policy:     policy,
+		filter:     newFileSearchFilter(policy),
+		fileIcons:  NewFileIconStore(),
+	}
 	service.applyPolicyToBuilder(policy)
 	return service
 }
@@ -155,10 +176,14 @@ func NewServiceWithIndexer(builder indexBuilder) *Service {
 func NewServiceWithIndex(entries []rawResult) *Service {
 	index := newMemoryIndex(entries, nil)
 	policy := DefaultFileSearchPolicy()
+	rootCtx, rootCancel := context.WithCancel(context.Background())
 	return &Service{
+		rootCtx:         rootCtx,
+		rootCancel:      rootCancel,
 		builder:         noopIndexBuilder{},
 		index:           index,
 		indexStarted:    true,
+		cacheChecked:    true,
 		indexFinishedAt: time.Now().Unix(),
 		indexedCount:    index.Count(),
 		volumeCount:     len(index.Volumes()),
@@ -167,6 +192,32 @@ func NewServiceWithIndex(entries []rawResult) *Service {
 		filter:          newFileSearchFilter(policy),
 		fileIcons:       NewFileIconStore(),
 	}
+}
+
+func NewServiceWithLineIndexPath(path string) *Service {
+	policy := DefaultFileSearchPolicy()
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	service := &Service{
+		rootCtx:      rootCtx,
+		rootCancel:   rootCancel,
+		builder:      noopIndexBuilder{},
+		indexStarted: true,
+		cacheChecked: true,
+		elevated:     true,
+		policy:       policy,
+		filter:       newFileSearchFilter(policy),
+		fileIcons:    NewFileIconStore(),
+	}
+	index, err := openLineFileIndex(path)
+	if err != nil {
+		service.lastErr = err.Error()
+		return service
+	}
+	service.index = index
+	service.indexFinishedAt = time.Now().Unix()
+	service.indexedCount = index.Count()
+	service.volumeCount = len(index.Volumes())
+	return service
 }
 
 func (s *Service) Search(query string) []contracts.SearchResult {
@@ -205,18 +256,21 @@ func (s *Service) SearchContext(ctx context.Context, query string) []contracts.S
 	if len([]rune(query)) < 2 {
 		return nil
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || s.isClosed() {
 		return nil
 	}
 
 	started := time.Now()
-	s.startIndexing(true)
+	s.startIndexingContext(ctx, true)
 	index, status := s.currentIndexAndStatus(query)
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || s.isClosed() {
 		return nil
 	}
-	if index == nil && s.tryLoadCachedIndex(ctx) {
+	if index == nil && !s.hasCheckedCache() && s.tryLoadCachedIndex(ctx) {
 		index, status = s.currentIndexAndStatus(query)
+	}
+	if ctx.Err() != nil || s.isClosed() {
+		return nil
 	}
 	if index == nil {
 		s.recordQueryStatus(query, time.Since(started).Milliseconds(), 0)
@@ -226,13 +280,18 @@ func (s *Service) SearchContext(ctx context.Context, query string) []contracts.S
 		return nil
 	}
 
-	rawResults := index.Search(query, int(defaultMaxResults)*4)
+	var rawResults []rawResult
+	if contextual, ok := index.(contextFileIndex); ok {
+		rawResults = contextual.SearchContext(ctx, query, int(defaultMaxResults)*4)
+	} else {
+		rawResults = index.Search(query, int(defaultMaxResults)*4)
+	}
 	if ctx.Err() != nil {
 		return nil
 	}
 	s.setLastError(nil)
-	results := make([]contracts.SearchResult, 0, len(rawResults))
-	seen := map[string]bool{}
+	results := make([]contracts.SearchResult, 0, minInt(len(rawResults), int(defaultMaxResults)))
+	seen := make(map[string]bool, len(rawResults))
 	for _, raw := range rawResults {
 		if ctx.Err() != nil {
 			return nil
@@ -241,7 +300,7 @@ func (s *Service) SearchContext(ctx context.Context, query string) []contracts.S
 		if fullPath == "" {
 			continue
 		}
-		key := strings.ToLower(filepath.Clean(fullPath))
+		key := strings.ToLower(fullPath)
 		if seen[key] {
 			continue
 		}
@@ -292,6 +351,13 @@ func (s *Service) Status() FileIndexStatus {
 
 func (s *Service) Close() {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		s.wg.Wait()
+		return
+	}
+	s.closed = true
+	rootCancel := s.rootCancel
 	index := s.index
 	s.index = nil
 	watchCancel := s.watchCancel
@@ -301,26 +367,83 @@ func (s *Service) Close() {
 	if watchCancel != nil {
 		watchCancel()
 	}
+	if rootCancel != nil {
+		rootCancel()
+	}
+	s.wg.Wait()
+	s.mu.Lock()
+	remaining := s.index
+	s.index = nil
+	s.mu.Unlock()
 	if index != nil {
 		index.Close()
 	}
+	if remaining != nil && remaining != index {
+		remaining.Close()
+	}
+}
+
+func (s *Service) ensureRootContextLocked() context.Context {
+	if s.rootCtx == nil {
+		s.rootCtx, s.rootCancel = context.WithCancel(context.Background())
+	}
+	return s.rootCtx
+}
+
+func (s *Service) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
+func (s *Service) hasCheckedCache() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cacheChecked
 }
 
 func (s *Service) startIndexing(useCache bool) {
+	s.startIndexingContext(context.Background(), useCache)
+}
+
+func (s *Service) startIndexingContext(ctx context.Context, useCache bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.Lock()
-	if s.indexStarted || s.index != nil {
+	if s.closed || s.indexStarted || s.index != nil {
 		s.mu.Unlock()
 		return
 	}
+	rootCtx := s.ensureRootContextLocked()
 	s.indexStarted = true
 	s.indexing = true
 	s.indexStartedAt = time.Now().Unix()
+	if !useCache {
+		s.cacheChecked = true
+	}
 	builder := s.builder
+	s.wg.Add(1)
 	s.mu.Unlock()
+	defer s.wg.Done()
 
 	if cachedBuilder, ok := builder.(cachedIndexBuilder); useCache && ok {
-		if result, err := cachedBuilder.CachedIndex(context.Background()); err == nil && (result.Index != nil || len(result.Entries) > 0) {
-			s.mu.Lock()
+		cacheCtx, cacheCancel := context.WithCancel(rootCtx)
+		stopLink := context.AfterFunc(ctx, cacheCancel)
+		result, err := cachedBuilder.CachedIndex(cacheCtx)
+		stopLink()
+		cacheCancel()
+		s.mu.Lock()
+		s.cacheChecked = true
+		if s.closed || rootCtx.Err() != nil {
+			s.indexing = false
+			if result.Index != nil {
+				result.Index.Close()
+			}
+			s.mu.Unlock()
+			return
+		}
+		if err == nil && (result.Index != nil || len(result.Entries) > 0) {
 			s.applyIndexBuildResultLocked(result, nil)
 			s.indexing = true
 			volumes := append([]string(nil), result.Volumes...)
@@ -329,14 +452,37 @@ func (s *Service) startIndexing(useCache bool) {
 			}
 			s.mu.Unlock()
 			s.startChangeWatcher(builder, volumes)
+		} else {
+			s.mu.Unlock()
 		}
+	} else {
+		s.mu.Lock()
+		s.cacheChecked = true
+		s.mu.Unlock()
 	}
 
+	s.mu.Lock()
+	if s.closed || rootCtx.Err() != nil {
+		s.indexing = false
+		s.mu.Unlock()
+		return
+	}
+	s.wg.Add(1)
+	s.mu.Unlock()
+
 	go func() {
-		result, err := builder.Build(context.Background())
+		defer s.wg.Done()
+		result, err := builder.Build(rootCtx)
 		s.mu.Lock()
 		s.indexing = false
 		s.indexFinishedAt = time.Now().Unix()
+		if s.closed || rootCtx.Err() != nil {
+			if result.Index != nil {
+				result.Index.Close()
+			}
+			s.mu.Unlock()
+			return
+		}
 		s.applyIndexBuildResultLocked(result, err)
 		volumes := append([]string(nil), result.Volumes...)
 		if len(volumes) == 0 && s.index != nil {
@@ -349,13 +495,14 @@ func (s *Service) startIndexing(useCache bool) {
 
 func (s *Service) rebuildIndex() {
 	s.mu.Lock()
-	if s.indexing {
+	if s.closed || s.indexing {
 		s.mu.Unlock()
 		return
 	}
 	index := s.index
 	s.index = nil
 	s.indexStarted = false
+	s.cacheChecked = false
 	s.indexStartedAt = 0
 	s.indexFinishedAt = 0
 	s.indexErrors = nil
@@ -384,22 +531,38 @@ func (s *Service) tryLoadCachedIndex(ctx context.Context) bool {
 		return false
 	}
 	s.mu.Lock()
-	if s.index != nil {
+	if s.closed || s.index != nil {
+		ready := !s.closed && s.index != nil
 		s.mu.Unlock()
-		return true
+		return ready
 	}
+	rootCtx := s.ensureRootContextLocked()
 	builder := s.builder
 	s.mu.Unlock()
 	cachedBuilder, ok := builder.(cachedIndexBuilder)
 	if !ok {
+		s.mu.Lock()
+		s.cacheChecked = true
+		s.mu.Unlock()
 		return false
 	}
-	result, err := cachedBuilder.CachedIndex(ctx)
+	cacheCtx, cacheCancel := context.WithCancel(rootCtx)
+	stopLink := context.AfterFunc(ctx, cacheCancel)
+	result, err := cachedBuilder.CachedIndex(cacheCtx)
+	stopLink()
+	cacheCancel()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cacheChecked = true
+	if s.closed || rootCtx.Err() != nil {
+		if result.Index != nil {
+			result.Index.Close()
+		}
+		return false
+	}
 	if err != nil || (result.Index == nil && len(result.Entries) == 0) {
 		return false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.index != nil {
 		if result.Index != nil {
 			result.Index.Close()
@@ -411,22 +574,35 @@ func (s *Service) tryLoadCachedIndex(ctx context.Context) bool {
 }
 
 func (s *Service) startChangeWatcher(builder indexBuilder, volumes []string) {
-	watcher, ok := builder.(changeWatchingIndexBuilder)
-	if !ok || len(volumes) == 0 {
+	batchWatcher, hasBatch := builder.(batchChangeWatchingIndexBuilder)
+	watcher, hasSingle := builder.(changeWatchingIndexBuilder)
+	if (!hasBatch && !hasSingle) || len(volumes) == 0 {
 		return
 	}
 	s.mu.Lock()
-	if s.watching || s.index == nil {
+	if s.closed || s.watching || s.index == nil {
 		s.mu.Unlock()
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	rootCtx := s.ensureRootContextLocked()
+	if rootCtx.Err() != nil {
+		s.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(rootCtx)
 	s.watchCancel = cancel
 	s.watching = true
+	s.wg.Add(1)
 	s.mu.Unlock()
 
 	go func() {
-		err := watcher.WatchChanges(ctx, volumes, s.applyChangedPath)
+		defer s.wg.Done()
+		var err error
+		if hasBatch {
+			err = batchWatcher.WatchChangeBatches(ctx, volumes, s.applyChangedPaths)
+		} else {
+			err = watcher.WatchChanges(ctx, volumes, s.applyChangedPath)
+		}
 		if err != nil && ctx.Err() == nil {
 			s.mu.Lock()
 			s.lastErr = err.Error()
@@ -444,23 +620,44 @@ func (s *Service) startChangeWatcher(builder indexBuilder, volumes []string) {
 }
 
 func (s *Service) applyChangedPath(raw rawResult) {
-	raw, ok := normalizeLineFileRawResult(raw)
-	if !ok {
+	s.applyChangedPaths([]rawResult{raw})
+}
+
+func (s *Service) applyChangedPaths(raws []rawResult) {
+	if len(raws) == 0 {
 		return
 	}
-	if s.excludesPath(raw.Path) {
+	filtered := make([]rawResult, 0, len(raws))
+	for _, raw := range raws {
+		cleaned, ok := normalizeLineFileRawResult(raw)
+		if !ok {
+			continue
+		}
+		if s.excludesPath(cleaned.Path) {
+			continue
+		}
+		filtered = append(filtered, cleaned)
+	}
+	if len(filtered) == 0 {
 		return
 	}
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
 	index := s.index
 	mutable, ok := index.(mutableFileIndex)
 	s.mu.Unlock()
 	if !ok || mutable == nil {
 		return
 	}
-	added, err := mutable.AppendRawResults([]rawResult{raw})
+	added, err := mutable.AppendRawResults(filtered)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
 	if err != nil {
 		s.lastErr = err.Error()
 		s.indexErrors = append(s.indexErrors, err.Error())
@@ -609,7 +806,17 @@ func newMemoryIndex(entries []rawResult, volumes []string) *memoryIndex {
 }
 
 func (s *memoryIndex) Search(query string, limit int) []rawResult {
+	return s.SearchContext(context.Background(), query, limit)
+}
+
+func (s *memoryIndex) SearchContext(ctx context.Context, query string, limit int) []rawResult {
 	if s == nil || limit <= 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
 		return nil
 	}
 	s.mu.RLock()
@@ -619,7 +826,10 @@ func (s *memoryIndex) Search(query string, limit int) []rawResult {
 		return nil
 	}
 	scored := make([]scoredRawResult, 0, minInt(limit*4, len(s.entries)))
-	for _, entry := range s.entries {
+	for index, entry := range s.entries {
+		if index&2047 == 0 && ctx.Err() != nil {
+			return nil
+		}
 		lowerName := strings.ToLower(entry.Name)
 		lowerPath := strings.ToLower(entry.Path)
 		if !strings.Contains(lowerName, normalized) && !strings.Contains(lowerPath, normalized) {
@@ -632,9 +842,9 @@ func (s *memoryIndex) Search(query string, limit int) []rawResult {
 		}
 		replaceIndex := -1
 		replaceScore := item.score
-		for index, existing := range scored {
+		for i, existing := range scored {
 			if existing.score < replaceScore {
-				replaceIndex = index
+				replaceIndex = i
 				replaceScore = existing.score
 			}
 		}

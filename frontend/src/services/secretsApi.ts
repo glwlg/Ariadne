@@ -1,4 +1,5 @@
 import type { SecretActionResult, SecretStatus } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 const fallbackStatus: SecretStatus = {
   available: false,
@@ -30,9 +31,15 @@ export async function getSecretStatus(): Promise<SecretStatus> {
   if (binding) {
     try {
       return await binding.Status()
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取密钥状态失败'))
+      }
       return structuredClone(fallbackStatus)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('密钥服务绑定不可用')
   }
   return structuredClone(fallbackStatus)
 }
@@ -41,6 +48,9 @@ export async function saveSecret(kind: string, value: string): Promise<SecretAct
   const binding = await trySecretsBinding()
   if (binding) {
     return await binding.SaveSecret({ kind, value })
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('密钥服务绑定不可用')
   }
   return {
     ok: false,
@@ -53,6 +63,9 @@ export async function clearSecret(kind: string, confirm: boolean): Promise<Secre
   const binding = await trySecretsBinding()
   if (binding) {
     return await binding.ClearSecret({ kind, confirm })
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('密钥服务绑定不可用')
   }
   return {
     ok: false,

@@ -15,6 +15,10 @@ func watchNetworkMiniTaskbarForeground(stop <-chan struct{}, onTaskbarForeground
 	return nil
 }
 
+func isOrdinaryWindowAlive(window application.Window) bool { return window != nil }
+
+func releaseOrdinaryWindowIcons() {}
+
 func enableOrdinaryWindowTaskbarToggle(window application.Window) {}
 
 func setOrdinaryWindowIcon(window application.Window, icon []byte) {}

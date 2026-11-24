@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -421,6 +422,96 @@ func TestCollectCurrentReportsEmptyClipboard(t *testing.T) {
 	status := service.CollectCurrent("manual")
 	if status.LastSaveError == "" || status.Count != 0 {
 		t.Fatalf("empty clipboard should report a local error without adding entries: %#v", status)
+	}
+}
+
+func TestClipboardChangeHandlerNotifiesOnMutationsAndPoll(t *testing.T) {
+	service := NewServiceWithPath(filepath.Join(t.TempDir(), "clipboard_history.json"))
+	var changes atomic.Int32
+	RegisterChangeHandler(service, func() {
+		changes.Add(1)
+	})
+
+	status := service.AddText("alpha", "test")
+	firstID := status.Entries[0].ID
+	service.AddText("beta", "test")
+	service.TogglePin(firstID)
+	service.Delete(firstID)
+	service.ClearUnpinned()
+	if changes.Load() != 5 {
+		t.Fatalf("expected 5 change notifications, got %d", changes.Load())
+	}
+
+	pollValues := []string{"baseline-text", "watched-change"}
+	pollIdx := 0
+	service.clipboardReader = func(_ string, source string) (Entry, error) {
+		val := pollValues[min(pollIdx, len(pollValues)-1)]
+		pollIdx++
+		return makeTextEntry(val, source), nil
+	}
+	service.pollClipboardOnce(false)
+	if changes.Load() != 5 {
+		t.Fatalf("priming poll should not emit change notification, got %d", changes.Load())
+	}
+	service.pollClipboardOnce(true)
+	if changes.Load() != 6 {
+		t.Fatalf("recorded watcher change should emit notification, got %d", changes.Load())
+	}
+}
+
+func TestClipboardWatcherRestartDoesNotClobberNewWatcherState(t *testing.T) {
+	service := NewServiceWithPath(filepath.Join(t.TempDir(), "clipboard_history.json"))
+	service.clipboardReader = func(_ string, _ string) (Entry, error) {
+		return Entry{}, nil
+	}
+
+	oldStop := make(chan struct{})
+	oldDone := make(chan struct{})
+	newStop := make(chan struct{})
+	service.mu.Lock()
+	service.watcherEnabled = true
+	service.watcherRunning = true
+	service.watcherStop = newStop
+	service.mu.Unlock()
+
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		service.runWatcher(oldStop, oldDone)
+	}()
+	close(oldStop)
+	<-exited
+
+	status := service.Status()
+	if !status.WatcherRunning {
+		t.Fatalf("old watcher exit must not clear new watcher running state: %#v", status)
+	}
+}
+
+func TestClipboardSQLiteIncrementalSyncPreservesEntriesAndTags(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clipboard_history.json")
+	service := NewServiceWithPath(path)
+
+	s1 := service.AddText("https://example.com/a", "test")
+	s2 := service.AddText(`{"k":1}`, "test")
+	idA := s1.Entries[0].ID
+	idB := s2.Entries[0].ID
+	service.setCreatedAtForTest(idA, 100)
+	service.setCreatedAtForTest(idB, 200)
+	service.TogglePin(idA)
+	service.Delete(idB)
+
+	reloaded := NewServiceWithPath(path)
+	entries := reloaded.List("", 10)
+	if len(entries) != 1 || entries[0].ID != idA || !entries[0].Pinned || len(entries[0].Tags) == 0 {
+		t.Fatalf("incremental sync did not preserve pinned entry/tags: %#v", entries)
+	}
+
+	reloaded.ClearUnpinned()
+	reloaded.Delete(idA)
+	empty := NewServiceWithPath(path)
+	if empty.Status().Count != 0 {
+		t.Fatalf("expected all deleted entries to stay deleted after reload, got %#v", empty.Status())
 	}
 }
 

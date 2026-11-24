@@ -12,6 +12,7 @@ const network = useNetworkMonitorStore()
 const query = ref('')
 const selectedPID = ref<number | null>(null)
 const feedback = ref('')
+const feedbackTone = ref<'success' | 'danger'>('success')
 const sortKey = ref<ProcessNetworkSortKey>('download')
 const sortDirection = ref<SortDirection>('descending')
 
@@ -62,9 +63,9 @@ async function copySummary() {
   const lines = processes.value.map((item) => `${item.name} (PID ${item.pid})  ↓ ${formatRate(item.downloadBytesPerSecond)}  ↑ ${formatRate(item.uploadBytesPerSecond)}`)
   try {
     await navigator.clipboard.writeText(lines.join('\n'))
-    showFeedback('进程网络摘要已复制')
+    showFeedback('进程网络摘要已复制', 'success')
   } catch {
-    showFeedback('复制失败')
+    showFeedback('复制失败', 'danger')
   }
 }
 
@@ -73,11 +74,12 @@ async function returnToMini() {
   await appShell.closeCurrentWindow()
 }
 
-function showFeedback(message: string) {
+function showFeedback(message: string, tone: 'success' | 'danger' = 'success') {
   feedback.value = message
+  feedbackTone.value = tone
   window.setTimeout(() => {
     if (feedback.value === message) feedback.value = ''
-  }, 1800)
+  }, tone === 'danger' ? 5000 : 1800)
 }
 
 function formatRate(value: number) {
@@ -167,7 +169,7 @@ function formatBytes(value: number) {
                 <span class="process-network-share"><i><b :style="{ width: `${rateShare(process)}%` }" /></i>{{ rateShare(process) }}%</span>
               </button>
               <div v-if="!filteredProcesses.length" class="empty-state process-network-empty">
-                <span>{{ query ? '没有匹配的进程' : '当前没有网络活动' }}</span>
+                <span>{{ query ? '没有匹配的进程' : network.processConnection === 'connecting' ? '正在连接进程网络采样...' : '当前没有网络活动' }}</span>
               </div>
             </div>
           </section>
@@ -191,6 +193,9 @@ function formatBytes(value: number) {
                     <span><strong>{{ connection.remoteAddress }}</strong><small>{{ connection.localAddress }}</small></span>
                     <span><b>{{ formatRate(connection.downloadBytesPerSecond) }}</b><small>↓ / ↑ {{ formatRate(connection.uploadBytesPerSecond) }}</small></span>
                   </div>
+                  <div v-if="!selectedProcess.connections.length" class="tool-empty-state" style="min-height: 96px">
+                    <span>该进程当前没有活动 TCP 连接</span>
+                  </div>
                 </div>
               </div>
             </template>
@@ -200,7 +205,7 @@ function formatBytes(value: number) {
 
         <footer class="status-strip">
           <span>1s 刷新</span><span>TCP / UDP · IPv4 / IPv6</span><span>{{ network.processSnapshot?.processCount ?? 0 }} 个进程</span><span>{{ network.processSnapshot?.connectionCount ?? 0 }} 条连接</span>
-          <span v-if="feedback" class="inline-feedback">{{ feedback }}</span>
+          <span v-if="feedback" class="inline-feedback" :class="{ 'is-danger': feedbackTone === 'danger' }">{{ feedback }}</span>
         </footer>
       </section>
     </div>

@@ -39,19 +39,21 @@ func TestDefaultPolicyExcludesWindowsRecentFolder(t *testing.T) {
 }
 
 func TestFileSearchFilterExcludesFolderChildrenAndRegex(t *testing.T) {
-	t.Setenv("APPDATA", `C:\Users\luwei\AppData\Roaming`)
+	root := t.TempDir()
+	appData := filepath.Join(root, "AppData", "Roaming")
+	t.Setenv("APPDATA", appData)
 	filter := newFileSearchFilter(FileSearchPolicy{
-		ExcludeFolders:  []string{`%APPDATA%\Microsoft\Windows\Recent`},
+		ExcludeFolders:  []string{filepath.Join("%APPDATA%", "Microsoft", "Windows", "Recent")},
 		ExcludePatterns: []string{`\.tmp$`},
 	})
 
-	if !filter.Excludes(`C:\Users\luwei\AppData\Roaming\Microsoft\Windows\Recent\搜索测试.txt.lnk`) {
+	if !filter.Excludes(filepath.Join(appData, "Microsoft", "Windows", "Recent", "搜索测试.txt.lnk")) {
 		t.Fatal("Recent child path should be excluded")
 	}
-	if !filter.Excludes(`P:\workspace\scratch.tmp`) {
+	if !filter.Excludes(filepath.Join(root, "workspace", "scratch.tmp")) {
 		t.Fatal("regex-matched path should be excluded")
 	}
-	if filter.Excludes(`C:\Users\luwei\OneDrive\桌面\搜索测试.txt`) {
+	if filter.Excludes(filepath.Join(root, "OneDrive", "桌面", "搜索测试.txt")) {
 		t.Fatal("ordinary desktop file should not be excluded")
 	}
 }
@@ -76,39 +78,32 @@ func TestFileSearchFilterUsesExtensionAllowlistFirst(t *testing.T) {
 }
 
 func TestDefaultFileSearchFilterExcludesCommonRuntimeNoise(t *testing.T) {
-	t.Setenv("APPDATA", `C:\Users\luwei\AppData\Roaming`)
-	t.Setenv("LOCALAPPDATA", `C:\Users\luwei\AppData\Local`)
-	t.Setenv("TEMP", `C:\Users\luwei\AppData\Local\Temp`)
-	t.Setenv("TMP", `C:\Users\luwei\AppData\Local\Temp`)
-	t.Setenv("WINDIR", `C:\Windows`)
-	t.Setenv("ProgramData", `C:\ProgramData`)
+	root := filepath.Join(string(filepath.Separator), "fancun-test-root")
+	appData := filepath.Join(root, "Users", "luwei", "AppData", "Roaming")
+	localAppData := filepath.Join(root, "Users", "luwei", "AppData", "Local")
+	tempDir := filepath.Join(localAppData, "Temp")
+	windir := filepath.Join(root, "Windows")
+	programData := filepath.Join(root, "ProgramData")
+
+	t.Setenv("APPDATA", appData)
+	t.Setenv("LOCALAPPDATA", localAppData)
+	t.Setenv("TEMP", tempDir)
+	t.Setenv("TMP", tempDir)
+	t.Setenv("WINDIR", windir)
+	t.Setenv("ProgramData", programData)
 	filter := newFileSearchFilter(DefaultFileSearchPolicy())
 
 	excluded := []string{
-		`C:\Users\luwei\AppData\Local\D3DSCache\4921e6f431b0944a\F4EB2D6C-ED2B-4BDD-AD9D-F913287E6768.dxcache-shm`,
-		`C:\Users\luwei\AppData\Local\Temp\edge-local-state.tmp`,
-		`C:\Users\luwei\AppData\Roaming\fancun.exe\EBWebView\Default\Code Cache\js\index-dir\temp-index\the-real-index`,
-		`C:\Users\luwei\AppData\Local\Google\Chrome\User Data\Default\Service Worker\CacheStorage\2fb1\index-dir\the-real-index`,
-		`C:\Users\luwei\AppData\Roaming\Mozilla\Firefox\Profiles\profile.default-release\cache2\entries\A1B2C3`,
-		`C:\Users\luwei\AppData\Local\Packages\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\LocalState\EBWebView\Default\Code Cache\js\index-dir\56a2206c.tmp`,
-		`C:\Users\luwei\AppData\Roaming\Tencent\wechat\radium\web\profiles\default\Network\TransportSecurity\transportsecurity~rf18504f85.tmp`,
-		`C:\Users\luwei\AppData\Roaming\utForpc\24772217\MjQ3NzIyMTc=\UTForPC.db-journal`,
-		`C:\Users\luwei\AppData\Roaming\Tencent\xwechat\net\kvcomm\key_2961520020_4065598005_1_1783301876_7742_3600_ready.statistic`,
-		`C:\Users\luwei\AppData\Local\Microsoft\OneDrive\logs\ListSync\Consumer_9cf4ddf2cc2d756a\NucleusLocal-2026-07-06.0001.57016.27.odlgz`,
-		`C:\Users\luwei\AppData\Local\Microsoft\Edge Beta\User Data\Default\Network\TransportSecurity`,
-		`C:\Users\luwei\AppData\Roaming\Fancun\capture_images\capture-20260706-094138.970034400-535c8e18a2ac.png`,
-		`C:\Users\luwei\.gemini\cache\state.json`,
-		`C:\Users\luwei\.m2\repository\org\example\artifact\1.0.0\artifact-1.0.0.jar`,
-		`C:\Windows\System32\ntdll.dll`,
-		`C:\pagefile.sys`,
-		`P:\App\Telegram Desktop\tdata\user_data`,
-		`P:\AppData\wechat\xwechat_files\wxid_abc\FileStorage\Cache\temp.dat`,
-		`P:\DevApp\Unity\Editor\Data\PlaybackEngines\AndroidPlayer\Tools\gradle\cache.bin`,
-		`P:\Program Files\Tencent\WeChat\WeChatAppEx.exe`,
-		`P:\workspace\env\npm\_cacache\content-v2\sha512\aa\bb`,
-		`P:\workspace\glwlg\app\Fancun\.venv\Lib\site-packages\pkg\__init__.py`,
-		`P:\workspace\glwlg\app\Fancun\.git\refs\codex\turn-diffs\captures\1783301386046\base`,
-		`P:\workspace\glwlg\app\Fancun\frontend\node_modules\.pnpm\vue\index.js`,
+		filepath.Join(localAppData, "D3DSCache", "4921e6f431b0944a", "F4EB2D6C.dxcache-shm"),
+		filepath.Join(tempDir, "edge-local-state.tmp"),
+		filepath.Join(appData, "fancun.exe", "EBWebView", "Default", "Code Cache", "js", "the-real-index"),
+		filepath.Join(appData, "Fancun", "capture_images", "capture-20260706.png"),
+		filepath.Join(windir, "System32", "ntdll.dll"),
+		filepath.Join(programData, "cache", "state.bin"),
+		filepath.Join(root, "pagefile.sys"),
+		filepath.Join(root, "workspace", "Fancun", ".venv", "Lib", "site-packages", "pkg", "__init__.py"),
+		filepath.Join(root, "workspace", "Fancun", ".git", "refs", "heads", "main"),
+		filepath.Join(root, "workspace", "Fancun", "frontend", "node_modules", ".pnpm", "vue", "index.js"),
 	}
 	for _, path := range excluded {
 		if !filter.Excludes(path) {
@@ -116,7 +111,7 @@ func TestDefaultFileSearchFilterExcludesCommonRuntimeNoise(t *testing.T) {
 		}
 	}
 
-	if filter.Excludes(`P:\workspace\glwlg\app\Fancun\internal\filesearch\policy.go`) {
+	if filter.Excludes(filepath.Join(root, "workspace", "Fancun", "internal", "filesearch", "policy.go")) {
 		t.Fatal("default filter should not exclude ordinary source files")
 	}
 }

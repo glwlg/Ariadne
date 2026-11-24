@@ -1,6 +1,8 @@
 package clipboardhistory
 
 import (
+	"slices"
+
 	"fancun/internal/appdb"
 
 	"zombiezen.com/go/sqlite"
@@ -50,15 +52,44 @@ func saveEntriesToSQLite(path string, entries []Entry) error {
 	if err := ensureClipboardSchema(conn); err != nil {
 		return err
 	}
+	desired := make([]Entry, 0, len(entries))
+	desiredByID := make(map[string]Entry, len(entries))
+	for _, entry := range entries {
+		entry = normalizeEntry(entry)
+		if !entryIsValid(entry) {
+			continue
+		}
+		if _, exists := desiredByID[entry.ID]; exists {
+			continue
+		}
+		desired = append(desired, entry)
+		desiredByID[entry.ID] = entry
+	}
 	return appdb.Immediate(conn, func() error {
-		if err := sqlitex.Execute(conn, `DELETE FROM clipboard_entry_tags`, nil); err != nil {
+		existingByID, err := readRawClipboardEntryMap(conn)
+		if err != nil {
 			return err
 		}
-		if err := sqlitex.Execute(conn, `DELETE FROM clipboard_entries`, nil); err != nil {
-			return err
+		for id := range existingByID {
+			if _, keep := desiredByID[id]; keep {
+				continue
+			}
+			if err := deleteClipboardEntryByID(conn, id); err != nil {
+				return err
+			}
 		}
-		for _, entry := range entries {
-			if err := insertClipboardEntry(conn, entry); err != nil {
+		for _, entry := range desired {
+			prev, exists := existingByID[entry.ID]
+			if !exists {
+				if err := insertClipboardEntry(conn, entry); err != nil {
+					return err
+				}
+				continue
+			}
+			if clipboardEntryPersistedEqual(prev, entry) {
+				continue
+			}
+			if err := updateClipboardEntry(conn, prev, entry); err != nil {
 				return err
 			}
 		}
@@ -100,19 +131,31 @@ CREATE TABLE IF NOT EXISTS clipboard_entry_tags(
 }
 
 func readClipboardEntries(conn *sqlite.Conn) ([]Entry, bool, error) {
-	count := 0
-	if err := sqlitex.Execute(conn, `SELECT count(*) FROM clipboard_entries`, &sqlitex.ExecOptions{
-		ResultFunc: func(stmt *sqlite.Stmt) error {
-			count = stmt.ColumnInt(0)
-			return nil
-		},
-	}); err != nil || count == 0 {
+	entries, err := readRawClipboardEntries(conn, true)
+	if err != nil || len(entries) == 0 {
 		return nil, false, err
 	}
-	entries := make([]Entry, 0, count)
+	sortEntries(entries)
+	return entries, true, nil
+}
+
+func readRawClipboardEntryMap(conn *sqlite.Conn) (map[string]Entry, error) {
+	entries, err := readRawClipboardEntries(conn, false)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]Entry, len(entries))
+	for _, entry := range entries {
+		byID[entry.ID] = entry
+	}
+	return byID, nil
+}
+
+func readRawClipboardEntries(conn *sqlite.Conn, normalize bool) ([]Entry, error) {
+	entries := []Entry{}
 	err := sqlitex.Execute(conn, `SELECT id, type, text, image_path, thumbnail_path, thumbnail_width, thumbnail_height, thumbnail_bytes, created_at, pinned, signature, content_type, source, summary, width, height, bytes FROM clipboard_entries ORDER BY created_at DESC`, &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
-			entries = append(entries, normalizeEntry(Entry{
+			entry := Entry{
 				ID:              stmt.ColumnText(0),
 				Type:            EntryType(stmt.ColumnText(1)),
 				Text:            stmt.ColumnText(2),
@@ -130,22 +173,52 @@ func readClipboardEntries(conn *sqlite.Conn) ([]Entry, bool, error) {
 				Width:           stmt.ColumnInt(14),
 				Height:          stmt.ColumnInt(15),
 				Bytes:           stmt.ColumnInt64(16),
-			}))
+			}
+			if normalize {
+				entry = normalizeEntry(entry)
+			}
+			entries = append(entries, entry)
 			return nil
 		},
 	})
+	if err != nil || len(entries) == 0 {
+		return entries, err
+	}
+	tagsByEntry, err := readAllClipboardTags(conn)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	for index := range entries {
-		tags, err := readClipboardTags(conn, entries[index].ID)
-		if err != nil {
-			return nil, false, err
+		if tags, ok := tagsByEntry[entries[index].ID]; ok {
+			entries[index].Tags = tags
+		} else {
+			entries[index].Tags = []string{}
 		}
-		entries[index].Tags = tags
 	}
-	sortEntries(entries)
-	return entries, true, nil
+	return entries, nil
+}
+
+func readAllClipboardTags(conn *sqlite.Conn) (map[string][]string, error) {
+	tagsByEntry := make(map[string][]string)
+	err := sqlitex.Execute(conn, `SELECT entry_id, value FROM clipboard_entry_tags ORDER BY entry_id, position`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			id := stmt.ColumnText(0)
+			tagsByEntry[id] = append(tagsByEntry[id], stmt.ColumnText(1))
+			return nil
+		},
+	})
+	return tagsByEntry, err
+}
+
+func deleteClipboardEntryByID(conn *sqlite.Conn, entryID string) error {
+	if err := sqlitex.Execute(conn, `DELETE FROM clipboard_entry_tags WHERE entry_id = ?1`, &sqlitex.ExecOptions{
+		Args: []any{entryID},
+	}); err != nil {
+		return err
+	}
+	return sqlitex.Execute(conn, `DELETE FROM clipboard_entries WHERE id = ?1`, &sqlitex.ExecOptions{
+		Args: []any{entryID},
+	})
 }
 
 func insertClipboardEntry(conn *sqlite.Conn, entry Entry) error {
@@ -159,12 +232,39 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?
 	}); err != nil {
 		return err
 	}
-	for position, tag := range entry.Tags {
+	return insertClipboardTags(conn, entry.ID, entry.Tags)
+}
+
+func updateClipboardEntry(conn *sqlite.Conn, prev Entry, entry Entry) error {
+	if !clipboardEntryScalarEqual(prev, entry) {
+		if err := sqlitex.Execute(conn, `UPDATE clipboard_entries
+SET type = ?2, text = ?3, image_path = ?4, thumbnail_path = ?5, thumbnail_width = ?6, thumbnail_height = ?7, thumbnail_bytes = ?8, created_at = ?9, pinned = ?10, signature = ?11, content_type = ?12, source = ?13, summary = ?14, width = ?15, height = ?16, bytes = ?17
+WHERE id = ?1`, &sqlitex.ExecOptions{
+			Args: []any{entry.ID, string(entry.Type), entry.Text, entry.ImagePath, entry.ThumbnailPath, entry.ThumbnailWidth, entry.ThumbnailHeight, entry.ThumbnailBytes, entry.CreatedAt, appdb.BoolInt(entry.Pinned), entry.Signature, entry.ContentType, entry.Source, entry.Summary, entry.Width, entry.Height, entry.Bytes},
+		}); err != nil {
+			return err
+		}
+	}
+	if !slices.Equal(nonEmptyTags(prev.Tags), nonEmptyTags(entry.Tags)) {
+		if err := sqlitex.Execute(conn, `DELETE FROM clipboard_entry_tags WHERE entry_id = ?1`, &sqlitex.ExecOptions{
+			Args: []any{entry.ID},
+		}); err != nil {
+			return err
+		}
+		if err := insertClipboardTags(conn, entry.ID, entry.Tags); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertClipboardTags(conn *sqlite.Conn, entryID string, tags []string) error {
+	for position, tag := range tags {
 		if tag == "" {
 			continue
 		}
 		if err := sqlitex.Execute(conn, `INSERT INTO clipboard_entry_tags(entry_id, position, value) VALUES (?1, ?2, ?3)`, &sqlitex.ExecOptions{
-			Args: []any{entry.ID, position, tag},
+			Args: []any{entryID, position, tag},
 		}); err != nil {
 			return err
 		}
@@ -172,14 +272,36 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?
 	return nil
 }
 
-func readClipboardTags(conn *sqlite.Conn, entryID string) ([]string, error) {
-	tags := []string{}
-	err := sqlitex.Execute(conn, `SELECT value FROM clipboard_entry_tags WHERE entry_id = ?1 ORDER BY position`, &sqlitex.ExecOptions{
-		Args: []any{entryID},
-		ResultFunc: func(stmt *sqlite.Stmt) error {
-			tags = append(tags, stmt.ColumnText(0))
-			return nil
-		},
-	})
-	return tags, err
+func clipboardEntryPersistedEqual(a Entry, b Entry) bool {
+	return clipboardEntryScalarEqual(a, b) && slices.Equal(nonEmptyTags(a.Tags), nonEmptyTags(b.Tags))
+}
+
+func clipboardEntryScalarEqual(a Entry, b Entry) bool {
+	return a.ID == b.ID &&
+		a.Type == b.Type &&
+		a.Text == b.Text &&
+		a.ImagePath == b.ImagePath &&
+		a.ThumbnailPath == b.ThumbnailPath &&
+		a.ThumbnailWidth == b.ThumbnailWidth &&
+		a.ThumbnailHeight == b.ThumbnailHeight &&
+		a.ThumbnailBytes == b.ThumbnailBytes &&
+		a.CreatedAt == b.CreatedAt &&
+		a.Pinned == b.Pinned &&
+		a.Signature == b.Signature &&
+		a.ContentType == b.ContentType &&
+		a.Source == b.Source &&
+		a.Summary == b.Summary &&
+		a.Width == b.Width &&
+		a.Height == b.Height &&
+		a.Bytes == b.Bytes
+}
+
+func nonEmptyTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if tag != "" {
+			out = append(out, tag)
+		}
+	}
+	return out
 }

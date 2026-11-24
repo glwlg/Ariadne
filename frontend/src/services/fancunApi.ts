@@ -2,6 +2,7 @@ import { seedResults } from '../data/seed'
 import { Events } from '@wailsio/runtime'
 import type { ActionResult, PreviewAction, SearchResponse } from '../types/fancun'
 import type { SearchResult } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 export class SearchCancelledError extends Error {
   constructor(message = 'Search request was cancelled') {
@@ -204,7 +205,10 @@ async function tryWailsAction(action: PreviewAction): Promise<ActionResult | nul
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
     const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.ExecuteAction(action)
-  } catch {
+  } catch (error) {
+    if (isDesktopRuntime()) {
+      return { ok: false, message: formatRpcError(error, `${action.label} 执行失败`) }
+    }
     return null
   }
 }
@@ -258,6 +262,9 @@ export function createFancunSearchRequest(query: string, onProgress?: (response:
     } catch (error) {
       if (cancelled || isSearchCancelled(error)) {
         throw new SearchCancelledError()
+      }
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '搜索服务调用失败'))
       }
       return fallbackSearch(query)
     } finally {

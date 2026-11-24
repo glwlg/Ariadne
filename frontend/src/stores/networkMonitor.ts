@@ -35,8 +35,8 @@ export const useNetworkMonitorStore = defineStore('network-monitor', () => {
       if (snapshot.value.lastError) {
         showFeedback(snapshot.value.lastError)
       }
-    } catch {
-      showFeedback('网络监控刷新失败')
+    } catch (error) {
+      showFeedback(error instanceof Error && error.message.trim() ? `网络监控刷新失败: ${error.message.trim()}` : '网络监控刷新失败')
     } finally {
       isLoading.value = false
     }
@@ -45,8 +45,8 @@ export const useNetworkMonitorStore = defineStore('network-monitor', () => {
   async function refreshProcesses() {
     try {
       processSnapshot.value = await getProcessNetworkSnapshot()
-    } catch {
-      showFeedback('进程网络刷新失败')
+    } catch (error) {
+      showFeedback(error instanceof Error && error.message.trim() ? `进程网络刷新失败: ${error.message.trim()}` : '进程网络刷新失败')
     }
   }
 

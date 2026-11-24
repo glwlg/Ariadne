@@ -17,4 +17,10 @@ func TestConfigureOCRCommandHidesWindowsConsole(t *testing.T) {
 	if cmd.SysProcAttr.CreationFlags&createNoWindow == 0 {
 		t.Fatalf("expected Windows OCR command to use CREATE_NO_WINDOW, got %#x", cmd.SysProcAttr.CreationFlags)
 	}
+	if cmd.Cancel == nil {
+		t.Fatal("expected Windows OCR command to set Cancel handler for process tree termination")
+	}
+	if cmd.WaitDelay <= 0 {
+		t.Fatalf("expected positive WaitDelay, got %v", cmd.WaitDelay)
+	}
 }

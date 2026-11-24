@@ -103,6 +103,16 @@ const (
 	bytesPerMegabyte        = 1024 * 1024
 )
 
+type virtualizedSnapshot struct {
+	key                   string
+	virtualizedPath       string
+	virtualizedExists     bool
+	virtualizedBytes      int64
+	virtualizedImageDir   string
+	virtualizedImageCount int
+	virtualizedImageBytes int64
+}
+
 type Service struct {
 	mu               sync.RWMutex
 	path             string
@@ -115,6 +125,8 @@ type Service struct {
 	observers        []func(Entry)
 	saveDirty        bool
 	saveScheduled    bool
+	virtualizedMu    sync.Mutex
+	virtualizedCache *virtualizedSnapshot
 }
 
 func NewService() *Service {
@@ -124,8 +136,14 @@ func NewService() *Service {
 func NewServiceWithPaths(path string, imageDir string) *Service {
 	service := &Service{path: path, imageDir: imageDir, thumbnailDir: defaultThumbnailDir(imageDir)}
 	service.load()
-	service.ensureThumbnails()
 	return service
+}
+
+func BackfillThumbnails(service *Service) {
+	if service == nil {
+		return
+	}
+	service.ensureThumbnails()
 }
 
 func (s *Service) Status() Status {
@@ -610,10 +628,33 @@ func (s *Service) listLocked(query string, limit int) []Entry {
 	return append([]Entry{}, items...)
 }
 
-func (s *Service) statusLocked(includeEntries bool) Status {
+func (s *Service) cachedVirtualizedStatus() virtualizedSnapshot {
+	appData := os.Getenv("APPDATA")
 	localAppData := os.Getenv("LOCALAPPDATA")
-	virtualizedPath, virtualizedExists, virtualizedBytes := findVirtualizedFile(s.path, os.Getenv("APPDATA"), localAppData)
-	virtualizedImageDir, virtualizedImageCount, virtualizedImageBytes := findVirtualizedDir(s.imageDir, os.Getenv("APPDATA"), localAppData)
+	key := appData + "\x00" + localAppData
+
+	s.virtualizedMu.Lock()
+	defer s.virtualizedMu.Unlock()
+	if s.virtualizedCache != nil && s.virtualizedCache.key == key {
+		return *s.virtualizedCache
+	}
+	virtualizedPath, virtualizedExists, virtualizedBytes := findVirtualizedFile(s.path, appData, localAppData)
+	virtualizedImageDir, virtualizedImageCount, virtualizedImageBytes := findVirtualizedDir(s.imageDir, appData, localAppData)
+	snapshot := virtualizedSnapshot{
+		key:                   key,
+		virtualizedPath:       virtualizedPath,
+		virtualizedExists:     virtualizedExists,
+		virtualizedBytes:      virtualizedBytes,
+		virtualizedImageDir:   virtualizedImageDir,
+		virtualizedImageCount: virtualizedImageCount,
+		virtualizedImageBytes: virtualizedImageBytes,
+	}
+	s.virtualizedCache = &snapshot
+	return snapshot
+}
+
+func (s *Service) statusLocked(includeEntries bool) Status {
+	virt := s.cachedVirtualizedStatus()
 	thumbnailCount, thumbnailBytes := countFilesInDir(s.thumbnailDir)
 	status := Status{
 		Path:                  firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path),
@@ -624,12 +665,12 @@ func (s *Service) statusLocked(includeEntries bool) Status {
 		ThumbnailBytes:        thumbnailBytes,
 		LastSaveError:         s.lastSaveError,
 		LastCaptureError:      s.lastCaptureError,
-		VirtualizedPath:       virtualizedPath,
-		VirtualizedExists:     virtualizedExists,
-		VirtualizedBytes:      virtualizedBytes,
-		VirtualizedImageDir:   virtualizedImageDir,
-		VirtualizedImageCount: virtualizedImageCount,
-		VirtualizedImageBytes: virtualizedImageBytes,
+		VirtualizedPath:       virt.virtualizedPath,
+		VirtualizedExists:     virt.virtualizedExists,
+		VirtualizedBytes:      virt.virtualizedBytes,
+		VirtualizedImageDir:   virt.virtualizedImageDir,
+		VirtualizedImageCount: virt.virtualizedImageCount,
+		VirtualizedImageBytes: virt.virtualizedImageBytes,
 	}
 	for _, entry := range s.entries {
 		if entry.Pinned {

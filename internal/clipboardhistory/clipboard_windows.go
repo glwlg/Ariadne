@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
 	"image/png"
 	"os"
@@ -48,8 +47,9 @@ var (
 	procOpenClipboard               clipboardProc = user32.NewProc("OpenClipboard")
 	procCloseClipboard              clipboardProc = user32.NewProc("CloseClipboard")
 	procEmptyClipboard                            = user32.NewProc("EmptyClipboard")
-	procGetClipboardData                          = user32.NewProc("GetClipboardData")
+	procGetClipboardData            clipboardProc = user32.NewProc("GetClipboardData")
 	procIsFormatAvailable           clipboardProc = user32.NewProc("IsClipboardFormatAvailable")
+	procRegisterClipboardFormatW    clipboardProc = user32.NewProc("RegisterClipboardFormatW")
 	procSetClipboardData                          = user32.NewProc("SetClipboardData")
 	procAddClipboardFormatListener                = user32.NewProc("AddClipboardFormatListener")
 	procRemoveClipboardFormatListen               = user32.NewProc("RemoveClipboardFormatListener")
@@ -65,10 +65,12 @@ var (
 	procGetModuleHandleW                          = kernel32.NewProc("GetModuleHandleW")
 	procGlobalAlloc                               = kernel32.NewProc("GlobalAlloc")
 	procGlobalFree                                = kernel32.NewProc("GlobalFree")
-	procGlobalLock                                = kernel32.NewProc("GlobalLock")
-	procGlobalUnlock                              = kernel32.NewProc("GlobalUnlock")
-	procGlobalSize                                = kernel32.NewProc("GlobalSize")
+	procGlobalLock                  clipboardProc = kernel32.NewProc("GlobalLock")
+	procGlobalUnlock                clipboardProc = kernel32.NewProc("GlobalUnlock")
+	procGlobalSize                  clipboardProc = kernel32.NewProc("GlobalSize")
 
+	excludeMonitorFormatName  = windows.StringToUTF16Ptr("ExcludeClipboardContentFromMonitorProcessing")
+	canIncludeHistoryName     = windows.StringToUTF16Ptr("CanIncludeInClipboardHistory")
 	clipboardWatcherClassName = windows.StringToUTF16Ptr("FancunClipboardWatcherWindow")
 	clipboardWatcherWndProc   = syscall.NewCallback(clipboardWatcherWindowProc)
 	clipboardWatcherCallbacks sync.Map
@@ -239,7 +241,12 @@ func readSystemClipboardEntryOnce(imageDir string, source string) (Entry, error)
 	var dib []byte
 	var text string
 	imageAvailable := false
+	excluded := false
 	err := withOpenClipboard(func() error {
+		if isClipboardCaptureExcluded() {
+			excluded = true
+			return nil
+		}
 		for _, format := range []uintptr{cfDIBV5, cfDIB} {
 			if available, _, _ := procIsFormatAvailable.Call(format); available != 0 {
 				imageAvailable = true
@@ -255,10 +262,35 @@ func readSystemClipboardEntryOnce(imageDir string, source string) (Entry, error)
 	if err != nil {
 		return Entry{}, err
 	}
+	if excluded {
+		return Entry{}, nil
+	}
 	if imageAvailable {
 		return makeImageEntryFromDIB(dib, imageDir, source)
 	}
 	return makeTextEntry(text, source), nil
+}
+
+func isClipboardCaptureExcluded() bool {
+	if excludeFmt, _, _ := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(excludeMonitorFormatName))); excludeFmt != 0 {
+		if available, _, _ := procIsFormatAvailable.Call(excludeFmt); available != 0 {
+			return true
+		}
+	}
+	if historyFmt, _, _ := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(canIncludeHistoryName))); historyFmt != 0 {
+		if available, _, _ := procIsFormatAvailable.Call(historyFmt); available != 0 {
+			data, err := copyClipboardData(historyFmt)
+			if err == nil {
+				if len(data) >= 4 && binary.LittleEndian.Uint32(data[:4]) == 0 {
+					return true
+				}
+				if len(data) > 0 && len(data) < 4 && data[0] == 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func readSystemClipboardTextOnce() (string, error) {
@@ -342,11 +374,15 @@ func makeImageEntryFromDIB(dib []byte, imageDir string, source string) (Entry, e
 	if len(dib) == 0 {
 		return Entry{}, nil
 	}
-	pngBytes, err := dibToPNG(dib)
+	img, err := dibToImage(dib)
 	if err != nil {
 		return Entry{}, err
 	}
-	return makeImageEntryFromPNG(pngBytes, imageDir, source)
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		return Entry{}, err
+	}
+	return makeImageEntryFromImage(img, out.Bytes(), imageDir, source)
 }
 
 func writeImageToSystemClipboard(path string) error {
@@ -453,6 +489,18 @@ func writeClipboardWithRetry(operation func() error) error {
 }
 
 func dibToPNG(dib []byte) ([]byte, error) {
+	img, err := dibToImage(dib)
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func dibToImage(dib []byte) (*image.RGBA, error) {
 	if len(dib) < 40 {
 		return nil, fmt.Errorf("剪贴板图片数据太短")
 	}
@@ -493,25 +541,29 @@ func dibToPNG(dib []byte) ([]byte, error) {
 
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	hasAlpha := false
+	step := bpp / 8
 	for y := 0; y < height; y++ {
 		sourceY := y
 		if !topDown {
 			sourceY = height - 1 - y
 		}
 		row := dib[offset+sourceY*stride : offset+(sourceY+1)*stride]
+		dstRow := img.Pix[y*img.Stride : y*img.Stride+width*4]
 		for x := 0; x < width; x++ {
-			idx := x * (bpp / 8)
-			b := row[idx]
-			g := row[idx+1]
-			r := row[idx+2]
-			a := uint8(255)
+			srcOff := x * step
+			dstOff := x * 4
+			dstRow[dstOff] = row[srcOff+2]
+			dstRow[dstOff+1] = row[srcOff+1]
+			dstRow[dstOff+2] = row[srcOff]
 			if bpp == 32 {
-				a = row[idx+3]
+				a := row[srcOff+3]
 				if a != 0 {
 					hasAlpha = true
 				}
+				dstRow[dstOff+3] = a
+			} else {
+				dstRow[dstOff+3] = 255
 			}
-			img.SetRGBA(x, y, color.RGBA{R: r, G: g, B: b, A: a})
 		}
 	}
 	if bpp == 32 && !hasAlpha {
@@ -519,11 +571,7 @@ func dibToPNG(dib []byte) ([]byte, error) {
 			img.Pix[i] = 255
 		}
 	}
-	var out bytes.Buffer
-	if err := png.Encode(&out, img); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
+	return img, nil
 }
 
 func imageToDIB(src image.Image) []byte {
@@ -547,13 +595,14 @@ func imageToDIB(src image.Image) []byte {
 	offset := 40
 	for y := 0; y < height; y++ {
 		sourceY := height - 1 - y
+		srcRow := rgba.Pix[sourceY*rgba.Stride : sourceY*rgba.Stride+width*4]
+		dstRow := dib[offset+y*stride : offset+(y+1)*stride]
 		for x := 0; x < width; x++ {
-			r, g, b, a := rgba.At(x, sourceY).RGBA()
-			idx := offset + y*stride + x*4
-			dib[idx] = byte(b >> 8)
-			dib[idx+1] = byte(g >> 8)
-			dib[idx+2] = byte(r >> 8)
-			dib[idx+3] = byte(a >> 8)
+			i := x * 4
+			dstRow[i] = srcRow[i+2]
+			dstRow[i+1] = srcRow[i+1]
+			dstRow[i+2] = srcRow[i]
+			dstRow[i+3] = srcRow[i+3]
 		}
 	}
 	return dib

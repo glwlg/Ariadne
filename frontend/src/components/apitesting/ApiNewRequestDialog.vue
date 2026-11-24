@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import FancunButton from '../ui/FancunButton.vue'
 import { parseCurlRequest } from '../../services/apiTestingApi'
 import type { APIRequest } from '../../types/fancun'
@@ -14,11 +14,14 @@ const emit = defineEmits<{
   create: [request: { folder: string } & Partial<Omit<APIRequest, 'id' | 'updatedAt'>>]
 }>()
 
+const nameInputRef = ref<HTMLInputElement | null>(null)
+let previousFocus: HTMLElement | null = null
+
 const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 const requestTypes = [
   { value: 'HTTP', label: 'HTTP', disabled: false },
   { value: 'gRPC', label: 'gRPC', disabled: true },
-  { value: 'From cURL', label: 'From cURL', disabled: false },
+  { value: 'From cURL', label: '从 cURL 导入', disabled: false },
   { value: 'GraphQL', label: 'GraphQL', disabled: true },
   { value: 'WebSocket', label: 'WebSocket', disabled: true },
 ]
@@ -39,20 +42,47 @@ const canCreate = computed(() => {
   return draft.type === 'HTTP' && draft.name.trim() !== '' && draft.url.trim() !== ''
 })
 
+function onWindowKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('close')
+  }
+}
+
 watch(
   () => props.open,
   (open) => {
-    if (!open) return
-    draft.type = 'HTTP'
-    draft.name = ''
-    draft.method = 'GET'
-    draft.url = ''
-    draft.curl = ''
-    draft.error = ''
-    draft.folder = props.folder
-    draft.showOptions = false
+    if (open) {
+      previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      draft.type = 'HTTP'
+      draft.name = ''
+      draft.method = 'GET'
+      draft.url = ''
+      draft.curl = ''
+      draft.error = ''
+      draft.folder = props.folder
+      draft.showOptions = false
+      window.addEventListener('keydown', onWindowKeydown, true)
+      void nextTick(() => nameInputRef.value?.focus())
+    } else {
+      window.removeEventListener('keydown', onWindowKeydown, true)
+      previousFocus?.focus()
+      previousFocus = null
+    }
   },
 )
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown, true)
+})
+
+function handleEnter(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  createRequest()
+}
 
 function createRequest() {
   if (!canCreate.value) return
@@ -98,7 +128,7 @@ function createRequest() {
 
         <label class="api-field">
           <span>请求名称</span>
-          <input v-model="draft.name" class="api-input" placeholder="Request Name" @keydown.enter="createRequest" />
+          <input ref="nameInputRef" v-model="draft.name" class="api-input" placeholder="请求名称" @keydown.enter="handleEnter" />
         </label>
 
         <label v-if="!isCurlMode" class="api-field">
@@ -107,7 +137,7 @@ function createRequest() {
             <select v-model="draft.method" class="api-method-select">
               <option v-for="method in methods" :key="method" :value="method">{{ method }}</option>
             </select>
-            <input v-model="draft.url" class="api-input" placeholder="Request URL" @keydown.enter="createRequest" />
+            <input v-model="draft.url" class="api-input" placeholder="请求 URL" @keydown.enter="handleEnter" />
           </div>
         </label>
 
@@ -119,13 +149,13 @@ function createRequest() {
         <div v-if="draft.error" class="api-dialog-error" role="alert">{{ draft.error }}</div>
 
         <label v-if="draft.showOptions" class="api-field">
-          <span>Folder</span>
+          <span>分组</span>
           <input v-model="draft.folder" class="api-input" placeholder="未分组" />
         </label>
       </div>
 
       <footer>
-        <button type="button" class="api-new-request-options" :class="{ 'is-active': draft.showOptions }" @click="draft.showOptions = !draft.showOptions">Options</button>
+        <button type="button" class="api-new-request-options" :class="{ 'is-active': draft.showOptions }" @click="draft.showOptions = !draft.showOptions">高级选项</button>
         <div>
           <FancunButton size="sm" variant="ghost" @click="emit('close')">取消</FancunButton>
           <FancunButton size="sm" variant="primary" :disabled="!canCreate" @click="createRequest">创建</FancunButton>

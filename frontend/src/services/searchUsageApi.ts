@@ -1,4 +1,5 @@
 import type { SearchUsageClearResult, SearchUsageRecord, SearchUsageStatus } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 let fallbackStatus: SearchUsageStatus = {
   path: 'dev:fallback-search-state',
@@ -20,9 +21,15 @@ export async function getSearchUsageStatus(): Promise<SearchUsageStatus> {
   if (binding) {
     try {
       return normalizeStatus(await binding.UsageStatus())
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取搜索使用状态失败'))
+      }
       return structuredClone(fallbackStatus)
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('搜索服务绑定不可用')
   }
   return structuredClone(fallbackStatus)
 }
@@ -31,6 +38,9 @@ export async function clearSearchUsage(): Promise<SearchUsageClearResult> {
   const binding = await trySearchBinding()
   if (binding) {
     return normalizeClearResult(await binding.ClearUsage())
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('搜索服务绑定不可用')
   }
   const cleared = fallbackStatus.count
   fallbackStatus = { ...fallbackStatus, count: 0, records: [] }

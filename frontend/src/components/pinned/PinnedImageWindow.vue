@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Copy, FileText, Maximize2, Minus, Pin, Plus, ScanLine, X } from '@lucide/vue'
 import { Clipboard, Window } from '@wailsio/runtime'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { copyClipboardImage } from '../../services/clipboardApi'
 import { recognizePinnedCaptureOCR, recognizePinnedClipboardImageOCR } from '../../services/ocrApi'
 import { closePinnedImage, getPinnedImage } from '../../services/pinnedImageApi'
@@ -16,6 +16,7 @@ const props = defineProps<{
 
 const activePinId = ref(props.pinId)
 const surfaceRef = ref<HTMLElement | null>(null)
+const contextMenuRef = ref<HTMLElement | null>(null)
 const image = ref<PinnedImage | null>(null)
 const zoom = ref(1)
 const shadowEnabled = ref(false)
@@ -29,9 +30,19 @@ const ocrSelection = createOCRSelection(ocrResult)
 const ocrLines = ocrSelection.ocrLines
 const selectedOCRLineCount = ocrSelection.selectedOCRLineCount
 const isWarmWindow = computed(() => Boolean(props.warm))
-const imageStyle = computed(() => ({
-  transform: `scale(${zoom.value})`,
-}))
+const isZoomed = computed(() => zoom.value > 1)
+const imageStyle = computed(() => {
+  if (zoom.value > 1) {
+    return {
+      width: `${Math.round(contentSize.value.width * zoom.value)}px`,
+      height: `${Math.round(contentSize.value.height * zoom.value)}px`,
+      transform: 'none',
+    }
+  }
+  return {
+    transform: `scale(${zoom.value})`,
+  }
+})
 
 const contentSize = computed(() => {
   const current = image.value
@@ -141,10 +152,13 @@ onMounted(async () => {
     await prepareWarmWindow()
     return
   }
-  await prepareWindow()
-  await loadPinnedImage(activePinId.value)
-  isLoading.value = false
   document.addEventListener('keydown', handleKeyDown, true)
+  try {
+    await prepareWindow()
+    await loadPinnedImage(activePinId.value)
+  } finally {
+    isLoading.value = false
+  }
   focusSurface()
 })
 
@@ -154,18 +168,26 @@ onBeforeUnmount(() => {
 })
 
 async function loadPinnedImage(pinId: string) {
+  isLoading.value = true
   activePinId.value = pinId
   ocrResult.value = null
   ocrSelection.clearOCRLineSelection()
   contextMenu.value = { visible: false, x: 0, y: 0 }
   menuExpanded.value = false
-  image.value = await getPinnedImage(pinId)
-  if (image.value?.windowWidth && image.value.windowHeight) {
-    try {
-      await Window.SetSize(image.value.windowWidth, image.value.windowHeight)
-    } catch {
-      // Runtime calls are unavailable in browser-only dev mode.
+  try {
+    image.value = await getPinnedImage(pinId)
+    if (image.value?.windowWidth && image.value.windowHeight) {
+      try {
+        await Window.SetSize(image.value.windowWidth, image.value.windowHeight)
+      } catch {
+        // Runtime calls are unavailable in browser-only dev mode.
+      }
     }
+  } catch {
+    image.value = null
+    showFeedback('贴图加载失败')
+  } finally {
+    isLoading.value = false
   }
 }
 
@@ -360,6 +382,50 @@ async function openContextMenuAt(x: number, y: number) {
     x: Math.max(0, Math.min(x, viewportWidth - menuWidth - 4)),
     y: Math.max(0, Math.min(y, viewportHeight - menuHeight - 4)),
   }
+  await nextTick()
+  const firstEnabled = enabledMenuItems()[0]
+  firstEnabled?.focus()
+}
+
+function enabledMenuItems(): HTMLButtonElement[] {
+  if (!contextMenuRef.value) return []
+  return Array.from(contextMenuRef.value.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)'))
+}
+
+function handleContextMenuKeyDown(event: KeyboardEvent) {
+  const items = enabledMenuItems()
+  if (!items.length) return
+  const currentIndex = items.findIndex((item) => item === document.activeElement)
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    event.stopPropagation()
+    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % items.length
+    items[nextIndex]?.focus()
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    event.stopPropagation()
+    const prevIndex = currentIndex <= 0 ? items.length - 1 : currentIndex - 1
+    items[prevIndex]?.focus()
+  } else if (event.key === 'Home') {
+    event.preventDefault()
+    event.stopPropagation()
+    items[0]?.focus()
+  } else if (event.key === 'End') {
+    event.preventDefault()
+    event.stopPropagation()
+    items[items.length - 1]?.focus()
+  } else if (event.key === 'Enter' || event.key === ' ') {
+    if (document.activeElement instanceof HTMLButtonElement && items.includes(document.activeElement)) {
+      event.preventDefault()
+      event.stopPropagation()
+      document.activeElement.click()
+    }
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    closeContextMenu()
+    focusSurface()
+  }
 }
 
 async function expandWindowForContextMenu(x: number, y: number, menuWidth: number, menuHeight: number) {
@@ -429,7 +495,7 @@ function clampZoom(value: number) {
     v-else
     ref="surfaceRef"
     class="pinned-image-surface"
-    :class="{ 'has-shadow': shadowEnabled }"
+    :class="{ 'has-shadow': shadowEnabled, 'is-zoomed': isZoomed }"
     tabindex="-1"
     aria-label="贴图窗口"
     @pointerdown="handleSurfacePointerDown"
@@ -443,7 +509,7 @@ function clampZoom(value: number) {
     </div>
 
     <template v-else-if="image">
-      <figure class="pinned-image-stage" :style="contentStyle">
+      <figure class="pinned-image-stage" :class="{ 'is-zoomed': isZoomed }" :style="contentStyle">
         <div
           class="pinned-image-zoom-layer"
           :style="imageStyle"
@@ -454,7 +520,7 @@ function clampZoom(value: number) {
             :height="ocrResult?.height || image.height"
             :lines="ocrLines"
             :is-line-selected="ocrSelection.isOCRLineSelected"
-            :max-height="ocrMaxHeight"
+            :max-height="isZoomed ? undefined : ocrMaxHeight"
             @toggle-line="ocrSelection.toggleOCRLine"
           />
         </div>
@@ -475,13 +541,17 @@ function clampZoom(value: number) {
         <button v-if="ocrResult.text" type="button" @click.stop="copyFullOCRText">复制全文</button>
       </div>
 
-      <div v-if="feedback" class="pinned-image-feedback">{{ feedback }}</div>
+      <div v-if="feedback || isRecognizingOCR" class="pinned-image-feedback" aria-live="polite">
+        {{ isRecognizingOCR ? (feedback || 'OCR 识别中...') : feedback }}
+      </div>
       <div
         v-if="contextMenu.visible"
+        ref="contextMenuRef"
         class="pinned-image-context-menu"
         :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
         role="menu"
         aria-label="贴图右键菜单"
+        @keydown="handleContextMenuKeyDown"
         @pointerdown.stop
         @dblclick.stop
         @wheel.stop

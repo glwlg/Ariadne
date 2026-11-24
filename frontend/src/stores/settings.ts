@@ -43,6 +43,8 @@ import type {
 } from '../types/fancun'
 
 
+const ARMED_TIMEOUT_MS = 5000
+
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<AppSettings | null>(null)
   const legacyStatus = ref<LegacyConfigStatus | null>(null)
@@ -71,12 +73,15 @@ export const useSettingsStore = defineStore('settings', () => {
   const launcherDeleteArmedId = ref('')
   const searchUsageClearArmed = ref(false)
   const secretClearArmedKind = ref('')
+  const resetArmed = ref(false)
   const searchExcludeFoldersDraft = ref('')
   const searchExcludePatternsDraft = ref('')
   const searchIncludeExtensionsDraft = ref('')
   const searchExcludeExtensionsDraft = ref('')
   const screenshotRedactKeywordsDraft = ref('')
   const feedback = ref('')
+  const feedbackTone = ref<'success' | 'danger'>('success')
+  const loadError = ref('')
   const isLoading = ref(false)
   const isSaving = ref(false)
   const isMigrating = ref(false)
@@ -89,14 +94,33 @@ export const useSettingsStore = defineStore('settings', () => {
   const isInstallingSearchService = ref(false)
   const legacyHandoffMode = ref<'graceful' | 'force' | ''>('')
   const rollbackRestoreArmed = ref(false)
+  let feedbackTimer: number | undefined
+  const armedTimers = new Map<string, number>()
 
   const hasSettings = computed(() => Boolean(settings.value))
   const visiblePluginManifests = computed(() => pluginManifests.value)
   const enabledPluginCount = computed(() => visiblePluginManifests.value.filter((plugin) => pluginEnabled(plugin.id)).length)
 
+  function setArmedTimer(key: string, onExpire: () => void) {
+    clearArmedTimer(key)
+    const timer = window.setTimeout(() => {
+      armedTimers.delete(key)
+      onExpire()
+    }, ARMED_TIMEOUT_MS)
+    armedTimers.set(key, timer)
+  }
+
+  function clearArmedTimer(key: string) {
+    const timer = armedTimers.get(key)
+    if (timer !== undefined) {
+      window.clearTimeout(timer)
+      armedTimers.delete(key)
+    }
+  }
 
   async function load() {
     isLoading.value = true
+    loadError.value = ''
     try {
       const [nextSettings, nextLegacy, nextStorage, nextPlatform, nextLaunchers, nextSearchUsage, nextLegacyData, nextReleaseBackup, nextAppUpdate, nextSecrets, nextPlugins] = await Promise.all([
         getSettings(),
@@ -127,8 +151,9 @@ export const useSettingsStore = defineStore('settings', () => {
       if (!launcherDraft.value.name && nextLaunchers.items[0]) {
         editLauncher(nextLaunchers.items[0])
       }
-    } catch {
-      showFeedback('设置加载失败')
+    } catch (error) {
+      loadError.value = formatError(error, '设置加载失败')
+      showFeedback(`设置加载失败: ${shortError(loadError.value)}`, 'danger')
     } finally {
       isLoading.value = false
     }
@@ -138,7 +163,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (!settings.value) return
     const hotkeyValidation = validateHotkeys(settings.value.hotkeys)
     if (hotkeyValidation) {
-      showFeedback(hotkeyValidation)
+      showFeedback(hotkeyValidation, 'danger')
       return
     }
     syncSearchDraftsToSettings()
@@ -149,9 +174,9 @@ export const useSettingsStore = defineStore('settings', () => {
       publishTheme(settings.value.general.theme)
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
-      showFeedback(isStorageHealthy(storageStatus.value) ? '设置已保存' : '设置保存失败')
-    } catch {
-      showFeedback('设置保存失败')
+      showFeedback(isStorageHealthy(storageStatus.value) ? '设置已保存' : '设置保存失败', isStorageHealthy(storageStatus.value) ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`设置保存失败: ${shortError(formatError(error, '设置保存失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
@@ -166,9 +191,9 @@ export const useSettingsStore = defineStore('settings', () => {
       syncTextDraftsFromSettings()
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
-      showFeedback(isStorageHealthy(storageStatus.value) ? '搜索排除规则已保存' : '搜索排除规则保存失败')
-    } catch {
-      showFeedback('搜索排除规则保存失败')
+      showFeedback(isStorageHealthy(storageStatus.value) ? '搜索排除规则已保存' : '搜索排除规则保存失败', isStorageHealthy(storageStatus.value) ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`搜索排除规则保存失败: ${shortError(formatError(error, '保存失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
@@ -178,7 +203,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (!settings.value) return
     const validation = validateHotkeys(settings.value.hotkeys)
     if (validation) {
-      showFeedback(validation)
+      showFeedback(validation, 'danger')
       return
     }
     normalizeAllHotkeys(settings.value.hotkeys)
@@ -192,18 +217,20 @@ export const useSettingsStore = defineStore('settings', () => {
       await refreshPlatformStatus()
       const shell = platformStatus.value?.shell
       if (shell?.lastError) {
-        showFeedback(`快捷键已保存，注册失败: ${shortError(shell.lastError)}`)
+        showFeedback(`快捷键已保存，注册失败: ${shortError(shell.lastError)}`, 'danger')
         return
       }
-      showFeedback(isStorageHealthy(storageStatus.value) ? '快捷键已应用' : '快捷键保存失败')
-    } catch {
-      showFeedback('快捷键保存失败')
+      showFeedback(isStorageHealthy(storageStatus.value) ? '快捷键已应用' : '快捷键保存失败', isStorageHealthy(storageStatus.value) ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`快捷键保存失败: ${shortError(formatError(error, '快捷键保存失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
   }
 
   async function reset() {
+    clearArmedTimer('reset')
+    resetArmed.value = false
     isSaving.value = true
     try {
       settings.value = await resetSettings()
@@ -211,12 +238,24 @@ export const useSettingsStore = defineStore('settings', () => {
       publishTheme(settings.value.general.theme)
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
-      showFeedback(isStorageHealthy(storageStatus.value) ? '已恢复默认设置' : '恢复默认失败')
-    } catch {
-      showFeedback('恢复默认失败')
+      showFeedback(isStorageHealthy(storageStatus.value) ? '已恢复默认设置' : '恢复默认失败', isStorageHealthy(storageStatus.value) ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`恢复默认失败: ${shortError(formatError(error, '恢复默认失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
+  }
+
+  async function confirmReset() {
+    if (!resetArmed.value) {
+      resetArmed.value = true
+      setArmedTimer('reset', () => {
+        resetArmed.value = false
+      })
+      showFeedback('再次点击确认恢复默认设置', 'danger')
+      return
+    }
+    await reset()
   }
 
   async function importLegacy() {
@@ -228,9 +267,9 @@ export const useSettingsStore = defineStore('settings', () => {
       legacyStatus.value = await getLegacyConfigStatus()
       storageStatus.value = await getSettingsStorageStatus()
       await refreshPlatformStatus()
-      showFeedback(isStorageHealthy(storageStatus.value) ? '旧版配置已导入' : '旧版配置导入失败')
-    } catch {
-      showFeedback('旧版配置导入失败')
+      showFeedback(isStorageHealthy(storageStatus.value) ? '旧版配置已导入' : '旧版配置导入失败', isStorageHealthy(storageStatus.value) ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`旧版配置导入失败: ${shortError(formatError(error, '导入失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
@@ -239,9 +278,9 @@ export const useSettingsStore = defineStore('settings', () => {
   async function refreshLegacyDataStatus() {
     try {
       legacyDataStatus.value = await getLegacyDataStatus()
-      showFeedback(legacyDataStatus.value.exists ? '旧历史状态已刷新' : '未发现旧历史数据')
-    } catch {
-      showFeedback('旧历史状态刷新失败')
+      showFeedback(legacyDataStatus.value.exists ? '旧历史状态已刷新' : '未发现旧历史数据', 'success')
+    } catch (error) {
+      showFeedback(`旧历史状态刷新失败: ${shortError(formatError(error, '刷新失败'))}`, 'danger')
     }
   }
 
@@ -252,12 +291,12 @@ export const useSettingsStore = defineStore('settings', () => {
       legacyDataStatus.value = await getLegacyDataStatus()
       const imported = legacyImportResult.value.sources.reduce((total, source) => total + source.imported, 0)
       if (legacyImportResult.value.ok) {
-        showFeedback(imported > 0 ? `旧历史已迁移 ${imported} 条` : '旧历史已检查，无新增记录')
+        showFeedback(imported > 0 ? `旧历史已迁移 ${imported} 条` : '旧历史已检查，无新增记录', 'success')
       } else {
-        showFeedback('旧历史迁移完成，但有失败项')
+        showFeedback('旧历史迁移完成，但有失败项', 'danger')
       }
-    } catch {
-      showFeedback('旧历史迁移失败')
+    } catch (error) {
+      showFeedback(`旧历史迁移失败: ${shortError(formatError(error, '迁移失败'))}`, 'danger')
     } finally {
       isMigrating.value = false
     }
@@ -268,9 +307,12 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       releaseBackupResult.value = await createReleaseRollbackCheckpoint({ reason: 'manual_settings_checkpoint' })
       releaseBackupStatus.value = await getReleaseBackupStatus()
-      showFeedback(releaseBackupResult.value.ok ? releaseBackupResult.value.message : `检查点失败: ${shortError(releaseBackupResult.value.message)}`)
-    } catch {
-      showFeedback('回滚检查点创建失败')
+      showFeedback(
+        releaseBackupResult.value.ok ? releaseBackupResult.value.message : `检查点失败: ${shortError(releaseBackupResult.value.message)}`,
+        releaseBackupResult.value.ok ? 'success' : 'danger',
+      )
+    } catch (error) {
+      showFeedback(`回滚检查点创建失败: ${shortError(formatError(error, '创建失败'))}`, 'danger')
     } finally {
       isCreatingRollbackCheckpoint.value = false
     }
@@ -279,9 +321,13 @@ export const useSettingsStore = defineStore('settings', () => {
   async function restoreLatestRollbackCheckpoint() {
     if (!rollbackRestoreArmed.value) {
       rollbackRestoreArmed.value = true
-      showFeedback('再次点击确认恢复最近检查点')
+      setArmedTimer('rollbackRestore', () => {
+        rollbackRestoreArmed.value = false
+      })
+      showFeedback('再次点击确认恢复最近检查点', 'danger')
       return
     }
+    clearArmedTimer('rollbackRestore')
     isRestoringRollbackCheckpoint.value = true
     try {
       releaseRestoreResult.value = await restoreReleaseRollbackCheckpoint({
@@ -290,9 +336,9 @@ export const useSettingsStore = defineStore('settings', () => {
         createPreRestoreBackup: true,
       })
       releaseBackupStatus.value = await getReleaseBackupStatus()
-      showFeedback(releaseRestoreResult.value.message)
-    } catch {
-      showFeedback('回滚恢复失败')
+      showFeedback(releaseRestoreResult.value.message, releaseRestoreResult.value.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`回滚恢复失败: ${shortError(formatError(error, '恢复失败'))}`, 'danger')
     } finally {
       rollbackRestoreArmed.value = false
       isRestoringRollbackCheckpoint.value = false
@@ -304,9 +350,9 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       appUpdateResult.value = await checkForAppUpdates()
       appUpdateStatus.value = appUpdateResult.value.status
-      showFeedback(appUpdateResult.value.message)
-    } catch {
-      showFeedback('检查应用更新失败')
+      showFeedback(appUpdateResult.value.message, appUpdateResult.value.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`检查应用更新失败: ${shortError(formatError(error, '检查失败'))}`, 'danger')
     } finally {
       isCheckingUpdate.value = false
     }
@@ -317,9 +363,9 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       appUpdateResult.value = await downloadAndLaunchAppUpdate()
       appUpdateStatus.value = appUpdateResult.value.status
-      showFeedback(appUpdateResult.value.message)
-    } catch {
-      showFeedback('下载或启动更新安装器失败')
+      showFeedback(appUpdateResult.value.message, appUpdateResult.value.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`下载或启动更新安装器失败: ${shortError(formatError(error, '安装失败'))}`, 'danger')
     } finally {
       isInstallingUpdate.value = false
     }
@@ -330,9 +376,12 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       diagnosticsExportResult.value = await exportDiagnosticsBundle()
       platformStatus.value = await getPlatformStatus()
-      showFeedback(diagnosticsExportResult.value.ok ? diagnosticsExportResult.value.message : `诊断导出失败: ${shortError(diagnosticsExportResult.value.message)}`)
-    } catch {
-      showFeedback('诊断导出失败')
+      showFeedback(
+        diagnosticsExportResult.value.ok ? diagnosticsExportResult.value.message : `诊断导出失败: ${shortError(diagnosticsExportResult.value.message)}`,
+        diagnosticsExportResult.value.ok ? 'success' : 'danger',
+      )
+    } catch (error) {
+      showFeedback(`诊断导出失败: ${shortError(formatError(error, '导出失败'))}`, 'danger')
     } finally {
       isExportingDiagnostics.value = false
     }
@@ -342,16 +391,20 @@ export const useSettingsStore = defineStore('settings', () => {
     const mode = force ? 'force' : 'graceful'
     if (legacyHandoffMode.value !== mode) {
       legacyHandoffMode.value = mode
-      showFeedback(force ? '再次点击确认强制结束旧版 x-tools' : '再次点击确认关闭旧版 x-tools 并重试 Alt+Q')
+      setArmedTimer('legacyHandoff', () => {
+        legacyHandoffMode.value = ''
+      })
+      showFeedback(force ? '再次点击确认强制结束旧版 x-tools' : '再次点击确认关闭旧版 x-tools 并重试 Alt+Q', 'danger')
       return
     }
+    clearArmedTimer('legacyHandoff')
     isResolvingLegacyConflict.value = true
     try {
       legacyHandoffResult.value = await resolveLegacyConflict({ confirm: true, force, timeoutMs: force ? 1500 : 3000 })
       platformStatus.value = await getPlatformStatus()
-      showFeedback(legacyHandoffResult.value.message)
-    } catch {
-      showFeedback('旧版交接失败')
+      showFeedback(legacyHandoffResult.value.message, legacyHandoffResult.value.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`旧版交接失败: ${shortError(formatError(error, '交接失败'))}`, 'danger')
     } finally {
       legacyHandoffMode.value = ''
       isResolvingLegacyConflict.value = false
@@ -483,34 +536,36 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function editLauncher(launcher: Launcher) {
     launcherDraft.value = cloneLauncher(launcher)
+    clearArmedTimer('launcherDelete')
     launcherDeleteArmedId.value = ''
   }
 
   function newLauncher() {
     launcherDraft.value = createLauncherDraft()
+    clearArmedTimer('launcherDelete')
     launcherDeleteArmedId.value = ''
   }
 
   async function saveLauncher() {
     const draft = cloneLauncher(launcherDraft.value)
     if (!draft.name || !draft.target) {
-      showFeedback('启动项需要名称和目标')
+      showFeedback('启动项需要名称和目标', 'danger')
       return
     }
     isSaving.value = true
     try {
       launcherStatus.value = await upsertLauncher(draft)
       if (launcherStatus.value.lastSaveError) {
-        showFeedback(`启动项保存失败: ${shortError(launcherStatus.value.lastSaveError)}`)
+        showFeedback(`启动项保存失败: ${shortError(launcherStatus.value.lastSaveError)}`, 'danger')
         return
       }
       const saved = launcherStatus.value.items.find((item) => item.id === draft.id) ?? launcherStatus.value.items.find((item) => item.name === draft.name && item.target === draft.target)
       if (saved) {
         editLauncher(saved)
       }
-      showFeedback('启动项已保存')
-    } catch {
-      showFeedback('启动项保存失败')
+      showFeedback('启动项已保存', 'success')
+    } catch (error) {
+      showFeedback(`启动项保存失败: ${shortError(formatError(error, '保存失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
@@ -522,15 +577,20 @@ export const useSettingsStore = defineStore('settings', () => {
       return
     }
     if (launcherDeleteArmedId.value !== launcherDraft.value.id) {
-      launcherDeleteArmedId.value = launcherDraft.value.id
-      showFeedback('再次点击确认删除启动项')
+      const armedId = launcherDraft.value.id
+      launcherDeleteArmedId.value = armedId
+      setArmedTimer('launcherDelete', () => {
+        if (launcherDeleteArmedId.value === armedId) launcherDeleteArmedId.value = ''
+      })
+      showFeedback('再次点击确认删除启动项', 'danger')
       return
     }
+    clearArmedTimer('launcherDelete')
     isSaving.value = true
     try {
       launcherStatus.value = await removeLauncher(launcherDraft.value.id)
       if (launcherStatus.value.lastSaveError) {
-        showFeedback(`启动项删除失败: ${shortError(launcherStatus.value.lastSaveError)}`)
+        showFeedback(`启动项删除失败: ${shortError(launcherStatus.value.lastSaveError)}`, 'danger')
         return
       }
       if (launcherStatus.value.items[0]) {
@@ -539,9 +599,9 @@ export const useSettingsStore = defineStore('settings', () => {
         newLauncher()
       }
       launcherDeleteArmedId.value = ''
-      showFeedback('启动项已删除')
-    } catch {
-      showFeedback('启动项删除失败')
+      showFeedback('启动项已删除', 'success')
+    } catch (error) {
+      showFeedback(`启动项删除失败: ${shortError(formatError(error, '删除失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
@@ -550,16 +610,20 @@ export const useSettingsStore = defineStore('settings', () => {
   async function clearSearchUsageState() {
     if (!searchUsageClearArmed.value) {
       searchUsageClearArmed.value = true
-      showFeedback('再次点击确认清理搜索收藏和最近使用')
+      setArmedTimer('searchUsageClear', () => {
+        searchUsageClearArmed.value = false
+      })
+      showFeedback('再次点击确认清理搜索收藏和最近使用', 'danger')
       return
     }
+    clearArmedTimer('searchUsageClear')
     isSaving.value = true
     try {
       searchUsageClearResult.value = await clearSearchUsage()
       searchUsageStatus.value = searchUsageClearResult.value.status
-      showFeedback(searchUsageClearResult.value.message)
-    } catch {
-      showFeedback('搜索收藏和最近使用清理失败')
+      showFeedback(searchUsageClearResult.value.message, searchUsageClearResult.value.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`搜索收藏和最近使用清理失败: ${shortError(formatError(error, '清理失败'))}`, 'danger')
     } finally {
       searchUsageClearArmed.value = false
       isSaving.value = false
@@ -571,13 +635,13 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       fileSearchServiceActionResult.value = await installFileSearchService()
       await refreshPlatformStatus()
-      showFeedback(fileSearchServiceActionResult.value.message)
-    } catch {
+      showFeedback(fileSearchServiceActionResult.value.message, fileSearchServiceActionResult.value.ok ? 'success' : 'danger')
+    } catch (error) {
       fileSearchServiceActionResult.value = {
         ok: false,
-        message: '搜索服务安装失败',
+        message: formatError(error, '搜索服务安装失败'),
       }
-      showFeedback(fileSearchServiceActionResult.value.message)
+      showFeedback(fileSearchServiceActionResult.value.message, 'danger')
     } finally {
       isInstallingSearchService.value = false
     }
@@ -586,9 +650,10 @@ export const useSettingsStore = defineStore('settings', () => {
   async function saveSecret(kind: string) {
     const value = secretInputs.value[kind]?.trim() ?? ''
     if (!value) {
-      showFeedback('请输入密钥后再保存')
+      showFeedback('请输入密钥后再保存', 'danger')
       return
     }
+    clearArmedTimer('secretClear')
     secretClearArmedKind.value = ''
     isSaving.value = true
     try {
@@ -597,9 +662,9 @@ export const useSettingsStore = defineStore('settings', () => {
       if (secretActionResult.value.ok) {
         secretInputs.value[kind] = ''
       }
-      showFeedback(secretActionResult.value.message)
-    } catch {
-      showFeedback('密钥保存失败')
+      showFeedback(secretActionResult.value.message, secretActionResult.value.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`密钥保存失败: ${shortError(formatError(error, '保存失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
@@ -613,12 +678,19 @@ export const useSettingsStore = defineStore('settings', () => {
       secretStatus.value = secretActionResult.value.status
       if (secretActionResult.value.requiresConfirmation) {
         secretClearArmedKind.value = kind
+        setArmedTimer('secretClear', () => {
+          if (secretClearArmedKind.value === kind) secretClearArmedKind.value = ''
+        })
       } else {
+        clearArmedTimer('secretClear')
         secretClearArmedKind.value = ''
       }
-      showFeedback(secretActionResult.value.message)
-    } catch {
-      showFeedback('密钥清除失败')
+      showFeedback(
+        secretActionResult.value.message,
+        secretActionResult.value.ok ? 'success' : 'danger',
+      )
+    } catch (error) {
+      showFeedback(`密钥清除失败: ${shortError(formatError(error, '清除失败'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
@@ -632,13 +704,20 @@ export const useSettingsStore = defineStore('settings', () => {
     launcherDraft.value[path] = linesToList(value)
   }
 
-  function showFeedback(message: string) {
+  function showFeedback(message: string, tone: 'success' | 'danger' = 'success') {
+    if (feedbackTimer !== undefined) {
+      window.clearTimeout(feedbackTimer)
+      feedbackTimer = undefined
+    }
     feedback.value = message
-    window.setTimeout(() => {
+    feedbackTone.value = tone
+    const duration = tone === 'danger' ? 5000 : 2000
+    feedbackTimer = window.setTimeout(() => {
+      feedbackTimer = undefined
       if (feedback.value === message) {
         feedback.value = ''
       }
-    }, 1800)
+    }, duration)
   }
 
   async function refreshPlatformStatus() {
@@ -679,7 +758,10 @@ export const useSettingsStore = defineStore('settings', () => {
     launcherDeleteArmedId,
     searchUsageClearArmed,
     secretClearArmedKind,
+    resetArmed,
     feedback,
+    feedbackTone,
+    loadError,
     isLoading,
     isSaving,
     isMigrating,
@@ -699,6 +781,7 @@ export const useSettingsStore = defineStore('settings', () => {
     save,
     saveSearchSettings,
     reset,
+    confirmReset,
     applyHotkeys,
     importLegacy,
     refreshLegacyDataStatus,
@@ -738,6 +821,12 @@ export const useSettingsStore = defineStore('settings', () => {
     showFeedback,
   }
 })
+
+function formatError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message.trim()
+  if (typeof error === 'string' && error.trim()) return error.trim()
+  return fallback
+}
 
 const hotkeyLabels: Record<keyof HotkeySettings, string> = {
   toggleWindow: '主窗口',

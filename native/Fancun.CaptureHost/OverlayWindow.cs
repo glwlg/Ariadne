@@ -2096,6 +2096,10 @@ internal sealed class OverlayWindow : Window
                 NativePinId = Guid.NewGuid().ToString("N"),
                 ImagePath = tempPath
             });
+            if (_completed)
+            {
+                return;
+            }
             var clipboardMs = Environment.TickCount64 - redactStarted;
             if (!response.Ok)
             {
@@ -2210,6 +2214,10 @@ internal sealed class OverlayWindow : Window
                 NativePinId = Guid.NewGuid().ToString("N"),
                 ImagePath = tempPath
             });
+            if (_completed)
+            {
+                return;
+            }
 
             if (!response.Ok)
             {
@@ -3057,12 +3065,30 @@ internal sealed class OverlayWindow : Window
 
     private double LocalToPhysicalScaleX()
     {
-        return _capture.Bounds.Width / Math.Max(1.0, Math.Max(ActualWidth, Width));
+        if (ActualWidth > 0)
+        {
+            return _capture.Bounds.Width / ActualWidth;
+        }
+        var dpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        if (dpiScale > 0)
+        {
+            return dpiScale;
+        }
+        return _capture.ScaleX > 0 ? _capture.ScaleX : 1.0;
     }
 
     private double LocalToPhysicalScaleY()
     {
-        return _capture.Bounds.Height / Math.Max(1.0, Math.Max(ActualHeight, Height));
+        if (ActualHeight > 0)
+        {
+            return _capture.Bounds.Height / ActualHeight;
+        }
+        var dpiScale = VisualTreeHelper.GetDpi(this).DpiScaleY;
+        if (dpiScale > 0)
+        {
+            return dpiScale;
+        }
+        return _capture.ScaleY > 0 ? _capture.ScaleY : 1.0;
     }
 
     private void Complete(CaptureResponse response)

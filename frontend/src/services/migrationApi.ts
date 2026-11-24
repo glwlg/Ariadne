@@ -1,4 +1,5 @@
 import type { LegacyDataStatus, LegacyImportRequest, LegacyImportResult } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 async function tryMigrationBinding() {
   try {
@@ -14,9 +15,15 @@ export async function getLegacyDataStatus(): Promise<LegacyDataStatus> {
   if (binding) {
     try {
       return await binding.Status()
-    } catch {
+    } catch (error) {
+      if (isDesktopRuntime()) {
+        throw new Error(formatRpcError(error, '读取旧版历史状态失败'))
+      }
       return fallbackLegacyDataStatus()
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('数据迁移服务绑定不可用')
   }
   return fallbackLegacyDataStatus()
 }
@@ -27,8 +34,11 @@ export async function importLegacyData(request: LegacyImportRequest = {}): Promi
     try {
       return await binding.ImportLegacyData(request)
     } catch (error) {
-      return fallbackLegacyImportResult(error instanceof Error ? error.message : '迁移服务调用失败')
+      return fallbackLegacyImportResult(formatRpcError(error, '迁移服务调用失败'))
     }
+  }
+  if (isDesktopRuntime()) {
+    throw new Error('数据迁移服务绑定不可用')
   }
   return fallbackLegacyImportResult('开发态 fallback 未连接 Go migration 服务。')
 }

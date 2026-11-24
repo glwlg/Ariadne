@@ -1,5 +1,5 @@
 /** Theme runtime. Visual constitution: docs/plans/2026-07-22-frontend-aesthetic-audit.md */
-import { Window } from '@wailsio/runtime'
+import { Events, Window } from '@wailsio/runtime'
 import { getSettings } from '../services/settingsApi'
 
 export type ThemePreference = 'professional-pink' | 'light-graphite' | 'cloud-blue'
@@ -8,6 +8,7 @@ const THEME_STORAGE_KEY = 'fancun:theme-preference'
 const THEME_EVENT = 'fancun:theme-changed'
 
 let currentTheme: ThemePreference = 'cloud-blue'
+let lastAppliedWindowBg = ''
 
 export function applyTheme(theme: string | undefined) {
   currentTheme = normalizeTheme(theme)
@@ -25,6 +26,11 @@ export function publishTheme(theme: string | undefined) {
     // Some embedded windows may not expose localStorage; the current window still updates above.
   }
   window.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: { theme: normalized } }))
+  try {
+    void Events.Emit(THEME_EVENT, { theme: normalized })
+  } catch {
+    // Ignore in browser-only mode.
+  }
 }
 
 export async function syncThemeFromSettings() {
@@ -53,18 +59,25 @@ export function installSystemThemeListener() {
     const detail = event instanceof CustomEvent ? event.detail as { theme?: string } : null
     syncPublishedTheme(detail?.theme)
   }
-  const handleFocus = () => {
-    void syncThemeFromSettings()
-  }
 
   window.addEventListener('storage', handleStorage)
   window.addEventListener(THEME_EVENT, handleThemeEvent)
-  window.addEventListener('focus', handleFocus)
+  let unsubscribeWailsTheme = () => {}
+  try {
+    if (typeof Events?.On === 'function') {
+      unsubscribeWailsTheme = Events.On(THEME_EVENT, (event) => {
+        const data = event?.data as { theme?: string } | undefined
+        syncPublishedTheme(data?.theme)
+      })
+    }
+  } catch {
+    unsubscribeWailsTheme = () => {}
+  }
 
   return () => {
     window.removeEventListener('storage', handleStorage)
     window.removeEventListener(THEME_EVENT, handleThemeEvent)
-    window.removeEventListener('focus', handleFocus)
+    unsubscribeWailsTheme()
   }
 }
 
@@ -79,11 +92,15 @@ async function syncWindowBackground(theme: ThemePreference) {
   try {
     if (
       document.documentElement.classList.contains('launcher-document') ||
-      document.documentElement.classList.contains('pinned-image-document')
+      document.documentElement.classList.contains('pinned-image-document') ||
+      document.documentElement.classList.contains('capture-overlay-document')
     ) {
-      await Window.SetBackgroundColour(0, 0, 0, 0)
       return
     }
+    if (lastAppliedWindowBg === theme) {
+      return
+    }
+    lastAppliedWindowBg = theme
     if (theme === 'professional-pink') {
       await Window.SetBackgroundColour(251, 247, 249, 255)
     } else if (theme === 'light-graphite') {

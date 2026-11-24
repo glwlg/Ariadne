@@ -38,26 +38,51 @@ func MigrateDefault() error {
 // MigrateDefaultFrom records an explicitly selected roaming profile in the import receipt.
 // Subsequent launches use that receipt without merging other legacy profiles.
 func MigrateDefaultFrom(source string) error {
-	roaming := os.Getenv("APPDATA")
+	return MigrateFromPaths(source, "", "", "", true)
+}
+
+// MigrateFromPaths runs brand migration using explicit base directories when provided.
+// Setup helpers can disable credential migration while elevated and run it unelevated as the invoking user.
+func MigrateFromPaths(source, roamingBase, localBase, picturesBase string, withCredentials bool) error {
+	roaming := strings.TrimSpace(roamingBase)
 	if roaming == "" {
 		var err error
-		roaming, err = os.UserConfigDir()
+		roaming, err = defaultRoamingBase()
 		if err != nil {
 			return err
 		}
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+	local := strings.TrimSpace(localBase)
+	if local == "" {
+		local = os.Getenv("LOCALAPPDATA")
+	}
+	pictures := strings.TrimSpace(picturesBase)
+	if pictures == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		pictures = filepath.Join(home, "Pictures")
+	}
+	var credentials securestore.Store
+	if withCredentials {
+		credentials = securestore.DefaultStore{}
 	}
 	return Run(Options{
 		RoamingBase:        roaming,
 		RoamingSource:      source,
-		LocalBase:          os.Getenv("LOCALAPPDATA"),
-		PicturesBase:       filepath.Join(home, "Pictures"),
-		Credentials:        securestore.DefaultStore{},
+		LocalBase:          local,
+		PicturesBase:       pictures,
+		Credentials:        credentials,
 		CheckLegacyStopped: checkLegacyStopped,
 	})
+}
+
+func defaultRoamingBase() (string, error) {
+	if roaming := os.Getenv("APPDATA"); roaming != "" {
+		return roaming, nil
+	}
+	return os.UserConfigDir()
 }
 
 // Run imports into separate directories; the original data and credentials remain intact.
@@ -87,25 +112,35 @@ func Run(options Options) error {
 		}
 	}
 	selected := options.RoamingSource
+	roamingAuthoritative := false
+	roamingTarget := ""
 	if options.RoamingBase != "" {
-		target := filepath.Join(options.RoamingBase, "Fancun")
-		if _, err := os.Lstat(target); err == nil {
-			raw, err := os.ReadFile(filepath.Join(target, receiptName))
-			var receipt root
-			if err != nil || json.Unmarshal(raw, &receipt) != nil || !strings.EqualFold(receipt.Target, target) {
-				return fmt.Errorf("Fancun 数据目录已存在，未覆盖其中内容；请先处理目录冲突：%s", target)
+		roamingTarget = filepath.Join(options.RoamingBase, "Fancun")
+		if info, err := os.Lstat(roamingTarget); err == nil {
+			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("Fancun 数据目录已存在，未覆盖其中内容；请先处理目录冲突：%s", roamingTarget)
 			}
-			if selected != "" && !strings.EqualFold(selected, receipt.Source) {
-				return fmt.Errorf("选择的数据来源与已完成的迁移不一致：%s", receipt.Source)
+			raw, err := os.ReadFile(filepath.Join(roamingTarget, receiptName))
+			if errors.Is(err, os.ErrNotExist) {
+				// Preserve an existing Fancun roaming directory created without a migration receipt as authoritative.
+				roamingAuthoritative = true
+			} else {
+				var receipt root
+				if err != nil || json.Unmarshal(raw, &receipt) != nil || !strings.EqualFold(receipt.Target, roamingTarget) {
+					return fmt.Errorf("Fancun 数据目录已存在，未覆盖其中内容；请先处理目录冲突：%s", roamingTarget)
+				}
+				if selected != "" && !strings.EqualFold(selected, receipt.Source) {
+					return fmt.Errorf("选择的数据来源与已完成的迁移不一致：%s", receipt.Source)
+				}
+				selected = receipt.Source
 			}
-			selected = receipt.Source
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if selected != "" {
+		if selected != "" && !roamingAuthoritative {
 			recognized := false
 			for _, item := range roots {
-				if strings.EqualFold(item.Target, target) && strings.EqualFold(item.Source, selected) {
+				if strings.EqualFold(item.Target, roamingTarget) && strings.EqualFold(item.Source, selected) {
 					recognized = true
 				}
 			}
@@ -121,9 +156,13 @@ func Run(options Options) error {
 	}
 	var pending []root
 	for _, item := range roots {
-		if selected != "" && strings.EqualFold(item.Target, filepath.Join(options.RoamingBase, "Fancun")) &&
-			!strings.EqualFold(item.Source, selected) {
-			continue
+		if roamingTarget != "" && strings.EqualFold(item.Target, roamingTarget) {
+			if roamingAuthoritative {
+				continue
+			}
+			if selected != "" && !strings.EqualFold(item.Source, selected) {
+				continue
+			}
 		}
 		info, err := os.Lstat(item.Source)
 		if errors.Is(err, os.ErrNotExist) {

@@ -43,7 +43,13 @@ const credential = computed(() => settings.secretStatus?.records.find((record) =
       </label>
       <div class="launcher-actions">
         <FancunButton variant="primary" size="sm" :disabled="!settings.secretStatus?.available || !settings.secretInputs.ai_api_key?.trim() || settings.isSaving" @click="settings.saveSecret('ai_api_key')">保存密钥</FancunButton>
-        <FancunButton variant="secondary" size="sm" :disabled="!credential?.stored || settings.isSaving" @click="settings.clearSecret('ai_api_key')">清除密钥</FancunButton>
+        <FancunButton
+          variant="secondary"
+          size="sm"
+          :class="{ 'is-armed-danger': settings.secretClearArmedKind === 'ai_api_key' }"
+          :disabled="!credential?.stored || settings.isSaving"
+          @click="settings.clearSecret('ai_api_key')"
+        >{{ settings.secretClearArmedKind === 'ai_api_key' ? '确认清除密钥' : '清除密钥' }}</FancunButton>
       </div>
     </section>
   </template>

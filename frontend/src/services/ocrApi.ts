@@ -1,4 +1,5 @@
 import type { OCRResult, OCRStatus } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 const LOCAL_OCR_PROVIDER = 'rapidocr_onnxruntime'
 
@@ -14,6 +15,9 @@ async function tryOCRBinding() {
 export async function getOCRStatus(): Promise<OCRStatus> {
   const binding = await tryOCRBinding()
   if (!binding) {
+    if (isDesktopRuntime()) {
+      throw new Error('OCR 服务绑定不可用')
+    }
     return {
       available: false,
       provider: LOCAL_OCR_PROVIDER,
@@ -23,7 +27,10 @@ export async function getOCRStatus(): Promise<OCRStatus> {
   }
   try {
     return normalizeStatus(await binding.Status())
-  } catch {
+  } catch (error) {
+    if (isDesktopRuntime()) {
+      throw new Error(formatRpcError(error, 'OCR 状态读取失败'))
+    }
     return {
       available: false,
       provider: LOCAL_OCR_PROVIDER,

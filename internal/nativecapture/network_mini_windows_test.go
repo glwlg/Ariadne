@@ -53,3 +53,50 @@ func TestNetworkMiniUpdateDoesNotWaitForCaptureMutex(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNetworkMiniRestartsDeadHostWithBackoff(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	manager := NewManager(Options{PipeName: "fancun-mini-restart-test"})
+	manager.nowFn = func() time.Time { return now }
+
+	starts := 0
+	manager.startFn = func() error {
+		starts++
+		if starts == 1 {
+			return errors.New("start failed")
+		}
+		return nil
+	}
+
+	// First failed attempt sets 1s backoff.
+	if manager.ensureRunningForNetworkMini() {
+		t.Fatal("first failing start should return false")
+	}
+	if starts != 1 {
+		t.Fatalf("expected 1 start attempt, got %d", starts)
+	}
+
+	// Immediate retry within backoff must be skipped.
+	now = now.Add(500 * time.Millisecond)
+	if manager.ensureRunningForNetworkMini() {
+		t.Fatal("retry inside backoff window should be skipped")
+	}
+	if starts != 1 {
+		t.Fatalf("expected backoff to suppress second attempt, got %d", starts)
+	}
+
+	// After backoff elapses, retry succeeds and resets attempt counter.
+	now = now.Add(600 * time.Millisecond)
+	if !manager.ensureRunningForNetworkMini() {
+		t.Fatal("expected retry after backoff to succeed")
+	}
+	if starts != 2 || manager.miniRestartAttempt != 0 {
+		t.Fatalf("expected backoff reset after success, starts=%d attempts=%d", starts, manager.miniRestartAttempt)
+	}
+
+	// Stop blocks further restarts.
+	_ = manager.Stop()
+	if manager.ensureRunningForNetworkMini() {
+		t.Fatal("stopped manager must not restart host")
+	}
+}

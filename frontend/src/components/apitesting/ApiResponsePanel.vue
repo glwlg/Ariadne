@@ -1,17 +1,59 @@
 <script setup lang="ts">
 import { CheckCircle2, Clock3, Copy, FileText, XCircle } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import FancunButton from '../ui/FancunButton.vue'
 import ApiJsonViewer from './ApiJsonViewer.vue'
 import { useAPITestingStore, type APIResponseTab } from '../../stores/apiTesting'
 
+const LARGE_JSON_TEXT_BYTES = 100 * 1024
+const LARGE_JSON_NODE_LIMIT = 1500
+
 const apiTesting = useAPITestingStore()
+const forceJsonTree = ref(false)
+const nowMs = ref(Date.now())
+let elapsedTimer: number | undefined
 
 const responseTabs: Array<{ id: APIResponseTab; label: string }> = [
   { id: 'body', label: '响应' },
   { id: 'headers', label: '响应头' },
   { id: 'assertions', label: '断言结果' },
 ]
+
+const currentRunning = computed(() =>
+  apiTesting.selectedRequest ? apiTesting.isRequestRunning(apiTesting.selectedRequest.id) : apiTesting.isRunning,
+)
+const currentStopping = computed(() =>
+  apiTesting.selectedRequest ? apiTesting.isRequestStopping(apiTesting.selectedRequest.id) : apiTesting.isStopping,
+)
+const elapsedSeconds = computed(() => {
+  const startedAt = apiTesting.currentRunStartedAt
+  if (!currentRunning.value || !startedAt) return 0
+  return Math.max(0, Math.floor((nowMs.value - startedAt) / 1000))
+})
+
+watch(
+  currentRunning,
+  (running) => {
+    if (elapsedTimer !== undefined) {
+      window.clearInterval(elapsedTimer)
+      elapsedTimer = undefined
+    }
+    if (running) {
+      nowMs.value = Date.now()
+      elapsedTimer = window.setInterval(() => {
+        nowMs.value = Date.now()
+      }, 500)
+    }
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  if (elapsedTimer !== undefined) {
+    window.clearInterval(elapsedTimer)
+    elapsedTimer = undefined
+  }
+})
 
 const statusTone = computed(() => {
   const result = apiTesting.lastResult
@@ -21,16 +63,58 @@ const statusTone = computed(() => {
   return 'ok'
 })
 
-type ResponseBodyView = { kind: 'json'; value: unknown } | { kind: 'text'; text: string }
+type ResponseBodyView = { kind: 'json'; value: unknown; rawLength: number } | { kind: 'text'; text: string }
 
 const responseBody = computed<ResponseBodyView>(() => {
   const body = apiTesting.lastResult?.body || ''
   if (apiTesting.lastResult?.streaming) return { kind: 'text', text: body || 'SSE 连接已建立，暂未收到事件' }
   if (!body) return { kind: 'text', text: '没有响应体' }
   try {
-    return { kind: 'json', value: JSON.parse(body) }
+    return { kind: 'json', value: JSON.parse(body), rawLength: body.length }
   } catch {
     return { kind: 'text', text: body }
+  }
+})
+
+watch(
+  () => apiTesting.lastResult,
+  () => {
+    forceJsonTree.value = false
+  },
+)
+
+function exceedsJsonNodeLimit(value: unknown, limit: number): boolean {
+  let count = 0
+  const stack: unknown[] = [value]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    count += 1
+    if (count > limit) return true
+    if (Array.isArray(current)) {
+      for (let i = 0; i < current.length; i += 1) {
+        stack.push(current[i])
+      }
+    } else if (current !== null && typeof current === 'object') {
+      for (const item of Object.values(current)) {
+        stack.push(item)
+      }
+    }
+  }
+  return false
+}
+
+const isLargeJson = computed(() => {
+  if (responseBody.value.kind !== 'json') return false
+  if (responseBody.value.rawLength > LARGE_JSON_TEXT_BYTES) return true
+  return exceedsJsonNodeLimit(responseBody.value.value, LARGE_JSON_NODE_LIMIT)
+})
+
+const formattedLargeJsonText = computed(() => {
+  if (responseBody.value.kind !== 'json' || !isLargeJson.value || forceJsonTree.value) return ''
+  try {
+    return JSON.stringify(responseBody.value.value, null, 2)
+  } catch {
+    return apiTesting.lastResult?.body || ''
   }
 })
 
@@ -95,12 +179,25 @@ function formatBytes(bytes: number) {
       <section v-if="apiTesting.responseTab === 'body'" class="api-response-section">
         <div class="api-section-title">
           <span>响应体</span>
-          <FancunButton size="sm" variant="secondary" @click="apiTesting.copyResponseBody()">
-            <Copy :size="14" />
-            复制
-          </FancunButton>
+          <div class="flex items-center gap-2">
+            <FancunButton
+              v-if="responseBody.kind === 'json' && isLargeJson"
+              size="sm"
+              variant="ghost"
+              @click="forceJsonTree = !forceJsonTree"
+            >
+              {{ forceJsonTree ? '切换快速文本预览' : '仍以树形展开 (节点较多)' }}
+            </FancunButton>
+            <FancunButton size="sm" variant="secondary" @click="apiTesting.copyResponseBody()">
+              <Copy :size="14" />
+              复制
+            </FancunButton>
+          </div>
         </div>
-        <ApiJsonViewer v-if="responseBody.kind === 'json'" class="api-json-viewer" :value="responseBody.value" root />
+        <template v-if="responseBody.kind === 'json'">
+          <pre v-if="isLargeJson && !forceJsonTree" class="api-response-body">{{ formattedLargeJsonText }}</pre>
+          <ApiJsonViewer v-else class="api-json-viewer" :value="responseBody.value" root />
+        </template>
         <pre v-else class="api-response-body">{{ responseBody.text }}</pre>
       </section>
 
@@ -136,9 +233,10 @@ function formatBytes(bytes: number) {
 
     </template>
 
-    <div v-else-if="apiTesting.isRunning" class="api-empty-panel">
+    <div v-else-if="currentRunning" class="api-empty-panel">
       <Clock3 :size="22" />
-      <span>{{ apiTesting.isStopping ? '正在停止请求' : '正在接收响应' }}</span>
+      <span>{{ currentStopping ? '正在停止请求' : '正在接收响应' }} · {{ elapsedSeconds }}s</span>
+      <small v-if="apiTesting.requestTimeoutSeconds" class="text-xs text-[var(--muted)]">超时设置 {{ apiTesting.requestTimeoutSeconds }}s</small>
     </div>
 
     <div v-else class="api-empty-panel">

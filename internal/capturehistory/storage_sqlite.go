@@ -1,6 +1,7 @@
 package capturehistory
 
 import (
+	"slices"
 	"sort"
 
 	"fancun/internal/appdb"
@@ -52,18 +53,44 @@ func saveEntriesToSQLite(path string, entries []Entry) error {
 	if err := ensureCaptureSchema(conn); err != nil {
 		return err
 	}
+	desired := make([]Entry, 0, len(entries))
+	desiredByID := make(map[string]Entry, len(entries))
+	for _, entry := range entries {
+		entry = normalizeEntry(entry)
+		if entry.ID == "" || entry.ImagePath == "" {
+			continue
+		}
+		if _, exists := desiredByID[entry.ID]; exists {
+			continue
+		}
+		desired = append(desired, entry)
+		desiredByID[entry.ID] = entry
+	}
 	return appdb.Immediate(conn, func() error {
-		for _, stmt := range []string{
-			`DELETE FROM capture_entry_actions`,
-			`DELETE FROM capture_entry_tags`,
-			`DELETE FROM capture_entries`,
-		} {
-			if err := sqlitex.Execute(conn, stmt, nil); err != nil {
+		existingByID, err := readRawCaptureEntryMap(conn)
+		if err != nil {
+			return err
+		}
+		for id := range existingByID {
+			if _, keep := desiredByID[id]; keep {
+				continue
+			}
+			if err := deleteCaptureEntryByID(conn, id); err != nil {
 				return err
 			}
 		}
-		for _, entry := range entries {
-			if err := insertCaptureEntry(conn, entry); err != nil {
+		for _, entry := range desired {
+			prev, exists := existingByID[entry.ID]
+			if !exists {
+				if err := insertCaptureEntry(conn, entry); err != nil {
+					return err
+				}
+				continue
+			}
+			if captureEntryPersistedEqual(prev, entry) {
+				continue
+			}
+			if err := updateCaptureEntry(conn, prev, entry); err != nil {
 				return err
 			}
 		}
@@ -109,19 +136,31 @@ CREATE TABLE IF NOT EXISTS capture_entry_tags(
 }
 
 func readCaptureEntries(conn *sqlite.Conn) ([]Entry, bool, error) {
-	count := 0
-	if err := sqlitex.Execute(conn, `SELECT count(*) FROM capture_entries`, &sqlitex.ExecOptions{
-		ResultFunc: func(stmt *sqlite.Stmt) error {
-			count = stmt.ColumnInt(0)
-			return nil
-		},
-	}); err != nil || count == 0 {
+	entries, err := readRawCaptureEntries(conn, true)
+	if err != nil || len(entries) == 0 {
 		return nil, false, err
 	}
-	entries := make([]Entry, 0, count)
+	sortEntries(entries)
+	return entries, true, nil
+}
+
+func readRawCaptureEntryMap(conn *sqlite.Conn) (map[string]Entry, error) {
+	entries, err := readRawCaptureEntries(conn, false)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]Entry, len(entries))
+	for _, entry := range entries {
+		byID[entry.ID] = entry
+	}
+	return byID, nil
+}
+
+func readRawCaptureEntries(conn *sqlite.Conn, normalize bool) ([]Entry, error) {
+	entries := []Entry{}
 	err := sqlitex.Execute(conn, `SELECT id, image_path, thumbnail_path, thumbnail_width, thumbnail_height, thumbnail_bytes, saved_path, created_at, source, pinned, width, height, bytes, signature FROM capture_entries ORDER BY created_at DESC`, &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
-			entries = append(entries, normalizeEntry(Entry{
+			entry := Entry{
 				ID:              stmt.ColumnText(0),
 				ImagePath:       stmt.ColumnText(1),
 				ThumbnailPath:   stmt.ColumnText(2),
@@ -136,27 +175,67 @@ func readCaptureEntries(conn *sqlite.Conn) ([]Entry, bool, error) {
 				Height:          stmt.ColumnInt(11),
 				Bytes:           stmt.ColumnInt64(12),
 				Signature:       stmt.ColumnText(13),
-			}))
+			}
+			if normalize {
+				entry = normalizeEntry(entry)
+			}
+			entries = append(entries, entry)
 			return nil
 		},
 	})
+	if err != nil || len(entries) == 0 {
+		return entries, err
+	}
+	actionsByEntry, err := readAllOrderedValues(conn, `capture_entry_actions`)
 	if err != nil {
-		return nil, false, err
+		return nil, err
+	}
+	tagsByEntry, err := readAllOrderedValues(conn, `capture_entry_tags`)
+	if err != nil {
+		return nil, err
 	}
 	for index := range entries {
-		values, err := readOrderedValues(conn, `capture_entry_actions`, entries[index].ID)
-		if err != nil {
-			return nil, false, err
+		id := entries[index].ID
+		if actions, ok := actionsByEntry[id]; ok {
+			entries[index].Actions = actions
+		} else {
+			entries[index].Actions = []string{}
 		}
-		entries[index].Actions = values
-		values, err = readOrderedValues(conn, `capture_entry_tags`, entries[index].ID)
-		if err != nil {
-			return nil, false, err
+		if tags, ok := tagsByEntry[id]; ok {
+			entries[index].Tags = tags
+		} else {
+			entries[index].Tags = []string{}
 		}
-		entries[index].Tags = values
 	}
-	sortEntries(entries)
-	return entries, true, nil
+	return entries, nil
+}
+
+func readAllOrderedValues(conn *sqlite.Conn, table string) (map[string][]string, error) {
+	byEntry := make(map[string][]string)
+	err := sqlitex.Execute(conn, `SELECT entry_id, value FROM `+table+` ORDER BY entry_id, position`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			id := stmt.ColumnText(0)
+			byEntry[id] = append(byEntry[id], stmt.ColumnText(1))
+			return nil
+		},
+	})
+	return byEntry, err
+}
+
+func deleteCaptureEntryByID(conn *sqlite.Conn, entryID string) error {
+	if err := sqlitex.Execute(conn, `DELETE FROM capture_entry_actions WHERE entry_id = ?1`, &sqlitex.ExecOptions{
+		Args: []any{entryID},
+	}); err != nil {
+		return err
+	}
+	if err := sqlitex.Execute(conn, `DELETE FROM capture_entry_tags WHERE entry_id = ?1`, &sqlitex.ExecOptions{
+		Args: []any{entryID},
+	}); err != nil {
+		return err
+	}
+	return sqlitex.Execute(conn, `DELETE FROM capture_entries WHERE id = ?1`, &sqlitex.ExecOptions{
+		Args: []any{entryID},
+	})
 }
 
 func insertCaptureEntry(conn *sqlite.Conn, entry Entry) error {
@@ -176,6 +255,39 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`, &sqlitex.
 	return insertOrderedValues(conn, `capture_entry_tags`, entry.ID, entry.Tags)
 }
 
+func updateCaptureEntry(conn *sqlite.Conn, prev Entry, entry Entry) error {
+	if !captureEntryScalarEqual(prev, entry) {
+		if err := sqlitex.Execute(conn, `UPDATE capture_entries
+SET image_path = ?2, thumbnail_path = ?3, thumbnail_width = ?4, thumbnail_height = ?5, thumbnail_bytes = ?6, saved_path = ?7, created_at = ?8, source = ?9, pinned = ?10, width = ?11, height = ?12, bytes = ?13, signature = ?14
+WHERE id = ?1`, &sqlitex.ExecOptions{
+			Args: []any{entry.ID, entry.ImagePath, entry.ThumbnailPath, entry.ThumbnailWidth, entry.ThumbnailHeight, entry.ThumbnailBytes, entry.SavedPath, entry.CreatedAt, entry.Source, appdb.BoolInt(entry.Pinned), entry.Width, entry.Height, entry.Bytes, entry.Signature},
+		}); err != nil {
+			return err
+		}
+	}
+	if !slices.Equal(nonEmptyValues(prev.Actions), nonEmptyValues(entry.Actions)) {
+		if err := sqlitex.Execute(conn, `DELETE FROM capture_entry_actions WHERE entry_id = ?1`, &sqlitex.ExecOptions{
+			Args: []any{entry.ID},
+		}); err != nil {
+			return err
+		}
+		if err := insertOrderedValues(conn, `capture_entry_actions`, entry.ID, entry.Actions); err != nil {
+			return err
+		}
+	}
+	if !slices.Equal(nonEmptyValues(prev.Tags), nonEmptyValues(entry.Tags)) {
+		if err := sqlitex.Execute(conn, `DELETE FROM capture_entry_tags WHERE entry_id = ?1`, &sqlitex.ExecOptions{
+			Args: []any{entry.ID},
+		}); err != nil {
+			return err
+		}
+		if err := insertOrderedValues(conn, `capture_entry_tags`, entry.ID, entry.Tags); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func insertOrderedValues(conn *sqlite.Conn, table string, entryID string, values []string) error {
 	for position, value := range values {
 		if value == "" {
@@ -190,16 +302,37 @@ func insertOrderedValues(conn *sqlite.Conn, table string, entryID string, values
 	return nil
 }
 
-func readOrderedValues(conn *sqlite.Conn, table string, entryID string) ([]string, error) {
-	values := []string{}
-	err := sqlitex.Execute(conn, `SELECT value FROM `+table+` WHERE entry_id = ?1 ORDER BY position`, &sqlitex.ExecOptions{
-		Args: []any{entryID},
-		ResultFunc: func(stmt *sqlite.Stmt) error {
-			values = append(values, stmt.ColumnText(0))
-			return nil
-		},
-	})
-	return values, err
+func captureEntryPersistedEqual(a Entry, b Entry) bool {
+	return captureEntryScalarEqual(a, b) &&
+		slices.Equal(nonEmptyValues(a.Actions), nonEmptyValues(b.Actions)) &&
+		slices.Equal(nonEmptyValues(a.Tags), nonEmptyValues(b.Tags))
+}
+
+func captureEntryScalarEqual(a Entry, b Entry) bool {
+	return a.ID == b.ID &&
+		a.ImagePath == b.ImagePath &&
+		a.ThumbnailPath == b.ThumbnailPath &&
+		a.ThumbnailWidth == b.ThumbnailWidth &&
+		a.ThumbnailHeight == b.ThumbnailHeight &&
+		a.ThumbnailBytes == b.ThumbnailBytes &&
+		a.SavedPath == b.SavedPath &&
+		a.CreatedAt == b.CreatedAt &&
+		a.Source == b.Source &&
+		a.Pinned == b.Pinned &&
+		a.Width == b.Width &&
+		a.Height == b.Height &&
+		a.Bytes == b.Bytes &&
+		a.Signature == b.Signature
+}
+
+func nonEmptyValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func sortedCaptureIDs(entries []Entry) []string {

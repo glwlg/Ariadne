@@ -50,9 +50,6 @@ export async function applyLauncherWindowGeometry(
     if (options.restore) {
       await Window.Restore()
     }
-    await Window.SetFrameless(true)
-    await Window.SetAlwaysOnTop(false)
-    await Window.SetBackgroundColour(0, 0, 0, 0)
     const screen = await Window.GetScreen()
     await Window.SetSize(size.width, size.height)
     const position = reservedLauncherPosition(screen)

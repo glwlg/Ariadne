@@ -234,6 +234,7 @@ func main() {
 				log.Printf("stop shell: %v", err)
 			}
 			toolWindowService.Stop()
+			pinnedImageService.Stop()
 			if nativeCaptureManager != nil {
 				if err := nativeCaptureManager.Stop(); err != nil {
 					log.Printf("stop native capture host: %v", err)
@@ -291,12 +292,10 @@ func main() {
 	search.RegisterProgressHandler(searchService, func(progress search.Progress) {
 		app.Event.Emit("fancun:search-progress", progress)
 	})
+	clipboardhistory.RegisterChangeHandler(clipboardService, func() {
+		app.Event.Emit("fancun:clipboard-updated")
+	})
 	pinnedImageService.Attach(app)
-	if nativeCaptureManager != nil {
-		if err := nativeCaptureManager.Start(); err != nil {
-			log.Printf("start native capture host: %v", err)
-		}
-	}
 	toolWindowService.Attach(app)
 
 	settings.RegisterChangeHandler(settingsService, func(next settings.AppSettings) {
@@ -319,11 +318,22 @@ func main() {
 	if err := shellManager.ApplyAutostart(settingsService.GetSettings().General.RunOnStartup); err != nil {
 		log.Printf("apply autostart: %v", err)
 	}
+	if nativeCaptureManager != nil {
+		go func() {
+			if err := nativeCaptureManager.Start(); err != nil {
+				log.Printf("start native capture host: %v", err)
+			}
+		}()
+	}
 	deferStartupMaintenance(func() {
 		latest := settingsService.GetSettings()
 		applyOCRAIRuntime(ocrService, latest.AI)
 		applyRetentionPolicies(captureService, clipboardService, imageIndexService, latest.History)
 		clipboardService.ApplyWatcherSettings(latest.History.PrivacyMode, latest.History.ClipboardEnabled)
+		capturehistory.BackfillThumbnails(captureService)
+		clipboardhistory.BackfillThumbnails(clipboardService)
+		appService.Shortcuts()
+		toolwindows.WarmLauncher(toolWindowService)
 		fileSearchService.StartIndexing()
 	})
 

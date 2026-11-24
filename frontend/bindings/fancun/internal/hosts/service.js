@@ -68,6 +68,15 @@ export function Remove(id) {
 }
 
 /**
+ * @returns {$CancellablePromise<$models.ApplyResult>}
+ */
+export function RollbackHosts() {
+    return $Call.ByID(3546221180).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType0($result);
+    }));
+}
+
+/**
  * @param {string} id
  * @param {boolean} enabled
  * @returns {$CancellablePromise<$models.Status>}

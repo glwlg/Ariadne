@@ -65,7 +65,6 @@ onMounted(() => {
     void ensureLauncherWindow()
     void syncThemeFromSettings()
     uninstallThemeEvents = installSystemThemeListener()
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent('fancun:focus-launcher', { detail: { selectAll: true } })), 0)
     return
   }
   void ensureMainWindow()
@@ -83,10 +82,7 @@ onUnmounted(() => {
 
 async function ensureLauncherWindow() {
   try {
-    await Window.SetFrameless(true)
     await Window.SetResizable(false)
-    await Window.SetAlwaysOnTop(false)
-    await Window.SetBackgroundColour(0, 0, 0, 0)
   } catch {
     // Runtime calls are unavailable in browser-only dev mode.
   }

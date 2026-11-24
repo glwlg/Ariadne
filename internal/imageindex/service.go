@@ -37,6 +37,15 @@ type OCRProvider interface {
 	Status() ocr.Status
 }
 
+type LocalOCRProvider interface {
+	RecognizeCaptureLocal(captureID string) ocr.Result
+	RecognizeClipboardImageLocal(clipboardID string) ocr.Result
+}
+
+type LocalOCRStatusProvider interface {
+	LocalStatus() ocr.Status
+}
+
 type Entry struct {
 	ID           string     `json:"id"`
 	Source       string     `json:"source"`
@@ -388,7 +397,13 @@ func (s *Service) indexCaptureEntry(item capturehistory.Entry, force bool) (Entr
 	if s.ocr == nil {
 		return s.recordEntry(entryFromCapture(item, ocr.Result{OK: false, Error: "OCR 服务不可用"}, s.now())), false
 	}
-	return s.recordEntry(entryFromCapture(item, s.ocr.RecognizeCapture(item.ID), s.now())), false
+	var ocrResult ocr.Result
+	if localOCR, ok := s.ocr.(LocalOCRProvider); ok {
+		ocrResult = localOCR.RecognizeCaptureLocal(item.ID)
+	} else {
+		ocrResult = s.ocr.RecognizeCapture(item.ID)
+	}
+	return s.recordEntry(entryFromCapture(item, ocrResult, s.now())), false
 }
 
 func (s *Service) indexClipboardEntry(item clipboardhistory.Entry, force bool) (Entry, bool) {
@@ -402,7 +417,13 @@ func (s *Service) indexClipboardEntry(item clipboardhistory.Entry, force bool) (
 	if s.ocr == nil {
 		return s.recordEntry(entryFromClipboard(item, ocr.Result{OK: false, Error: "OCR 服务不可用"}, s.now())), false
 	}
-	return s.recordEntry(entryFromClipboard(item, s.ocr.RecognizeClipboardImage(item.ID), s.now())), false
+	var ocrResult ocr.Result
+	if localOCR, ok := s.ocr.(LocalOCRProvider); ok {
+		ocrResult = localOCR.RecognizeClipboardImageLocal(item.ID)
+	} else {
+		ocrResult = s.ocr.RecognizeClipboardImage(item.ID)
+	}
+	return s.recordEntry(entryFromClipboard(item, ocrResult, s.now())), false
 }
 
 func (s *Service) hasEntry(source string, sourceID string) bool {
@@ -461,7 +482,12 @@ func (s *Service) listLocked(query string, limit int) []Entry {
 func (s *Service) statusLocked(includeEntries bool) Status {
 	status := Status{Path: firstNonEmpty(appdb.DatabasePathForPath(s.path), s.path), Count: len(s.entries), LastRunAt: s.lastRunAt, LastError: s.lastError}
 	if s.ocr != nil {
-		ocrStatus := s.ocr.Status()
+		var ocrStatus ocr.Status
+		if localStatus, ok := s.ocr.(LocalOCRStatusProvider); ok {
+			ocrStatus = localStatus.LocalStatus()
+		} else {
+			ocrStatus = s.ocr.Status()
+		}
 		status.OCRAvailable = ocrStatus.Available
 		status.OCRProvider = ocrStatus.Provider
 	}
@@ -524,9 +550,11 @@ func entryFromClipboard(item clipboardhistory.Entry, result ocr.Result, now time
 func entryFromOCR(source string, sourceID string, imagePath string, createdAt int64, width int, height int, result ocr.Result, now time.Time) Entry {
 	text := strings.TrimSpace(result.Text)
 	redacted := result.Sensitive
+	lines := result.Lines
 	errorText := strings.TrimSpace(result.Error)
 	if redacted {
 		text = ""
+		lines = nil
 		if errorText == "" {
 			errorText = "OCR 结果疑似敏感，未写入图片索引文本"
 		}
@@ -537,7 +565,7 @@ func entryFromOCR(source string, sourceID string, imagePath string, createdAt in
 		SourceID:     strings.TrimSpace(sourceID),
 		ImagePath:    strings.TrimSpace(imagePath),
 		Text:         text,
-		Lines:        result.Lines,
+		Lines:        lines,
 		Provider:     result.Provider,
 		CreatedAt:    createdAt,
 		IndexedAt:    now.Unix(),
@@ -564,9 +592,10 @@ func normalizeEntry(entry Entry) Entry {
 	if entry.IndexedAt == 0 {
 		entry.IndexedAt = time.Now().Unix()
 	}
-	if entry.Sensitive {
+	if entry.Sensitive || entry.Redacted {
 		entry.Redacted = true
 		entry.Text = ""
+		entry.Lines = nil
 		if entry.Error == "" {
 			entry.Error = "OCR 结果疑似敏感，未写入图片索引文本"
 		}

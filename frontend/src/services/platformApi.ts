@@ -1,11 +1,15 @@
 import type { ActionResult, DiagnosticsExportResult, LegacyHandoffRequest, LegacyHandoffResult, PlatformStatus } from '../types/fancun'
+import { formatRpcError, isDesktopRuntime } from './runtimeEnv'
 
 export async function getPlatformStatus(): Promise<PlatformStatus> {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
     const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.Status()
-  } catch {
+  } catch (error) {
+    if (isDesktopRuntime()) {
+      throw new Error(formatRpcError(error, '读取平台状态失败'))
+    }
     return fallbackPlatformStatus()
   }
 }
@@ -15,7 +19,14 @@ export async function exportDiagnosticsBundle(): Promise<DiagnosticsExportResult
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
     const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.ExportDiagnostics()
-  } catch {
+  } catch (error) {
+    if (isDesktopRuntime()) {
+      return {
+        ok: false,
+        message: formatRpcError(error, '诊断包导出失败'),
+        logIncluded: false,
+      }
+    }
     return {
       ok: false,
       message: '开发态 fallback 未接入诊断包导出',
@@ -29,7 +40,13 @@ export async function installFileSearchService(): Promise<ActionResult> {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
     const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.InstallFileSearchService()
-  } catch {
+  } catch (error) {
+    if (isDesktopRuntime()) {
+      return {
+        ok: false,
+        message: formatRpcError(error, '搜索服务安装失败'),
+      }
+    }
     return {
       ok: false,
       message: '开发态 fallback 未接入搜索服务安装',
@@ -42,7 +59,10 @@ export async function resolveLegacyConflict(request: LegacyHandoffRequest): Prom
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
     const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.ResolveLegacyConflict(request)
-  } catch {
+  } catch (error) {
+    if (isDesktopRuntime()) {
+      throw new Error(formatRpcError(error, '旧版交接服务调用失败'))
+    }
     return {
       ok: false,
       message: '开发态 fallback 未接入旧版交接',

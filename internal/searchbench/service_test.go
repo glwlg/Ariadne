@@ -1,10 +1,15 @@
 package searchbench
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"fancun/internal/contracts"
+	"fancun/internal/filesearch"
 	"fancun/internal/search"
 )
 
@@ -129,4 +134,64 @@ func everythingFileResult() contracts.SearchResult {
 		Payload: map[string]interface{}{"path": `P:\workspace\README.md`},
 	})
 	return result
+}
+
+func TestRunWithSyntheticFileIndexFixtureExercisesFileHits(t *testing.T) {
+	tempRoot := t.TempDir()
+	appData := filepath.Join(tempRoot, "AppData", "Roaming")
+	localAppData := filepath.Join(tempRoot, "AppData", "Local")
+	if err := os.MkdirAll(appData, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(localAppData, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("APPDATA", appData)
+	t.Setenv("LOCALAPPDATA", localAppData)
+
+	volumeRoot := "/fancun-bench/workspace"
+	if runtime.GOOS == "windows" {
+		volumeRoot = `P:\workspace`
+	}
+	var builder strings.Builder
+	for i := 0; i < 5000; i++ {
+		name := fmt.Sprintf("sample-doc-%05d.txt", i)
+		fmt.Fprintf(&builder, "%s\t0\t%s\n", strings.ToLower(name), filepath.Join(volumeRoot, "docs", name))
+	}
+	fmt.Fprintf(&builder, "readme.md\t0\t%s\n", filepath.Join(volumeRoot, "README.md"))
+	fmt.Fprintf(&builder, "fancun.exe\t0\t%s\n", filepath.Join(volumeRoot, "fancun.exe"))
+	fmt.Fprintf(&builder, "gateway.yaml\t0\t%s\n", filepath.Join(volumeRoot, "gateway.yaml"))
+
+	tsvPath := filepath.Join(tempRoot, "file-index.tsv")
+	if err := os.WriteFile(tsvPath, []byte(builder.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stack := NewDefaultStackWithFileSearch(filesearch.NewServiceWithLineIndexPath(tsvPath))
+	defer stack.Close()
+
+	report := RunWithRunner(stack, Options{
+		Iterations:  2,
+		Warmup:      1,
+		TargetP95Ms: 200,
+	})
+
+	if !report.ProviderStatus.FileIndexStatusAvailable {
+		t.Fatalf("expected file index status to be available: %#v", report.ProviderStatus)
+	}
+	if !report.ProviderStatus.FileIndex.Ready || report.ProviderStatus.FileIndex.IndexedCount != 5003 {
+		t.Fatalf("expected synthetic file index ready with 5003 entries, got %#v", report.ProviderStatus.FileIndex)
+	}
+	if report.ProviderStatus.FileIndexFileHits <= 0 {
+		t.Fatalf("expected file_hits > 0 from synthetic index fixture, got %#v", report.ProviderStatus)
+	}
+	if len(report.ProviderStatus.FileIndexHitQueries) == 0 {
+		t.Fatalf("expected non-empty hit queries, got %#v", report.ProviderStatus)
+	}
+	if !report.ActionValidation.OK {
+		t.Fatalf("action validation failed on synthetic hits: %#v", report.ActionValidation)
+	}
+	if !report.Verdict.WithinTarget {
+		t.Fatalf("expected benchmark verdict within target, got %#v", report.Verdict)
+	}
 }

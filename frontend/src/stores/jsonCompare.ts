@@ -22,13 +22,22 @@ const sampleRight = `{
   "items": [1, 3, 4]
 }`
 
+const COMPARE_DEBOUNCE_MS = 150
+const ARMED_TIMEOUT_MS = 5000
+
 export const useJsonCompareStore = defineStore('json-compare', () => {
   const leftText = ref(sampleLeft)
   const rightText = ref(sampleRight)
   const sortKeys = ref(true)
   const result = ref<JsonCompareResult | null>(null)
   const feedback = ref('')
+  const feedbackTone = ref<'success' | 'danger'>('success')
+  const clearArmed = ref(false)
   const isComparing = ref(false)
+  let compareSequence = 0
+  let compareDebounceTimer: number | undefined
+  let feedbackTimer: number | undefined
+  let clearArmedTimer: number | undefined
 
   const differenceCount = computed(() => (result.value ? result.value.added + result.value.removed + result.value.changed : 0))
   const hasDifferences = computed(() => Boolean(result.value?.ok && differenceCount.value))
@@ -38,39 +47,71 @@ export const useJsonCompareStore = defineStore('json-compare', () => {
     return differenceCount.value ? 'changed' : 'same'
   })
 
+  function clearDebounceTimer() {
+    if (compareDebounceTimer !== undefined) {
+      window.clearTimeout(compareDebounceTimer)
+      compareDebounceTimer = undefined
+    }
+  }
+
+  function scheduleCompare(delayMs = COMPARE_DEBOUNCE_MS) {
+    clearDebounceTimer()
+    compareDebounceTimer = window.setTimeout(() => {
+      compareDebounceTimer = undefined
+      void compare()
+    }, delayMs)
+  }
+
   async function compare() {
+    clearDebounceTimer()
+    const seq = ++compareSequence
     isComparing.value = true
     try {
-      result.value = await compareJson({
+      const nextResult = await compareJson({
         leftText: leftText.value,
         rightText: rightText.value,
         sortKeys: sortKeys.value,
         maxReportItems: 500,
       })
-      showFeedback(result.value.ok ? result.value.summary : result.value.error || '解析失败')
+      if (seq !== compareSequence) return
+      result.value = nextResult
+      showFeedback(
+        nextResult.ok ? nextResult.summary : nextResult.error || '解析失败',
+        nextResult.ok ? 'success' : 'danger',
+      )
+    } catch (error) {
+      if (seq !== compareSequence) return
+      const message = error instanceof Error && error.message.trim() ? error.message.trim() : 'JSON 对比失败'
+      showFeedback(message, 'danger')
     } finally {
-      isComparing.value = false
+      if (seq === compareSequence) {
+        isComparing.value = false
+      }
     }
   }
 
   async function formatSide(side: 'left' | 'right') {
     const current = side === 'left' ? leftText.value : rightText.value
-    const formatted = await formatJson({
-      text: current,
-      sortKeys: sortKeys.value,
-      label: side === 'left' ? '左侧 JSON' : '右侧 JSON',
-    })
-    if (formatted.ok) {
-      if (side === 'left') {
-        leftText.value = formatted.text
-      } else {
-        rightText.value = formatted.text
+    try {
+      const formatted = await formatJson({
+        text: current,
+        sortKeys: sortKeys.value,
+        label: side === 'left' ? '左侧 JSON' : '右侧 JSON',
+      })
+      if (formatted.ok) {
+        if (side === 'left') {
+          leftText.value = formatted.text
+        } else {
+          rightText.value = formatted.text
+        }
+        showFeedback(side === 'left' ? '左侧已格式化' : '右侧已格式化', 'success')
+        await compare()
+        return
       }
-      showFeedback(side === 'left' ? '左侧已格式化' : '右侧已格式化')
-      await compare()
-      return
+      showFeedback(formatted.error || '格式化失败', 'danger')
+    } catch (error) {
+      showFeedback(error instanceof Error && error.message.trim() ? error.message.trim() : '格式化失败', 'danger')
     }
-    showFeedback(formatted.error || '格式化失败')
   }
 
   async function formatBoth() {
@@ -86,10 +127,10 @@ export const useJsonCompareStore = defineStore('json-compare', () => {
       } else {
         rightText.value = text
       }
-      showFeedback(side === 'left' ? '剪贴板已写入左侧' : '剪贴板已写入右侧')
+      showFeedback(side === 'left' ? '剪贴板已写入左侧' : '剪贴板已写入右侧', 'success')
       await compare()
-    } catch {
-      showFeedback('读取剪贴板失败')
+    } catch (error) {
+      showFeedback(error instanceof Error && error.message.trim() ? `读取剪贴板失败: ${error.message.trim()}` : '读取剪贴板失败', 'danger')
     }
   }
 
@@ -104,16 +145,16 @@ export const useJsonCompareStore = defineStore('json-compare', () => {
       } else {
         rightText.value = text
       }
-      showFeedback(`${file.name} 已写入${side === 'left' ? '左侧' : '右侧'}`)
+      showFeedback(`${file.name} 已写入${side === 'left' ? '左侧' : '右侧'}`, 'success')
       await compare()
-    } catch {
-      showFeedback('读取 JSON 文件失败')
+    } catch (error) {
+      showFeedback(error instanceof Error && error.message.trim() ? `读取 JSON 文件失败: ${error.message.trim()}` : '读取 JSON 文件失败', 'danger')
     }
   }
 
   async function loadTextSide(side: 'left' | 'right', text: string, source = '拖放文本') {
     if (!text.trim()) {
-      showFeedback('没有可导入的 JSON 文本')
+      showFeedback('没有可导入的 JSON 文本', 'danger')
       return
     }
     if (side === 'left') {
@@ -121,43 +162,70 @@ export const useJsonCompareStore = defineStore('json-compare', () => {
     } else {
       rightText.value = text
     }
-    showFeedback(`${source} 已写入${side === 'left' ? '左侧' : '右侧'}`)
+    showFeedback(`${source} 已写入${side === 'left' ? '左侧' : '右侧'}`, 'success')
     await compare()
   }
 
   async function copyReport() {
     const text = result.value?.report || result.value?.error || ''
     if (!text) {
-      showFeedback('没有可复制的报告')
+      showFeedback('没有可复制的报告', 'danger')
       return
     }
     try {
       await Clipboard.SetText(text)
-      showFeedback('报告已复制')
-    } catch {
-      showFeedback('复制报告失败')
+      showFeedback('报告已复制', 'success')
+    } catch (error) {
+      showFeedback(error instanceof Error && error.message.trim() ? `复制报告失败: ${error.message.trim()}` : '复制报告失败', 'danger')
     }
   }
 
   function swapSides() {
+    disarmClear()
     const nextLeft = rightText.value
     rightText.value = leftText.value
     leftText.value = nextLeft
-    showFeedback('左右已交换')
+    showFeedback('左右已交换', 'success')
     void compare()
   }
 
   function clearAll() {
+    disarmClear()
+    clearDebounceTimer()
+    compareSequence++
     leftText.value = ''
     rightText.value = ''
     result.value = null
-    showFeedback('已清空')
+    showFeedback('已清空', 'success')
+  }
+
+  function confirmClearAll() {
+    if (!clearArmed.value) {
+      clearArmed.value = true
+      if (clearArmedTimer !== undefined) window.clearTimeout(clearArmedTimer)
+      clearArmedTimer = window.setTimeout(() => {
+        clearArmedTimer = undefined
+        clearArmed.value = false
+      }, ARMED_TIMEOUT_MS)
+      showFeedback('再次点击确认清空', 'danger')
+      return
+    }
+    clearAll()
+  }
+
+  function disarmClear() {
+    clearArmed.value = false
+    if (clearArmedTimer !== undefined) {
+      window.clearTimeout(clearArmedTimer)
+      clearArmedTimer = undefined
+    }
   }
 
   function loadSample() {
+    disarmClear()
     leftText.value = sampleLeft
     rightText.value = sampleRight
-    showFeedback('已载入示例')
+    showFeedback('已载入示例', 'success')
     void compare()
   }
 
@@ -166,13 +234,20 @@ export const useJsonCompareStore = defineStore('json-compare', () => {
     void compare()
   }
 
-  function showFeedback(message: string) {
+  function showFeedback(message: string, tone: 'success' | 'danger' = 'success') {
+    if (feedbackTimer !== undefined) {
+      window.clearTimeout(feedbackTimer)
+      feedbackTimer = undefined
+    }
     feedback.value = message
-    window.setTimeout(() => {
+    feedbackTone.value = tone
+    const duration = tone === 'danger' ? 5000 : 2000
+    feedbackTimer = window.setTimeout(() => {
+      feedbackTimer = undefined
       if (feedback.value === message) {
         feedback.value = ''
       }
-    }, 1800)
+    }, duration)
   }
 
   return {
@@ -181,11 +256,14 @@ export const useJsonCompareStore = defineStore('json-compare', () => {
     sortKeys,
     result,
     feedback,
+    feedbackTone,
+    clearArmed,
     isComparing,
     differenceCount,
     hasDifferences,
     resultTone,
     compare,
+    scheduleCompare,
     formatSide,
     formatBoth,
     pasteSide,
@@ -194,6 +272,7 @@ export const useJsonCompareStore = defineStore('json-compare', () => {
     copyReport,
     swapSides,
     clearAll,
+    confirmClearAll,
     loadSample,
     setSortKeys,
   }

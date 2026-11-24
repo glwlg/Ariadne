@@ -17,8 +17,21 @@ import (
 )
 
 const windowsFileNotifyHeaderSize = 12
+const watchBatchFlushInterval = 250 * time.Millisecond
+const watchBatchMaxSize = 128
 
 func (b *usnIndexBuilder) WatchChanges(ctx context.Context, volumes []string, emit func(rawResult)) error {
+	if emit == nil {
+		return nil
+	}
+	return b.WatchChangeBatches(ctx, volumes, func(batch []rawResult) {
+		for _, entry := range batch {
+			emit(entry)
+		}
+	})
+}
+
+func (b *usnIndexBuilder) WatchChangeBatches(ctx context.Context, volumes []string, emit func([]rawResult)) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -32,12 +45,21 @@ func (b *usnIndexBuilder) WatchChanges(ctx context.Context, volumes []string, em
 
 	var wg sync.WaitGroup
 	errs := make(chan error, len(roots))
+	batches := make(chan []rawResult, 32)
 	for _, root := range roots {
 		root := root
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := watchVolumeChanges(ctx, root, emit); err != nil && ctx.Err() == nil {
+			if err := watchVolumeChanges(ctx, root, func(entries []rawResult) {
+				if len(entries) == 0 {
+					return
+				}
+				select {
+				case batches <- entries:
+				case <-ctx.Done():
+				}
+			}); err != nil && ctx.Err() == nil {
 				errs <- err
 			}
 		}()
@@ -49,13 +71,62 @@ func (b *usnIndexBuilder) WatchChanges(ctx context.Context, volumes []string, em
 		close(done)
 	}()
 
-	select {
-	case <-ctx.Done():
-		<-done
-		return ctx.Err()
-	case <-done:
+	pending := make([]rawResult, 0, watchBatchMaxSize)
+	var flushTimer *time.Timer
+	var flushC <-chan time.Time
+	stopTimer := func() {
+		if flushTimer != nil {
+			flushTimer.Stop()
+			flushTimer = nil
+			flushC = nil
+		}
+	}
+	defer stopTimer()
+
+	flush := func() {
+		stopTimer()
+		if len(pending) == 0 {
+			return
+		}
+		batch := pending
+		pending = make([]rawResult, 0, watchBatchMaxSize)
+		emit(batch)
 	}
 
+	for {
+		select {
+		case <-ctx.Done():
+			stopTimer()
+			<-done
+			return ctx.Err()
+		case entries := <-batches:
+			pending = append(pending, entries...)
+			if len(pending) >= watchBatchMaxSize {
+				flush()
+			} else if flushTimer == nil {
+				flushTimer = time.NewTimer(watchBatchFlushInterval)
+				flushC = flushTimer.C
+			}
+		case <-flushC:
+			flush()
+		case <-done:
+			stopTimer()
+			for {
+				select {
+				case entries := <-batches:
+					pending = append(pending, entries...)
+					if len(pending) >= watchBatchMaxSize {
+						flush()
+					}
+				default:
+					flush()
+					goto collectErrs
+				}
+			}
+		}
+	}
+
+collectErrs:
 	close(errs)
 	collected := make([]error, 0, len(errs))
 	for err := range errs {
@@ -92,7 +163,7 @@ func normalizeWatchVolumes(volumes []string) []string {
 	return roots
 }
 
-func watchVolumeChanges(ctx context.Context, root string, emit func(rawResult)) error {
+func watchVolumeChanges(ctx context.Context, root string, emitBatch func([]rawResult)) error {
 	handle, err := openWatchDirectory(root)
 	if err != nil {
 		return err
@@ -128,8 +199,8 @@ func watchVolumeChanges(ctx context.Context, root string, emit func(rawResult)) 
 		if returned == 0 {
 			continue
 		}
-		for _, entry := range parseWindowsNotifyBuffer(root, buffer[:returned]) {
-			emit(entry)
+		if entries := parseWindowsNotifyBuffer(root, buffer[:returned]); len(entries) > 0 {
+			emitBatch(entries)
 		}
 	}
 }
@@ -185,14 +256,8 @@ func rawResultForChangedPath(path string) (rawResult, bool) {
 	if path == "" || path == "." {
 		return rawResult{}, false
 	}
-	for attempt := 0; attempt < 4; attempt++ {
-		info, err := os.Stat(path)
-		if err == nil {
-			return rawResult{Name: info.Name(), Path: path, IsDirectory: info.IsDir()}, true
-		}
-		if attempt < 3 {
-			time.Sleep(30 * time.Millisecond)
-		}
+	if info, err := os.Stat(path); err == nil {
+		return rawResult{Name: info.Name(), Path: path, IsDirectory: info.IsDir()}, true
 	}
 	name := filepath.Base(path)
 	if name == "" || name == "." {

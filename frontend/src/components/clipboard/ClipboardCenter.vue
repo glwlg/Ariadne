@@ -15,10 +15,27 @@ import {
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import FancunButton from '../ui/FancunButton.vue'
 import OCRImageOverlay from '../ocr/OCRImageOverlay.vue'
+import { isDesktopRuntime } from '../../services/runtimeEnv'
 import { useAppShellStore } from '../../stores/appShell'
 import { useClipboardHistoryStore } from '../../stores/clipboardHistory'
 import { ocrConfidenceLabel, ocrRectLabel } from '../../lib/ocrDisplay'
 import type { ClipboardHistoryEntry } from '../../types/fancun'
+
+const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+const contentTypeFilters = [
+  { id: 'all', label: '全部' },
+  { id: 'text', label: '文本' },
+  { id: 'image', label: '图片' },
+  { id: 'json', label: 'JSON' },
+  { id: 'url', label: 'URL' },
+  { id: 'code', label: '代码' },
+]
 
 const appShell = useAppShellStore()
 const clipboard = useClipboardHistoryStore()
@@ -26,6 +43,7 @@ const clipboard = useClipboardHistoryStore()
 const selected = computed(() => clipboard.selectedEntry)
 let refreshTimer = 0
 let disposed = false
+let unsubscribeUpdates: (() => void) | null = null
 
 async function refresh() {
   if (disposed) return
@@ -38,24 +56,26 @@ function onVisibilityChange() {
 }
 
 onMounted(() => {
-  void refresh()
+  if (isDesktopRuntime()) {
+    void clipboard.load()
+    unsubscribeUpdates = clipboard.subscribeUpdates()
+  } else {
+    void refresh()
+  }
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
 onBeforeUnmount(() => {
   disposed = true
   window.clearTimeout(refreshTimer)
+  unsubscribeUpdates?.()
+  unsubscribeUpdates = null
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 function formatTime(seconds: number) {
   if (!seconds) return '未知时间'
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(seconds * 1000))
+  return timeFormatter.format(new Date(seconds * 1000))
 }
 
 function contentLabel(entry: ClipboardHistoryEntry) {
@@ -110,7 +130,7 @@ function contentLabel(entry: ClipboardHistoryEntry) {
           </div>
         </header>
 
-        <div class="tool-toolbar">
+        <div class="tool-toolbar is-wrapping">
           <div class="tool-search">
             <Search :size="17" />
             <input
@@ -124,39 +144,75 @@ function contentLabel(entry: ClipboardHistoryEntry) {
             <Plus :size="14" />
             收集当前剪贴板
           </FancunButton>
-          <FancunButton size="sm" variant="secondary" @click="clipboard.clearUnpinned()">
+          <FancunButton
+            size="sm"
+            variant="secondary"
+            :class="{ 'is-armed-danger': clipboard.clearArmed }"
+            @click="clipboard.clearUnpinned()"
+          >
             <Trash2 :size="14" />
             {{ clipboard.clearArmed ? '确认清空' : '清空未置顶' }}
           </FancunButton>
+          <div class="flex flex-wrap items-center gap-1.5 w-full" role="group" aria-label="内容类型筛选">
+            <button
+              v-for="filter in contentTypeFilters"
+              :key="filter.id"
+              type="button"
+              class="system-pill cursor-pointer"
+              :class="{ 'is-on': clipboard.contentTypeFilter === filter.id }"
+              :aria-pressed="clipboard.contentTypeFilter === filter.id"
+              @click="clipboard.setContentTypeFilter(filter.id)"
+            >
+              {{ filter.label }}
+            </button>
+          </div>
         </div>
 
         <div class="clipboard-workspace">
           <section class="clipboard-list" aria-label="剪贴板条目">
-            <button
-              v-for="entry in clipboard.entries"
-              :key="entry.id"
-              class="clipboard-row"
-              :class="{ 'is-selected': entry.id === clipboard.selectedId }"
-              @click="clipboard.select(entry.id)"
-            >
-              <span class="clipboard-row-icon" :class="{ 'is-pinned': entry.pinned }">
-                <Pin v-if="entry.pinned" :size="15" />
-                <Image v-else-if="entry.type === 'image'" :size="15" />
-                <Clipboard v-else :size="15" />
-              </span>
-              <span class="clipboard-row-main">
-                <span class="clipboard-row-title">{{ entry.summary }}</span>
-                <span class="clipboard-row-meta">
-                  {{ contentLabel(entry) }}
-                  <template v-if="entry.type === 'image'"> · {{ entry.width }}x{{ entry.height }}</template>
-                  · {{ formatTime(entry.createdAt) }} · {{ entry.source }}
-                </span>
-              </span>
-            </button>
-
-            <div v-if="!clipboard.entries.length" class="empty-state">
+            <div v-if="clipboard.isLoading && !clipboard.filteredEntries.length" class="tool-loading-state">
               <Clipboard :size="22" />
-              <span>还没有匹配的剪贴板记录</span>
+              <strong>正在加载剪贴板历史...</strong>
+              <small>读取本地剪贴板记录</small>
+            </div>
+
+            <div v-else-if="clipboard.loadError && !clipboard.filteredEntries.length" class="tool-error-state">
+              <Clipboard :size="22" />
+              <strong>剪贴板历史加载失败</strong>
+              <small>{{ clipboard.loadError }}</small>
+              <FancunButton size="sm" variant="secondary" @click="clipboard.load()">重试加载</FancunButton>
+            </div>
+
+            <template v-else-if="clipboard.filteredEntries.length">
+              <button
+                v-for="entry in clipboard.filteredEntries"
+                :key="entry.id"
+                class="clipboard-row"
+                :class="{ 'is-selected': entry.id === clipboard.selectedId }"
+                @click="clipboard.select(entry.id)"
+                @dblclick="clipboard.copyEntry(entry)"
+                @keydown.enter.prevent="clipboard.copyEntry(entry)"
+              >
+                <span class="clipboard-row-icon" :class="{ 'is-pinned': entry.pinned }">
+                  <Pin v-if="entry.pinned" :size="15" />
+                  <Image v-else-if="entry.type === 'image'" :size="15" />
+                  <Clipboard v-else :size="15" />
+                </span>
+                <span class="clipboard-row-main">
+                  <span class="clipboard-row-title">{{ entry.summary }}</span>
+                  <span class="clipboard-row-meta">
+                    {{ contentLabel(entry) }}
+                    <template v-if="entry.type === 'image'"> · {{ entry.width }}x{{ entry.height }}</template>
+                    · {{ formatTime(entry.createdAt) }} · {{ entry.source }}
+                  </span>
+                </span>
+              </button>
+            </template>
+
+            <div v-else class="tool-empty-state">
+              <Clipboard :size="22" />
+              <strong>还没有匹配的剪贴板记录</strong>
+              <small>尝试切换筛选条件或复制新的文本/图片</small>
             </div>
           </section>
 
@@ -179,9 +235,9 @@ function contentLabel(entry: ClipboardHistoryEntry) {
                   <Copy :size="14" />
                   {{ selected.type === 'image' ? '复制图片' : '复制内容' }}
                 </FancunButton>
-                <FancunButton v-if="selected.type === 'image'" size="sm" variant="secondary" @click="clipboard.scanQRCode(selected)">
+                <FancunButton v-if="selected.type === 'image'" size="sm" variant="secondary" :disabled="clipboard.isScanningQR" @click="clipboard.scanQRCode(selected)">
                   <QrCode :size="14" />
-                  识别二维码
+                  {{ clipboard.isScanningQR ? '识别中' : '识别二维码' }}
                 </FancunButton>
                 <FancunButton v-if="selected.type === 'image'" size="sm" variant="secondary" :disabled="clipboard.isRecognizingOCR" @click="clipboard.recognizeText(selected)">
                   <FileText :size="14" />
@@ -199,15 +255,24 @@ function contentLabel(entry: ClipboardHistoryEntry) {
                   <Pin :size="14" />
                   {{ selected.pinned ? '取消置顶' : '置顶' }}
                 </FancunButton>
-                <FancunButton size="sm" variant="secondary" @click="clipboard.deleteEntry(selected)">
+                <FancunButton
+                  size="sm"
+                  variant="secondary"
+                  :class="{ 'is-armed-danger': clipboard.deleteArmedId === selected.id }"
+                  @click="clipboard.deleteEntry(selected)"
+                >
                   <Trash2 :size="14" />
                   {{ clipboard.deleteArmedId === selected.id ? '确认删除' : '删除' }}
                 </FancunButton>
               </div>
 
               <figure v-if="selected.type === 'image'" class="clipboard-image-preview">
+                <div v-if="clipboard.isLoadingImage" class="tool-loading-state">
+                  <Image :size="22" />
+                  <strong>正在加载图片预览...</strong>
+                </div>
                 <OCRImageOverlay
-                  v-if="clipboard.imageDataUrl"
+                  v-else-if="clipboard.imageDataUrl"
                   :src="clipboard.imageDataUrl"
                   :width="clipboard.ocrResult?.width || selected.width"
                   :height="clipboard.ocrResult?.height || selected.height"
@@ -220,6 +285,22 @@ function contentLabel(entry: ClipboardHistoryEntry) {
                 <figcaption>{{ selected.width }}x{{ selected.height }} · {{ selected.bytes }} bytes</figcaption>
               </figure>
               <pre v-else class="clipboard-text">{{ selected.text }}</pre>
+
+              <div v-if="clipboard.isScanningQR" class="qr-result-panel" aria-live="polite">
+                <div class="side-title">
+                  <QrCode :size="15" />
+                  正在识别二维码...
+                </div>
+                <p>正在分析图片内容，请稍候。</p>
+              </div>
+
+              <div v-if="clipboard.isRecognizingOCR" class="qr-result-panel" aria-live="polite">
+                <div class="side-title">
+                  <FileText :size="15" />
+                  正在执行 OCR 文字识别...
+                </div>
+                <p>正在提取图片文字与坐标，请稍候。</p>
+              </div>
 
               <div v-if="clipboard.qrResult" class="qr-result-panel" :class="{ 'is-success': clipboard.qrResult.ok }">
                 <div class="side-title">
@@ -307,9 +388,9 @@ function contentLabel(entry: ClipboardHistoryEntry) {
               </div>
             </template>
 
-            <div v-else class="empty-state">
+            <div v-else class="tool-empty-state">
               <Clipboard :size="22" />
-              <span>选择一条记录查看详情</span>
+              <strong>选择一条记录查看详情</strong>
             </div>
           </section>
         </div>
@@ -319,14 +400,18 @@ function contentLabel(entry: ClipboardHistoryEntry) {
             <Clipboard :size="14" />
             文本剪贴板历史已本地持久化{{ clipboard.status?.watcherRunning ? '，自动监听中' : '' }}
           </span>
-          <span v-if="clipboard.status?.lastWatcherError" class="inline-feedback">
+          <span v-if="clipboard.status?.lastWatcherError" class="inline-feedback is-danger">
             {{ clipboard.status.lastWatcherError }}
           </span>
           <span>
             <Pin :size="14" />
             置顶记录不会被清空未置顶删除
           </span>
-          <span v-if="clipboard.feedback" class="inline-feedback">{{ clipboard.feedback }}</span>
+          <span
+            v-if="clipboard.feedback"
+            class="inline-feedback"
+            :class="{ 'is-danger': clipboard.feedbackTone === 'danger' }"
+          >{{ clipboard.feedback }}</span>
         </footer>
       </section>
     </div>

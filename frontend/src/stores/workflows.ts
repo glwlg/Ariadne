@@ -13,6 +13,8 @@ import {
 } from '../services/workflowApi'
 import type { WorkflowDefinition, WorkflowExportResult, WorkflowImportResult, WorkflowRunResult, WorkflowStatus, WorkflowStep } from '../types/fancun'
 
+const ARMED_TIMEOUT_MS = 5000
+
 export const useWorkflowsStore = defineStore('workflows', () => {
   const workflows = ref<WorkflowDefinition[]>([])
   const status = ref<WorkflowStatus | null>(null)
@@ -24,16 +26,27 @@ export const useWorkflowsStore = defineStore('workflows', () => {
   const exportResult = ref<WorkflowExportResult | null>(null)
   const importResult = ref<WorkflowImportResult | null>(null)
   const feedback = ref('')
+  const feedbackTone = ref<'success' | 'danger'>('success')
+  const loadError = ref('')
   const deleteArmedId = ref('')
   const riskArmedId = ref('')
   const isLoading = ref(false)
   const isSaving = ref(false)
   const isRunning = ref(false)
+  let feedbackTimer: number | undefined
+  let deleteArmedTimer: number | undefined
+  let riskArmedTimer: number | undefined
 
   const selectedWorkflow = computed(() => workflows.value.find((workflow) => workflow.id === selectedId.value) ?? workflows.value[0] ?? null)
+  const draftModified = computed(() => {
+    const selected = selectedWorkflow.value
+    if (!draft.value || !selected) return false
+    return JSON.stringify(normalizeDraft(draft.value)) !== JSON.stringify(normalizeDraft(selected))
+  })
 
   async function load() {
     isLoading.value = true
+    loadError.value = ''
     try {
       const [nextStatus, nextWorkflows] = await Promise.all([getWorkflowStatus(), listWorkflows()])
       status.value = nextStatus
@@ -42,8 +55,9 @@ export const useWorkflowsStore = defineStore('workflows', () => {
         selectedId.value = workflows.value[0]?.id ?? ''
       }
       syncDraft()
-    } catch {
-      showFeedback('工作流加载失败')
+    } catch (error) {
+      loadError.value = formatError(error, '工作流加载失败')
+      showFeedback(`工作流加载失败: ${shortError(loadError.value)}`, 'danger')
     } finally {
       isLoading.value = false
     }
@@ -51,28 +65,58 @@ export const useWorkflowsStore = defineStore('workflows', () => {
 
   function select(id: string) {
     selectedId.value = id
-    deleteArmedId.value = ''
-    riskArmedId.value = ''
+    disarmDelete()
+    disarmRisk()
     syncDraft()
   }
 
   async function createWorkflow() {
-    status.value = await newWorkflow()
-    workflows.value = status.value.workflows
-    selectedId.value = workflows.value[workflows.value.length - 1]?.id ?? ''
-    syncDraft()
-    showFeedback('已新建工作流')
-  }
-
-  async function saveDraft() {
-    if (!draft.value) return
+    disarmDelete()
+    disarmRisk()
+    const beforeIds = new Set(workflows.value.map((workflow) => workflow.id))
     isSaving.value = true
     try {
-      status.value = await upsertWorkflow(draft.value)
-      workflows.value = status.value.workflows
+      const nextStatus = await newWorkflow()
+      status.value = nextStatus
+      workflows.value = nextStatus.workflows
+      if (nextStatus.lastSaveError) {
+        showFeedback(`新建失败: ${shortError(nextStatus.lastSaveError)}`, 'danger')
+        return
+      }
+      const created =
+        workflows.value.find((workflow) => !beforeIds.has(workflow.id)) ??
+        [...workflows.value]
+          .filter((workflow) => workflow.id.startsWith('new-workflow'))
+          .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0] ??
+        workflows.value[0]
+      selectedId.value = created?.id ?? ''
+      syncDraft()
+      showFeedback('已新建工作流', 'success')
+    } catch (error) {
+      showFeedback(`新建失败: ${shortError(formatError(error, '新建工作流失败'))}`, 'danger')
+    } finally {
+      isSaving.value = false
+    }
+  }
+
+  async function saveDraft(): Promise<boolean> {
+    if (!draft.value) return false
+    isSaving.value = true
+    try {
+      const nextStatus = await upsertWorkflow(draft.value)
+      status.value = nextStatus
+      workflows.value = nextStatus.workflows
+      if (nextStatus.lastSaveError) {
+        showFeedback(`保存失败: ${shortError(nextStatus.lastSaveError)}`, 'danger')
+        return false
+      }
       selectedId.value = draft.value.id
       syncDraft()
-      showFeedback(status.value.lastSaveError ? `保存失败: ${shortError(status.value.lastSaveError)}` : '已保存工作流')
+      showFeedback('已保存工作流', 'success')
+      return true
+    } catch (error) {
+      showFeedback(`保存失败: ${shortError(formatError(error, '保存工作流失败'))}`, 'danger')
+      return false
     } finally {
       isSaving.value = false
     }
@@ -80,21 +124,39 @@ export const useWorkflowsStore = defineStore('workflows', () => {
 
   async function deleteWorkflow(workflow = selectedWorkflow.value) {
     if (!workflow) return
+    disarmRisk()
     if (deleteArmedId.value !== workflow.id) {
-      deleteArmedId.value = workflow.id
-      showFeedback('再次点击确认删除')
+      armDelete(workflow.id)
+      showFeedback('再次点击确认删除', 'danger')
       return
     }
-    status.value = await removeWorkflow(workflow.id)
-    workflows.value = status.value.workflows
-    selectedId.value = workflows.value[0]?.id ?? ''
-    deleteArmedId.value = ''
-    syncDraft()
-    showFeedback(status.value.lastSaveError ? `删除失败: ${shortError(status.value.lastSaveError)}` : '已删除工作流')
+    disarmDelete()
+    isSaving.value = true
+    try {
+      const nextStatus = await removeWorkflow(workflow.id)
+      status.value = nextStatus
+      workflows.value = nextStatus.workflows
+      if (nextStatus.lastSaveError) {
+        showFeedback(`删除失败: ${shortError(nextStatus.lastSaveError)}`, 'danger')
+        return
+      }
+      selectedId.value = workflows.value[0]?.id ?? ''
+      syncDraft()
+      showFeedback('已删除工作流', 'success')
+    } catch (error) {
+      showFeedback(`删除失败: ${shortError(formatError(error, '删除工作流失败'))}`, 'danger')
+    } finally {
+      isSaving.value = false
+    }
   }
 
   async function runSelected(workflow = selectedWorkflow.value) {
     if (!workflow) return
+    if (draftModified.value && draft.value && workflow.id === selectedWorkflow.value?.id) {
+      const saved = await saveDraft()
+      if (!saved) return
+      workflow = selectedWorkflow.value ?? workflow
+    }
     isRunning.value = true
     try {
       let clipboardText = ''
@@ -111,21 +173,23 @@ export const useWorkflowsStore = defineStore('workflows', () => {
       })
       lastRun.value = result
       if (result.requiresConfirmation) {
-        riskArmedId.value = workflow.id
-        showFeedback('再次点击运行以确认高风险工作流')
+        armRisk(workflow.id)
+        showFeedback('再次点击运行以确认高风险工作流', 'danger')
         return
       }
-      riskArmedId.value = ''
+      disarmRisk()
       if (result.ok && result.output) {
         try {
           await Clipboard.SetText(result.output)
-          showFeedback(`${result.message}，结果已复制`)
-        } catch {
-          showFeedback(`${result.message}，复制失败`)
+          showFeedback(`${result.message}，结果已复制`, 'success')
+        } catch (error) {
+          showFeedback(`${result.message}，复制失败: ${shortError(formatError(error, '剪贴板不可用'))}`, 'danger')
         }
       } else {
-        showFeedback(result.message)
+        showFeedback(result.message, result.ok ? 'success' : 'danger')
       }
+    } catch (error) {
+      showFeedback(`工作流运行失败: ${shortError(formatError(error, '运行异常'))}`, 'danger')
     } finally {
       isRunning.value = false
     }
@@ -138,22 +202,22 @@ export const useWorkflowsStore = defineStore('workflows', () => {
       if (result.ok && result.json) {
         try {
           await Clipboard.SetText(result.json)
-          showFeedback(`已导出 ${result.count} 个工作流，JSON 已复制`)
+          showFeedback(`已导出 ${result.count} 个工作流，JSON 已复制`, 'success')
         } catch {
-          showFeedback(`已导出 ${result.count} 个工作流，复制 JSON 失败`)
+          showFeedback(`已导出 ${result.count} 个工作流，复制 JSON 失败`, 'danger')
         }
       } else {
-        showFeedback(result.message)
+        showFeedback(result.message, result.ok ? 'success' : 'danger')
       }
-    } catch {
-      showFeedback('工作流导出失败')
+    } catch (error) {
+      showFeedback(`工作流导出失败: ${shortError(formatError(error, '导出异常'))}`, 'danger')
     }
   }
 
   async function importData() {
     const raw = importText.value.trim()
     if (!raw) {
-      showFeedback('先粘贴 Fancun 工作流 JSON')
+      showFeedback('先粘贴 Fancun 工作流 JSON', 'danger')
       return
     }
     isSaving.value = true
@@ -167,9 +231,9 @@ export const useWorkflowsStore = defineStore('workflows', () => {
         importText.value = ''
         syncDraft()
       }
-      showFeedback(result.message)
-    } catch {
-      showFeedback('工作流导入失败')
+      showFeedback(result.message, result.ok ? 'success' : 'danger')
+    } catch (error) {
+      showFeedback(`工作流导入失败: ${shortError(formatError(error, '导入异常'))}`, 'danger')
     } finally {
       isSaving.value = false
     }
@@ -204,16 +268,57 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     const source = selectedWorkflow.value
     draft.value = source ? normalizeDraft(JSON.parse(JSON.stringify(source)) as WorkflowDefinition) : null
     lastRun.value = null
-    riskArmedId.value = ''
+    disarmRisk()
   }
 
-  function showFeedback(message: string) {
+  function armDelete(id: string) {
+    disarmDelete()
+    deleteArmedId.value = id
+    deleteArmedTimer = window.setTimeout(() => {
+      deleteArmedTimer = undefined
+      if (deleteArmedId.value === id) deleteArmedId.value = ''
+    }, ARMED_TIMEOUT_MS)
+  }
+
+  function disarmDelete() {
+    deleteArmedId.value = ''
+    if (deleteArmedTimer !== undefined) {
+      window.clearTimeout(deleteArmedTimer)
+      deleteArmedTimer = undefined
+    }
+  }
+
+  function armRisk(id: string) {
+    disarmRisk()
+    riskArmedId.value = id
+    riskArmedTimer = window.setTimeout(() => {
+      riskArmedTimer = undefined
+      if (riskArmedId.value === id) riskArmedId.value = ''
+    }, ARMED_TIMEOUT_MS)
+  }
+
+  function disarmRisk() {
+    riskArmedId.value = ''
+    if (riskArmedTimer !== undefined) {
+      window.clearTimeout(riskArmedTimer)
+      riskArmedTimer = undefined
+    }
+  }
+
+  function showFeedback(message: string, tone: 'success' | 'danger' = 'success') {
+    if (feedbackTimer !== undefined) {
+      window.clearTimeout(feedbackTimer)
+      feedbackTimer = undefined
+    }
     feedback.value = message
-    window.setTimeout(() => {
+    feedbackTone.value = tone
+    const duration = tone === 'danger' ? 5000 : 2000
+    feedbackTimer = window.setTimeout(() => {
+      feedbackTimer = undefined
       if (feedback.value === message) {
         feedback.value = ''
       }
-    }, 2000)
+    }, duration)
   }
 
   return {
@@ -222,12 +327,15 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     selectedId,
     selectedWorkflow,
     draft,
+    draftModified,
     runInput,
     importText,
     lastRun,
     exportResult,
     importResult,
     feedback,
+    feedbackTone,
+    loadError,
     deleteArmedId,
     riskArmedId,
     isLoading,
@@ -247,6 +355,12 @@ export const useWorkflowsStore = defineStore('workflows', () => {
     removeStep,
   }
 })
+
+function formatError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message.trim()
+  if (typeof error === 'string' && error.trim()) return error.trim()
+  return fallback
+}
 
 function normalizeDraft(workflow: WorkflowDefinition): WorkflowDefinition {
   return {

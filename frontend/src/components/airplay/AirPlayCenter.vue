@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Airplay, Copy, Monitor, Play, RefreshCw, ShieldCheck, Smartphone, Square } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import FancunButton from '../ui/FancunButton.vue'
 import AirPlayLogs from './AirPlayLogs.vue'
 import AirPlayControlStatus from './AirPlayControlStatus.vue'
@@ -8,6 +8,7 @@ import { useAirPlay } from '../../composables/useAirPlay'
 import type { AirPlayCommand } from '../../types/airplay'
 
 const { status, error, pending, refreshing, feedback, stateLabel, refresh, run, copy, copyingDiagnostics, copyDiagnostics } = useAirPlay()
+const pendingFrameRate = ref<'30' | '60' | null>(null)
 const mirroring = computed(() => status.value?.running && status.value.phase === 'mirroring')
 const busy = computed(() => !!pending.value)
 const heading = computed(() => {
@@ -28,8 +29,27 @@ const description = computed(() => {
 })
 
 function changeFrameRate(event: Event) {
-  const value = (event.target as HTMLSelectElement).value
-  if (value === '30' || value === '60') void run(`fps ${value}` as AirPlayCommand)
+  const select = event.target as HTMLSelectElement
+  const value = select.value
+  if (value !== '30' && value !== '60') return
+  if (status.value?.running && String(status.value.frameRate) !== value) {
+    pendingFrameRate.value = value
+    select.value = String(status.value.frameRate)
+    return
+  }
+  pendingFrameRate.value = null
+  void run(`fps ${value}` as AirPlayCommand)
+}
+
+function confirmFrameRateChange() {
+  const value = pendingFrameRate.value
+  if (!value) return
+  pendingFrameRate.value = null
+  void run(`fps ${value}` as AirPlayCommand)
+}
+
+function cancelFrameRateChange() {
+  pendingFrameRate.value = null
 }
 </script>
 
@@ -56,11 +76,11 @@ function changeFrameRate(event: Event) {
         </header>
 
         <div class="airplay-workspace" data-no-drag>
-          <div v-if="feedback" class="airplay-notice" :class="{ failure: !feedback.ok }" role="status">
-            {{ feedback.message }}
-          </div>
           <div v-if="error || status?.lastError" class="airplay-notice failure" role="alert">
             {{ error || status?.lastError }}
+          </div>
+          <div v-else-if="feedback" class="airplay-notice" :class="{ failure: !feedback.ok }" role="status">
+            {{ feedback.message }}
           </div>
 
           <div class="airplay-columns">
@@ -119,6 +139,13 @@ function changeFrameRate(event: Event) {
                   </select>
                 </label>
                 <p class="airplay-help">设置自动保存。运行中切换需要重新连接；实际帧率取决于手机、应用和网络。</p>
+                <div v-if="pendingFrameRate" class="airplay-notice failure mt-2 mb-0 grid gap-2" role="alert">
+                  <span>投屏运行中切换至 {{ pendingFrameRate }} fps 将重启接收并刷新配对码，是否继续？</span>
+                  <div class="flex gap-2">
+                    <FancunButton size="sm" variant="secondary" class="is-armed-danger" :disabled="busy" @click="confirmFrameRateChange">确认切换</FancunButton>
+                    <FancunButton size="sm" variant="ghost" @click="cancelFrameRateChange">取消</FancunButton>
+                  </div>
+                </div>
               </section>
               <section class="airplay-settings-section">
                 <h3>窗口操作</h3>
@@ -141,7 +168,7 @@ function changeFrameRate(event: Event) {
           </div>
           <AirPlayLogs />
         </div>
-        <footer class="airplay-footer"><span>关闭此窗口后仍可继续投屏；退出 Fancun 会停止接收。</span><span>UxPlay</span></footer>
+        <footer class="airplay-footer"><span>关闭此窗口后仍可继续投屏；退出 Fancun 会停止接收。</span><span>AirPlay 接收</span></footer>
       </section>
     </div>
   </main>

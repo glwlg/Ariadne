@@ -31,9 +31,9 @@ internal sealed class ScreenCapture : IDisposable
     public static IReadOnlyList<ScreenCapture> CaptureAll()
     {
         var captures = new List<ScreenCapture>();
-        foreach (var bounds in NativeMethods.MonitorBounds())
+        foreach (var target in NativeMethods.MonitorTargets())
         {
-            captures.Add(Capture(bounds));
+            captures.Add(Capture(target.Bounds, target.ScaleX, target.ScaleY));
         }
         return captures;
     }
@@ -89,11 +89,17 @@ internal sealed class ScreenCapture : IDisposable
         return (converted, 4);
     }
 
-    private static ScreenCapture Capture(Int32Rect bounds)
+    private static ScreenCapture Capture(Int32Rect bounds, double scaleX, double scaleY)
     {
         var source = NativeMethods.CaptureRegion(bounds);
-        var scaleX = source.PixelWidth / (double)Math.Max(1, bounds.Width);
-        var scaleY = source.PixelHeight / (double)Math.Max(1, bounds.Height);
+        if (scaleX <= 0)
+        {
+            scaleX = 1.0;
+        }
+        if (scaleY <= 0)
+        {
+            scaleY = 1.0;
+        }
         return new ScreenCapture(bounds, source, scaleX, scaleY);
     }
 }

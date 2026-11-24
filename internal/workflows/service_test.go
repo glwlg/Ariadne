@@ -233,6 +233,45 @@ func TestWorkflowExportAndImportData(t *testing.T) {
 	}
 }
 
+func TestWorkflowBatchLoadPreservesStepOrderAcrossMultipleWorkflows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workflows.json")
+	service := NewServiceWithPaths(path, "", fakeExecutor{})
+
+	service.Upsert(Workflow{
+		ID:          "flow-zeta",
+		Name:        "Zeta",
+		Description: "last id",
+		Steps: []Step{
+			{Command: "hash {input}", Pick: "MD5"},
+			{Command: "url {prev}", Pick: "编码结果"},
+			{Command: "base64 {prev}", Pick: "编码结果"},
+		},
+	})
+	service.Upsert(Workflow{
+		ID:          "flow-alpha",
+		Name:        "Alpha",
+		Description: "first id",
+		Steps: []Step{
+			{Command: "base64 {input}", Pick: "p1"},
+			{Command: "hash {prev}", Pick: "p2"},
+		},
+	})
+
+	reloaded := NewServiceWithPaths(path, "", fakeExecutor{})
+	byID := map[string]Workflow{}
+	for _, wf := range reloaded.List() {
+		byID[wf.ID] = wf
+	}
+	alpha, ok := byID["flow-alpha"]
+	if !ok || len(alpha.Steps) != 2 || alpha.Steps[0].Command != "base64 {input}" || alpha.Steps[0].Pick != "p1" || alpha.Steps[1].Command != "hash {prev}" || alpha.Steps[1].Pick != "p2" {
+		t.Fatalf("flow-alpha steps mismatch after batch reload: %#v", alpha)
+	}
+	zeta, ok := byID["flow-zeta"]
+	if !ok || len(zeta.Steps) != 3 || zeta.Steps[0].Command != "hash {input}" || zeta.Steps[1].Command != "url {prev}" || zeta.Steps[2].Command != "base64 {prev}" {
+		t.Fatalf("flow-zeta steps mismatch after batch reload: %#v", zeta)
+	}
+}
+
 func copyResult(title string, value string) contracts.SearchResult {
 	return contracts.SearchResult{
 		ID:      "fake-" + stableID(title),

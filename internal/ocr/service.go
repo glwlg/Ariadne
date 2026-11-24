@@ -1,6 +1,7 @@
 package ocr
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"embed"
@@ -120,6 +121,7 @@ type Service struct {
 	last      Result
 	status    Status
 	now       func() time.Time
+	timeout   time.Duration
 }
 
 func NewService(captures CaptureProvider, clipboard ClipboardProvider) *Service {
@@ -127,6 +129,7 @@ func NewService(captures CaptureProvider, clipboard ClipboardProvider) *Service 
 		captures:  captures,
 		clipboard: clipboard,
 		now:       time.Now,
+		timeout:   defaultOCRTimeout,
 	}
 	service.runner = service.runLocalOCRBridge
 	return service
@@ -165,6 +168,20 @@ func (s *Service) Status() Status {
 	return status
 }
 
+// LocalStatus reports availability and provider for local-only RapidOCR without remote AI fallback.
+func (s *Service) LocalStatus() Status {
+	status := s.detectStatus()
+	s.mu.RLock()
+	if s.status.LastError != "" && !status.Available {
+		status.LastError = s.status.LastError
+	}
+	if s.status.LastRunAt != 0 {
+		status.LastRunAt = s.status.LastRunAt
+	}
+	s.mu.RUnlock()
+	return status
+}
+
 func (s *Service) LastResult() Result {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -172,18 +189,27 @@ func (s *Service) LastResult() Result {
 }
 
 func (s *Service) RecognizeCapture(captureID string) Result {
+	return s.recognizeCaptureWithPolicy(captureID, "capture_history", s.defaultPolicy())
+}
+
+// RecognizeCaptureLocal runs OCR strictly locally without sending screenshots to remote AI endpoints.
+func (s *Service) RecognizeCaptureLocal(captureID string) Result {
+	return s.recognizeCaptureWithPolicy(captureID, "capture_history", AIOCRPolicy{})
+}
+
+func (s *Service) recognizeCaptureWithPolicy(captureID string, source string, policy AIOCRPolicy) Result {
 	captureID = strings.TrimSpace(captureID)
 	if captureID == "" {
-		return s.record(Result{OK: false, Source: "capture_history", Error: "缺少截图记录 ID"})
+		return s.record(Result{OK: false, Source: source, Error: "缺少截图记录 ID"})
 	}
 	if s.captures == nil {
-		return s.record(Result{OK: false, Source: "capture_history", CaptureID: captureID, Error: "截图历史服务不可用"})
+		return s.record(Result{OK: false, Source: source, CaptureID: captureID, Error: "截图历史服务不可用"})
 	}
 	entry := s.captures.Entry(captureID)
 	if entry.ID == "" || strings.TrimSpace(entry.ImagePath) == "" {
-		return s.record(Result{OK: false, Source: "capture_history", CaptureID: captureID, Error: "未找到截图记录"})
+		return s.record(Result{OK: false, Source: source, CaptureID: captureID, Error: "未找到截图记录"})
 	}
-	result := s.recognizeImage(entry.ImagePath, "capture_history")
+	result := s.recognizeImageWithPolicy(entry.ImagePath, source, policy)
 	result.CaptureID = entry.ID
 	result.Width = entry.Width
 	result.Height = entry.Height
@@ -210,18 +236,27 @@ func (s *Service) RecognizeCurrentScreen() Result {
 }
 
 func (s *Service) RecognizeClipboardImage(clipboardID string) Result {
+	return s.recognizeClipboardImageWithPolicy(clipboardID, "clipboard_history", s.defaultPolicy())
+}
+
+// RecognizeClipboardImageLocal runs OCR strictly locally without sending clipboard images to remote AI endpoints.
+func (s *Service) RecognizeClipboardImageLocal(clipboardID string) Result {
+	return s.recognizeClipboardImageWithPolicy(clipboardID, "clipboard_history", AIOCRPolicy{})
+}
+
+func (s *Service) recognizeClipboardImageWithPolicy(clipboardID string, source string, policy AIOCRPolicy) Result {
 	clipboardID = strings.TrimSpace(clipboardID)
 	if clipboardID == "" {
-		return s.record(Result{OK: false, Source: "clipboard_history", Error: "缺少剪贴板记录 ID"})
+		return s.record(Result{OK: false, Source: source, Error: "缺少剪贴板记录 ID"})
 	}
 	if s.clipboard == nil {
-		return s.record(Result{OK: false, Source: "clipboard_history", ClipboardID: clipboardID, Error: "剪贴板历史服务不可用"})
+		return s.record(Result{OK: false, Source: source, ClipboardID: clipboardID, Error: "剪贴板历史服务不可用"})
 	}
 	entry := s.clipboard.Entry(clipboardID)
 	if entry.ID == "" || entry.Type != clipboardhistory.EntryImage || strings.TrimSpace(entry.ImagePath) == "" {
-		return s.record(Result{OK: false, Source: "clipboard_history", ClipboardID: clipboardID, Error: "未找到剪贴板图片"})
+		return s.record(Result{OK: false, Source: source, ClipboardID: clipboardID, Error: "未找到剪贴板图片"})
 	}
-	result := s.recognizeImage(entry.ImagePath, "clipboard_history")
+	result := s.recognizeImageWithPolicy(entry.ImagePath, source, policy)
 	result.ClipboardID = entry.ID
 	result.Width = entry.Width
 	result.Height = entry.Height
@@ -287,7 +322,11 @@ func (s *Service) recognizeImageWithPolicy(path string, source string, policy AI
 	if info, err := os.Stat(path); err != nil || info.IsDir() {
 		return Result{OK: false, Source: source, ImagePath: path, Error: "图片文件不存在"}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultOCRTimeout)
+	timeout := s.timeout
+	if timeout <= 0 {
+		timeout = defaultOCRTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	output, status := s.runConfiguredOCR(ctx, path, policy)
 	result := Result{
@@ -401,18 +440,31 @@ func (s *Service) runLocalOCRBridge(ctx context.Context, imagePath string) (brid
 	if root := repoRoot(); root != "" && status.Mode == "uv" {
 		cmd.Dir = root
 	}
-	raw, err := cmd.Output()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		status.LastError = err.Error()
+		return bridgeOutput{OK: false, Provider: status.Provider, Error: status.LastError}, status
+	}
+	cleanupTree := attachOCRProcessTree(cmd)
+	defer cleanupTree()
+	err = cmd.Wait()
 	if err != nil {
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) && len(exitError.Stderr) > 0 {
-			status.LastError = strings.TrimSpace(string(exitError.Stderr))
-		} else if ctx.Err() != nil {
-			status.LastError = "OCR 执行超时"
+		if ctx.Err() != nil {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				status.LastError = "OCR 已取消"
+			} else {
+				status.LastError = "OCR 执行超时"
+			}
+		} else if trimmed := strings.TrimSpace(stderr.String()); trimmed != "" {
+			status.LastError = trimmed
 		} else {
 			status.LastError = err.Error()
 		}
 		return bridgeOutput{OK: false, Provider: status.Provider, Error: status.LastError}, status
 	}
+	raw := stdout.Bytes()
 	var output bridgeOutput
 	if err := json.Unmarshal(raw, &output); err != nil {
 		status.LastError = "OCR 输出解析失败: " + err.Error()

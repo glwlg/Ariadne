@@ -77,7 +77,7 @@ func (s *Service) updateNativeNetworkMini() (nativecapture.NetworkMiniReply, err
 		}
 		state = nativeNetworkMiniFrame(screen, config.Anchor)
 		state.Visible = true
-		if time.Since(s.nativeMiniSampleAt) >= time.Second {
+		if time.Since(s.nativeMiniSampleAt) >= 900*time.Millisecond {
 			s.nativeMiniTraffic = s.nativeMiniSnapshot()
 			s.nativeMiniSampleAt = time.Now()
 		}

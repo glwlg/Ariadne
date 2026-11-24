@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { Download, GitBranch, RefreshCw, Upload, X } from '@lucide/vue'
 import FancunButton from '../ui/FancunButton.vue'
 import { useAPITestingStore } from '../../stores/apiTesting'
@@ -13,9 +13,20 @@ const emit = defineEmits<{
 }>()
 
 const apiTesting = useAPITestingStore()
+const repoPathInputRef = ref<HTMLInputElement | null>(null)
 const repoPath = ref('')
 const remote = ref('')
 const message = ref('')
+let previousFocus: HTMLElement | null = null
+
+function onWindowKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('close')
+  }
+}
 
 const statusText = computed(() => {
   const status = apiTesting.gitStatus
@@ -27,13 +38,25 @@ const isBound = computed(() => Boolean(apiTesting.draftCollection?.git?.path))
 watch(
   () => props.open,
   (open) => {
-    if (!open) return
-    repoPath.value = apiTesting.draftCollection?.git?.path || ''
-    remote.value = apiTesting.draftCollection?.git?.remote || ''
-    message.value = `更新 ${apiTesting.draftCollection?.name || 'API 集合'}`
-    if (repoPath.value) void apiTesting.refreshGitStatus()
+    if (open) {
+      previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      repoPath.value = apiTesting.draftCollection?.git?.path || ''
+      remote.value = apiTesting.draftCollection?.git?.remote || ''
+      message.value = `更新 ${apiTesting.draftCollection?.name || 'API 集合'}`
+      if (repoPath.value) void apiTesting.refreshGitStatus()
+      window.addEventListener('keydown', onWindowKeydown, true)
+      void nextTick(() => repoPathInputRef.value?.focus())
+    } else {
+      window.removeEventListener('keydown', onWindowKeydown, true)
+      previousFocus?.focus()
+      previousFocus = null
+    }
   },
 )
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown, true)
+})
 
 function configure() {
   void apiTesting.configureGit(repoPath.value, remote.value)
@@ -69,7 +92,7 @@ function commitPush() {
       <div class="api-git-body">
         <label class="api-field">
           <span>Git 目录</span>
-          <input v-model="repoPath" class="api-input" placeholder="D:\api\opscore" />
+          <input ref="repoPathInputRef" v-model="repoPath" class="api-input" placeholder="D:\api\opscore" />
         </label>
         <label class="api-field">
           <span>远端地址</span>

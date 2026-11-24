@@ -1,6 +1,7 @@
 package filesearch
 
 import (
+	"context"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -93,7 +94,17 @@ func (idx *compactFileIndex) AddNode(volume string, node fileIndexNode) error {
 }
 
 func (idx *compactFileIndex) Search(query string, limit int) []rawResult {
+	return idx.SearchContext(context.Background(), query, limit)
+}
+
+func (idx *compactFileIndex) SearchContext(ctx context.Context, query string, limit int) []rawResult {
 	if idx == nil || len(idx.nodes) == 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
 		return nil
 	}
 	query = strings.TrimSpace(query)
@@ -109,8 +120,8 @@ func (idx *compactFileIndex) Search(query string, limit int) []rawResult {
 	if base := strings.ToLower(strings.TrimSpace(filepath.Base(query))); base != "" && base != "." {
 		matchQuery = base
 	}
-	candidates := idx.searchCandidates(matchQuery, normalized, limit*8)
-	if len(candidates) == 0 {
+	candidates := idx.searchCandidatesContext(ctx, matchQuery, normalized, limit*8)
+	if ctx.Err() != nil || len(candidates) == 0 {
 		return nil
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -123,6 +134,9 @@ func (idx *compactFileIndex) Search(query string, limit int) []rawResult {
 	results := make([]rawResult, 0, limit)
 	seen := map[string]bool{}
 	for _, candidate := range candidates {
+		if ctx.Err() != nil {
+			return nil
+		}
 		node := idx.nodes[candidate.index]
 		path := idx.resolvePath(node)
 		if path == "" {
@@ -131,7 +145,7 @@ func (idx *compactFileIndex) Search(query string, limit int) []rawResult {
 		if pathLike && !strings.Contains(strings.ToLower(path), normalized) {
 			continue
 		}
-		key := strings.ToLower(filepath.Clean(path))
+		key := strings.ToLower(path)
 		if seen[key] {
 			continue
 		}
@@ -197,12 +211,17 @@ func (idx *compactFileIndex) volumeID(volume string) int {
 	return id
 }
 
-func (idx *compactFileIndex) searchCandidates(matchQuery string, normalized string, maxCandidates int) []compactScoredNode {
+func (idx *compactFileIndex) searchCandidatesContext(ctx context.Context, matchQuery string, normalized string, maxCandidates int) []compactScoredNode {
 	if maxCandidates <= 0 {
 		maxCandidates = int(defaultMaxResults)
 	}
 	candidates := make([]compactScoredNode, 0, maxCandidates)
+	worstIndex := 0
+	worstScore := 0.0
 	for nodeIndex, node := range idx.nodes {
+		if nodeIndex&4095 == 0 && ctx.Err() != nil {
+			return nil
+		}
 		name := idx.nodeName(node)
 		if !fileNameContains(name, matchQuery) {
 			continue
@@ -214,24 +233,36 @@ func (idx *compactFileIndex) searchCandidates(matchQuery string, normalized stri
 		if !node.isDirectory {
 			score += 1
 		}
+		if len(candidates) >= maxCandidates && score <= worstScore {
+			continue
+		}
 		candidate := compactScoredNode{index: nodeIndex, score: score}
 		if len(candidates) < maxCandidates {
 			candidates = append(candidates, candidate)
+			if len(candidates) == maxCandidates {
+				worstIndex, worstScore = findCompactWorst(candidates)
+			}
 			continue
 		}
-		worstIndex := 0
-		worstScore := candidates[0].score
-		for index := 1; index < len(candidates); index++ {
-			if candidates[index].score < worstScore {
-				worstIndex = index
-				worstScore = candidates[index].score
-			}
-		}
-		if score > worstScore {
-			candidates[worstIndex] = candidate
-		}
+		candidates[worstIndex] = candidate
+		worstIndex, worstScore = findCompactWorst(candidates)
 	}
 	return candidates
+}
+
+func findCompactWorst(candidates []compactScoredNode) (int, float64) {
+	if len(candidates) == 0 {
+		return 0, 0
+	}
+	worstIndex := 0
+	worstScore := candidates[0].score
+	for index := 1; index < len(candidates); index++ {
+		if candidates[index].score < worstScore {
+			worstIndex = index
+			worstScore = candidates[index].score
+		}
+	}
+	return worstIndex, worstScore
 }
 
 func (idx *compactFileIndex) resolvePath(node compactFileNode) string {

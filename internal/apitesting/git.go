@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const gitCollectionFileName = "fancun-api-collection.json"
@@ -114,7 +116,7 @@ func (s *Service) GitCommitPush(collectionID string, message string) GitStatus {
 	if err := writeCollectionToGit(collection); err != nil {
 		return gitStatusWithError(collection, "集合写入 Git 目录失败", err)
 	}
-	if _, err := runGit(collection.Git.Path, "add", gitCollectionFileName); err != nil {
+	if _, err := runGit(collection.Git.Path, "add", "--", gitCollectionFileName); err != nil {
 		return gitStatusWithError(collection, "暂存失败", err)
 	}
 	status := gitStatusForCollection(collection, "")
@@ -202,6 +204,10 @@ func (s *Service) collectionIndexLocked(collectionID string) int {
 }
 
 func ensureGitRepository(path string, remote string) error {
+	remote = strings.TrimSpace(remote)
+	if err := validateGitRemote(remote); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return err
 	}
@@ -213,15 +219,58 @@ func ensureGitRepository(path string, remote string) error {
 			return err
 		}
 	}
-	if strings.TrimSpace(remote) == "" {
+	if remote == "" {
 		return nil
 	}
-	if _, err := runGit(path, "remote", "get-url", "origin"); err == nil {
-		_, err = runGit(path, "remote", "set-url", "origin", remote)
+	if _, err := runGit(path, "remote", "get-url", "--", "origin"); err == nil {
+		_, err = runGit(path, "remote", "set-url", "--", "origin", remote)
 		return err
 	}
-	_, err := runGit(path, "remote", "add", "origin", remote)
+	_, err := runGit(path, "remote", "add", "--", "origin", remote)
 	return err
+}
+
+func validateGitRemote(remote string) error {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return nil
+	}
+	if strings.HasPrefix(remote, "-") {
+		return errors.New("Git 远程仓库地址不能以 '-' 开头")
+	}
+	for _, r := range remote {
+		if r <= 0x20 || r == 0x7f || unicode.IsSpace(r) {
+			return errors.New("Git 远程仓库地址不能包含空白或控制字符")
+		}
+	}
+	lower := strings.ToLower(remote)
+	if strings.Contains(lower, "ext::") || strings.HasPrefix(lower, "fd::") {
+		return errors.New("不支持不安全的 Git 传输协议")
+	}
+	if strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "ssh://") {
+		parsed, err := url.Parse(remote)
+		if err != nil || parsed.Host == "" || strings.HasPrefix(parsed.Host, "-") {
+			return errors.New("Git 远程仓库 URL 无效")
+		}
+		return nil
+	}
+	if strings.HasPrefix(remote, "git@") {
+		rest := strings.TrimPrefix(remote, "git@")
+		colon := strings.IndexByte(rest, ':')
+		if colon <= 0 || colon == len(rest)-1 {
+			return errors.New("Git SSH 远程仓库格式无效")
+		}
+		host := rest[:colon]
+		repoPath := rest[colon+1:]
+		if strings.HasPrefix(host, "-") || strings.ContainsAny(host, `/\`) || strings.Contains(host, "::") {
+			return errors.New("Git SSH 远程仓库主机无效")
+		}
+		if strings.HasPrefix(repoPath, "-") || strings.Contains(repoPath, "::") || strings.ContainsRune(repoPath, '\\') {
+			return errors.New("Git SSH 远程仓库路径无效")
+		}
+		return nil
+	}
+	return errors.New("Git 远程仓库仅支持 https://、http://、ssh:// 或 git@... 格式")
 }
 
 func writeCollectionToGit(collection Collection) error {
@@ -254,13 +303,39 @@ func gitFileCollection(collection Collection) gitFileCollectionPayload {
 	return gitFileCollectionPayload{
 		ID:                  collection.ID,
 		Name:                collection.Name,
-		Variables:           collection.Variables,
-		Environments:        collection.Environments,
+		Variables:           redactGitVariables(collection.Variables),
+		Environments:        redactGitEnvironments(collection.Environments),
 		Requests:            collection.Requests,
 		ActiveEnvironmentID: collection.ActiveEnvironmentID,
 		ActiveRequestID:     collection.ActiveRequestID,
 		UpdatedAt:           collection.UpdatedAt,
 	}
+}
+
+func redactGitVariables(variables []Variable) []Variable {
+	if variables == nil {
+		return nil
+	}
+	redacted := make([]Variable, len(variables))
+	for i, variable := range variables {
+		if variable.Secret {
+			variable.Value = ""
+		}
+		redacted[i] = variable
+	}
+	return redacted
+}
+
+func redactGitEnvironments(environments []Environment) []Environment {
+	if environments == nil {
+		return nil
+	}
+	redacted := make([]Environment, len(environments))
+	for i, environment := range environments {
+		environment.Variables = redactGitVariables(environment.Variables)
+		redacted[i] = environment
+	}
+	return redacted
 }
 
 func gitCollectionFilePath(collection Collection) string {

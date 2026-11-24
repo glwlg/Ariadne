@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { X } from '@lucide/vue'
 import FancunButton from '../ui/FancunButton.vue'
 
@@ -35,14 +35,52 @@ const emit = defineEmits<{
 }>()
 
 const localValue = ref('')
+const inputRef = ref<HTMLInputElement | null>(null)
+const closeBtnRef = ref<HTMLButtonElement | null>(null)
+let previousFocus: HTMLElement | null = null
 const canConfirm = computed(() => props.mode === 'confirm' || props.allowEmpty || localValue.value.trim() !== '')
+
+function onWindowKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    emit('close')
+  }
+}
 
 watch(
   () => props.open,
   (open) => {
-    if (open) localValue.value = props.value
+    if (open) {
+      previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      localValue.value = props.value
+      window.addEventListener('keydown', onWindowKeydown, true)
+      void nextTick(() => {
+        if (props.mode === 'input') {
+          inputRef.value?.focus()
+          inputRef.value?.select()
+        } else {
+          closeBtnRef.value?.focus()
+        }
+      })
+    } else {
+      window.removeEventListener('keydown', onWindowKeydown, true)
+      previousFocus?.focus()
+      previousFocus = null
+    }
   },
 )
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown, true)
+})
+
+function handleEnter(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  confirm()
+}
 
 function confirm() {
   if (!canConfirm.value) return
@@ -56,7 +94,7 @@ function confirm() {
     <section class="api-action-dialog">
       <header>
         <strong>{{ title }}</strong>
-        <button type="button" aria-label="关闭" @click="emit('close')">
+        <button ref="closeBtnRef" type="button" aria-label="关闭" @click="emit('close')">
           <X :size="16" />
         </button>
       </header>
@@ -65,7 +103,7 @@ function confirm() {
         <p v-if="message" class="api-dialog-message">{{ message }}</p>
         <label v-if="mode === 'input'" class="api-field">
           <span>{{ label }}</span>
-          <input v-model="localValue" class="api-input" :placeholder="placeholder" autofocus @keydown.enter="confirm" />
+          <input ref="inputRef" v-model="localValue" class="api-input" :placeholder="placeholder" @keydown.enter="handleEnter" />
         </label>
       </div>
 

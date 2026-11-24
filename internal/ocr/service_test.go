@@ -96,6 +96,38 @@ func TestRecognizeImageRegionsUsesLocalOCREvenWhenAIIsConfigured(t *testing.T) {
 	}
 }
 
+func TestRecognizeCaptureLocalAndClipboardLocalIgnoreRemoteAIPolicy(t *testing.T) {
+	imagePath := testImage(t)
+	service := NewService(
+		fakeCaptures{entry: capturehistory.Entry{ID: "cap-1", ImagePath: imagePath, Width: 120, Height: 80}},
+		fakeClipboard{entry: clipboardhistory.Entry{ID: "clip-1", Type: clipboardhistory.EntryImage, ImagePath: imagePath, Width: 80, Height: 60}},
+	)
+	client := &fakeAIClient{result: AIResult{Provider: "remote:model", Text: "remote text"}}
+	RegisterAIClient(service, client)
+	service.ApplyAIOCRPolicy(AIOCRPolicy{Enabled: true, Provider: "openai-compatible", BaseURL: "https://remote.example/v1", Model: "vision-model"})
+	service.runner = func(_ context.Context, path string) (bridgeOutput, Status) {
+		if path != imagePath {
+			t.Fatalf("unexpected image path %q", path)
+		}
+		return bridgeOutput{OK: true, Provider: localOCRProvider, Text: "local only text"}, Status{Available: true, Provider: localOCRProvider}
+	}
+
+	if localStatus := service.LocalStatus(); localStatus.Provider != localOCRProvider {
+		t.Fatalf("expected LocalStatus provider %q, got %#v", localOCRProvider, localStatus)
+	}
+	capRes := service.RecognizeCaptureLocal("cap-1")
+	if !capRes.OK || capRes.Text != "local only text" || capRes.Provider != localOCRProvider {
+		t.Fatalf("expected local capture OCR result, got %#v", capRes)
+	}
+	clipRes := service.RecognizeClipboardImageLocal("clip-1")
+	if !clipRes.OK || clipRes.Text != "local only text" || clipRes.Provider != localOCRProvider {
+		t.Fatalf("expected local clipboard OCR result, got %#v", clipRes)
+	}
+	if len(client.jobs) != 0 {
+		t.Fatalf("local-only OCR methods must never invoke remote AI client, got %#v", client.jobs)
+	}
+}
+
 func TestRecognitionEntryPointsShareOCRPolicy(t *testing.T) {
 	imagePath := testImage(t)
 	service := NewService(
