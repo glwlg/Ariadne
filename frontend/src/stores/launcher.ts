@@ -576,6 +576,11 @@ export const useLauncherStore = defineStore('launcher', () => {
     }
   }
 
+  function clearTransientState() {
+    clearPendingConfirmation()
+    clearLastAction()
+  }
+
   function reset() {
     clearSearchDebounceTimer()
     searchRequestSerial++
@@ -605,6 +610,7 @@ export const useLauncherStore = defineStore('launcher', () => {
     elapsedMs,
     setQuery,
     applyCommandSuggestion,
+    clearTransientState,
     reset,
     clearLastAction,
     select,

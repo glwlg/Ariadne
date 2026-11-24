@@ -1254,7 +1254,3 @@ func commandLabel(command string, args []string) string {
 func openWithShell(path string) error {
 	return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", path).Start()
 }
-
-func revealInExplorer(path string) error {
-	return exec.Command("explorer.exe", "/select,"+path).Start()
-}

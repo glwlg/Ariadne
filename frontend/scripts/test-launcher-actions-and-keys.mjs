@@ -255,10 +255,28 @@ try {
   assert.equal(launcher.isSearching, true)
   await new Promise((resolve) => setTimeout(resolve, 130))
   assert.deepEqual(calls.searchQueries, ['abc'])
+
+  // Preserve query and results across hide/blur while clearing transient feedback and armed confirmation
+  launcher.results = [{ id: 'res-1', title: 'demo', subtitle: '', type: 'file', icon: 'file', score: 100, badge: '文件', preview: { kind: 'text', title: 'demo', subtitle: '', summary: '', meta: [] }, actions: [] }]
+  launcher.select('res-1')
+  await launcher.triggerAction(deleteAction)
+  assert.equal(launcher.lastAction?.requiresConfirmation, true)
+  launcher.clearTransientState()
+  assert.equal(launcher.query, 'abc', 'clearTransientState must preserve launcher search query')
+  assert.equal(launcher.results.length, 1, 'clearTransientState must preserve launcher search results')
+  assert.equal(launcher.selectedId, 'res-1', 'clearTransientState must preserve selected result')
+  assert.equal(launcher.isExpanded, true, 'clearTransientState must keep expanded state when query/results remain')
+  assert.equal(launcher.lastAction, null, 'clearTransientState must clear transient action toast')
+  await launcher.triggerAction(deleteAction)
+  assert.equal(calls.clipboardDelete.length, 1, 'armed confirmation must have been cleared by clearTransientState')
+  const launcherVueSource = readFileSync(new URL('../src/components/launcher/FancunLauncher.vue', import.meta.url), 'utf8')
+  assert.match(launcherVueSource, /async function hideLauncher\(\)\s*\{\s*launcher\.clearTransientState\(\)/)
+  assert.match(launcherVueSource, /function onVisibilityChange\(\)\s*\{\s*if \(document\.hidden\)\s*\{\s*launcher\.clearTransientState\(\)/)
+
   launcher.setQuery('')
   assert.equal(launcher.isSearching, false)
   assert.equal(launcher.results.length, 0)
-  console.log('PASS UX-01/UX-12/PERF-01 launcher actions, feedback timer, and search debounce')
+  console.log('PASS UX-01/UX-12/PERF-01 launcher actions, feedback timer, search preservation, and debounce')
 } finally {
   globalThis.window = originalWindow
 }

@@ -298,7 +298,7 @@ func (s *Service) ShowLauncher() OpenResult {
 		s.captureAndNoteLauncherShown(existing)
 		existing.Restore()
 		existing.SetAlwaysOnTop(false)
-		launcherwindow.ApplyCollapsed(existing, app.Screen.GetPrimary())
+		launcherwindow.ApplyPlacement(existing, app.Screen.GetPrimary())
 		existing.Show().Focus()
 		focusLauncher(existing)
 		return OpenResult{OK: true, Message: "启动器已打开", View: "launcher"}

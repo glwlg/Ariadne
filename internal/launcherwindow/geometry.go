@@ -51,11 +51,10 @@ func InitialPlacement(screen *application.Screen) (application.WindowStartPositi
 	return application.WindowXY, x, y, screen
 }
 
-func ApplyCollapsed(window application.Window, screen *application.Screen) {
+func ApplyPlacement(window application.Window, screen *application.Screen) {
 	if window == nil {
 		return
 	}
-	window.SetSize(Width, CollapsedHeight)
 	if current, err := window.GetScreen(); err == nil {
 		if x, y, ok := ReservedRelativePosition(current); ok {
 			window.SetRelativePosition(x, y)
@@ -68,4 +67,12 @@ func ApplyCollapsed(window application.Window, screen *application.Screen) {
 		return
 	}
 	window.Center()
+}
+
+func ApplyCollapsed(window application.Window, screen *application.Screen) {
+	if window == nil {
+		return
+	}
+	window.SetSize(Width, CollapsedHeight)
+	ApplyPlacement(window, screen)
 }

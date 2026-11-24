@@ -210,7 +210,7 @@ function triggerResultAction(result: SearchResult, action?: PreviewAction) {
 }
 
 async function hideLauncher() {
-  launcher.reset()
+  launcher.clearTransientState()
   try {
     await Window.SetAlwaysOnTop(false)
     await Window.Hide()
@@ -251,7 +251,7 @@ function onKeydown(event: KeyboardEvent) {
 
 function onVisibilityChange() {
   if (document.hidden) {
-    launcher.reset()
+    launcher.clearTransientState()
   }
 }
 
@@ -305,7 +305,7 @@ function focusLauncher(event?: Event) {
   if (event instanceof CustomEvent && event.detail?.reset) {
     launcher.reset()
   } else {
-    launcher.clearLastAction()
+    launcher.clearTransientState()
   }
   void resizePalette(launcher.isExpanded)
   searchInput.value?.focus()
