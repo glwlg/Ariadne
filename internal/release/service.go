@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"fancun/internal/brandmigration"
 )
 
 var errUnsafeRoot = errors.New("refusing to restore unsafe data root")
@@ -127,9 +129,9 @@ func (s *Service) Status() BackupStatus {
 		DataRoots: roots,
 		BackupDir: s.backupDir,
 		Notes: []string{
-			"回滚检查点只打包 Ariadne 当前本地数据，不删除、不覆盖旧版 x-tools 数据。",
+			"回滚检查点只打包 Fancun 当前本地数据，不删除、不覆盖旧版 x-tools 数据。",
 			"恢复检查点需要用户二次确认；恢复前会先创建 pre_restore 检查点。",
-			"恢复时只写回 Ariadne 当前声明的数据根，不会解压到旧版 x-tools 数据目录。",
+			"恢复时只写回 Fancun 当前声明的数据根，不会解压到旧版 x-tools 数据目录。",
 		},
 	}
 	status.BackupCount, status.BackupBytes, status.LatestBackup = backupDirStatus(s.backupDir)
@@ -146,7 +148,7 @@ func (s *Service) CreateRollbackCheckpoint(request BackupRequest) BackupResult {
 	}
 	if s.backupDir == "" {
 		result.OK = false
-		result.Message = "未能定位 Ariadne 备份目录"
+		result.Message = "未能定位 Fancun 备份目录"
 		return result
 	}
 	if err := os.MkdirAll(s.backupDir, 0o755); err != nil {
@@ -154,7 +156,7 @@ func (s *Service) CreateRollbackCheckpoint(request BackupRequest) BackupResult {
 		result.Message = "创建备份目录失败：" + err.Error()
 		return result
 	}
-	archivePath := uniqueBackupPath(s.backupDir, "ariadne-rollback-"+createdAt.Format("20060102-150405")+".zip")
+	archivePath := uniqueBackupPath(s.backupDir, "fancun-rollback-"+createdAt.Format("20060102-150405")+".zip")
 	file, err := os.Create(archivePath)
 	if err != nil {
 		result.OK = false
@@ -163,13 +165,13 @@ func (s *Service) CreateRollbackCheckpoint(request BackupRequest) BackupResult {
 	}
 	zipWriter := zip.NewWriter(file)
 	manifest := backupManifest{
-		App:       "Ariadne",
+		App:       "Fancun",
 		Kind:      "rollback_checkpoint",
 		CreatedAt: createdAt.Unix(),
 		Reason:    strings.TrimSpace(request.Reason),
 		Roots:     roots,
 		RestoreNotes: []string{
-			"退出 Ariadne 后再恢复数据，避免正在运行的服务覆盖文件。",
+			"退出 Fancun 后再恢复数据，避免正在运行的服务覆盖文件。",
 			"按 manifest 中的 root.path 将 data/<root.archiveName>/ 下文件解压回对应目录。",
 			"不要把检查点解压到旧版 x-tools 数据目录；旧版数据由单独迁移流程管理。",
 		},
@@ -219,7 +221,7 @@ func (s *Service) CreateRollbackCheckpoint(request BackupRequest) BackupResult {
 	if result.FileCount == 0 {
 		result.Message = "已创建空回滚检查点"
 	} else {
-		result.Message = "已创建 Ariadne 回滚检查点"
+		result.Message = "已创建 Fancun 回滚检查点"
 	}
 	return result
 }
@@ -229,7 +231,7 @@ func (s *Service) RestoreRollbackCheckpoint(request RestoreRequest) RestoreResul
 	result := RestoreResult{RestoredAt: restoredAt.Unix()}
 	if !request.Confirm {
 		result.RequiresConfirmation = true
-		result.Message = "需要确认后恢复 Ariadne 回滚检查点"
+		result.Message = "需要确认后恢复 Fancun 回滚检查点"
 		return result
 	}
 	checkpointPath := strings.TrimSpace(request.Path)
@@ -259,8 +261,8 @@ func (s *Service) RestoreRollbackCheckpoint(request RestoreRequest) RestoreResul
 		result.Message = "读取回滚检查点说明失败：" + err.Error()
 		return result
 	}
-	if manifest.App != "Ariadne" || manifest.Kind != "rollback_checkpoint" {
-		result.Message = "不是 Ariadne 回滚检查点"
+	if (manifest.App != "Fancun" && manifest.App != "Ariadne") || manifest.Kind != "rollback_checkpoint" {
+		result.Message = "不是 Fancun 回滚检查点"
 		return result
 	}
 
@@ -278,6 +280,21 @@ func (s *Service) RestoreRollbackCheckpoint(request RestoreRequest) RestoreResul
 		rootsByArchive[strings.ToLower(root.ArchiveName)] = root
 	}
 	seenRoots := map[string]bool{}
+	legacyMappings := map[string]string{}
+	if manifest.App == "Ariadne" {
+		for _, manifestRoot := range manifest.Roots {
+			archiveName := safeZipName(firstNonEmpty(manifestRoot.ArchiveName, manifestRoot.Kind))
+			if current, ok := rootsByArchive[strings.ToLower(archiveName)]; ok && manifestRoot.Path != "" {
+				legacyMappings[manifestRoot.Path] = current.Path
+			}
+		}
+		if local := os.Getenv("LOCALAPPDATA"); local != "" {
+			legacyMappings[filepath.Join(local, "Ariadne")] = filepath.Join(local, "Fancun")
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			legacyMappings[filepath.Join(home, "Pictures", "Ariadne")] = filepath.Join(home, "Pictures", "Fancun")
+		}
+	}
 	for _, manifestRoot := range manifest.Roots {
 		archiveName := safeZipName(firstNonEmpty(manifestRoot.ArchiveName, manifestRoot.Kind))
 		root, ok := rootsByArchive[strings.ToLower(archiveName)]
@@ -296,7 +313,14 @@ func (s *Service) RestoreRollbackCheckpoint(request RestoreRequest) RestoreResul
 			continue
 		}
 		seenRoots[strings.ToLower(archiveName)] = true
-		count, bytes, skipped, restoreErr := restoreRootFromZip(&reader.Reader, root, s.backupDir)
+		var count, skipped int
+		var bytes int64
+		var restoreErr error
+		if manifest.App == "Ariadne" {
+			count, bytes, skipped, restoreErr = restoreLegacyRootFromZip(&reader.Reader, root, s.backupDir, legacyMappings)
+		} else {
+			count, bytes, skipped, restoreErr = restoreRootFromZip(&reader.Reader, root, s.backupDir)
+		}
 		rootResult.RestoredFiles = count
 		rootResult.RestoredBytes = bytes
 		rootResult.SkippedFiles = skipped
@@ -325,7 +349,7 @@ func (s *Service) RestoreRollbackCheckpoint(request RestoreRequest) RestoreResul
 		}
 	}
 	result.OK = true
-	result.Message = "Ariadne 回滚检查点已恢复"
+	result.Message = "Fancun 回滚检查点已恢复"
 	return result
 }
 
@@ -344,7 +368,7 @@ func (s *Service) rootStatuses() []DataRootStatus {
 }
 
 func defaultDataRoots() []DataRootStatus {
-	logicalRoot := filepath.Join(defaultRoamingDir(), "Ariadne")
+	logicalRoot := filepath.Join(defaultRoamingDir(), "Fancun")
 	roots := []DataRootStatus{{Kind: "roaming", ArchiveName: "roaming", Path: logicalRoot}}
 	for index, path := range virtualizedRoots(logicalRoot) {
 		archiveName := "virtualized"
@@ -357,7 +381,7 @@ func defaultDataRoots() []DataRootStatus {
 }
 
 func defaultBackupDir() string {
-	return filepath.Join(defaultRoamingDir(), "Ariadne", "backups")
+	return filepath.Join(defaultRoamingDir(), "Fancun", "backups")
 }
 
 func defaultRoamingDir() string {
@@ -563,6 +587,9 @@ func restoreRootFromZip(reader *zip.Reader, root dataRoot, backupDir string) (in
 			continue
 		}
 		relative := strings.TrimPrefix(file.Name, prefix)
+		if isMigrationMarker(relative) {
+			continue
+		}
 		target := filepath.Join(cleanRoot, filepath.FromSlash(relative))
 		if !sameOrInside(target, cleanRoot) {
 			skipped++
@@ -598,6 +625,60 @@ func restoreRootFromZip(reader *zip.Reader, root dataRoot, backupDir string) (in
 	return count, bytes, skipped, nil
 }
 
+func restoreLegacyRootFromZip(reader *zip.Reader, root dataRoot, backupDir string, mappings map[string]string) (int, int64, int, error) {
+	stage, err := os.MkdirTemp("", "fancun-checkpoint-import-")
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	defer os.RemoveAll(stage)
+	extracted := root
+	extracted.Path = filepath.Join(stage, "legacy")
+	count, bytes, skipped, err := restoreRootFromZip(reader, extracted, filepath.Join(stage, "backups"))
+	if err != nil {
+		return count, bytes, skipped, err
+	}
+	converted := filepath.Join(stage, "converted")
+	if err := brandmigration.ImportSnapshot(extracted.Path, converted, mappings); err != nil {
+		return count, bytes, skipped, err
+	}
+	// Validate and convert before clearing the current data root.
+	if err := clearRootForRestore(root.Path, backupDir); err != nil {
+		return count, bytes, skipped, err
+	}
+	err = filepath.WalkDir(converted, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(converted, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(root.Path, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if isMigrationMarker(relative) {
+			return nil
+		}
+		input, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer input.Close()
+		output, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(output, input)
+		return errors.Join(copyErr, output.Close())
+	})
+	return count, bytes, skipped, err
+}
+
+func isMigrationMarker(name string) bool {
+	return name == ".brand-migration.json" || name == ".brand-credentials-migrated"
+}
+
 func clearRootForRestore(root string, backupDir string) error {
 	cleanRoot := filepath.Clean(root)
 	if strings.TrimSpace(cleanRoot) == "" || cleanRoot == "." {
@@ -611,6 +692,9 @@ func clearRootForRestore(root string, backupDir string) error {
 		return err
 	}
 	for _, entry := range entries {
+		if isMigrationMarker(entry.Name()) {
+			continue
+		}
 		path := filepath.Join(cleanRoot, entry.Name())
 		if sameOrInside(path, backupDir) || sameOrInside(backupDir, path) {
 			continue

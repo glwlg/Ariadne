@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/nativecapture"
-	"ariadne/internal/ocr"
-	"ariadne/internal/pinnedimage"
+	"fancun/internal/capturehistory"
+	"fancun/internal/nativecapture"
+	"fancun/internal/ocr"
+	"fancun/internal/pinnedimage"
 
 	goqrcode "github.com/skip2/go-qrcode"
 )
@@ -787,7 +787,7 @@ func TestCaptureNativeSelectionDecodesQRFromHistoryEntry(t *testing.T) {
 	captures := capturehistory.NewServiceWithPaths(filepath.Join(dir, "capture_history.json"), filepath.Join(dir, "capture_images"))
 	service := NewService(captures, nil)
 	copiedText := stubTextClipboardWriter(t)
-	text := "https://ariadne.local/native-qr"
+	text := "https://fancun.local/native-qr"
 	data, err := goqrcode.Encode(text, goqrcode.Medium, 192)
 	if err != nil {
 		t.Fatal(err)
@@ -999,7 +999,7 @@ func TestDisplayNativeBoundsFallsBackToVirtualScreen(t *testing.T) {
 	}
 }
 
-func TestCaptureWindowShouldNotHideAriadneWindowsBeforeScreenshot(t *testing.T) {
+func TestCaptureWindowShouldNotHideFancunWindowsBeforeScreenshot(t *testing.T) {
 	cases := []struct {
 		name string
 		hide bool

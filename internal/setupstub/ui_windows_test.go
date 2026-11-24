@@ -11,7 +11,7 @@ import (
 
 func TestInteractiveSelectionArgsEnableFileSearchService(t *testing.T) {
 	args := interactiveInstallSelection{
-		InstallDir:               `C:\Apps\Ariadne`,
+		InstallDir:               `C:\Apps\Fancun`,
 		CreateDesktopShortcut:    true,
 		InstallFileSearchService: true,
 		AutoStart:                true,
@@ -34,7 +34,7 @@ func TestInteractiveSelectionArgsEnableFileSearchService(t *testing.T) {
 
 func TestInteractiveSelectionArgsDisableDefaultAutostart(t *testing.T) {
 	args := interactiveInstallSelection{
-		InstallDir:            `C:\Apps\Ariadne`,
+		InstallDir:            `C:\Apps\Fancun`,
 		CreateDesktopShortcut: true,
 	}.args()
 
@@ -49,9 +49,10 @@ func TestInteractiveSelectionArgsDisableDefaultAutostart(t *testing.T) {
 
 func TestElevatedInstallArgsPreserveFileSearchServiceChoice(t *testing.T) {
 	args := elevatedInstallArgs(commandOptions{
-		InstallDir:               `C:\Apps\Ariadne`,
+		InstallDir:               `C:\Apps\Fancun`,
 		InstallFileSearchService: true,
-		FileSearchSettingsConfig: `C:\Users\luwei\AppData\Roaming\Ariadne\config.json`,
+		FileSearchSettingsConfig: `C:\Users\luwei\AppData\Roaming\Fancun\config.json`,
+		LegacyRoamingSource:      `C:\Users\luwei\AppData\Roaming\Ariadne`,
 	})
 
 	joined := " " + strings.Join(args, " ") + " "
@@ -61,18 +62,21 @@ func TestElevatedInstallArgsPreserveFileSearchServiceChoice(t *testing.T) {
 	if strings.Contains(joined, " --no-file-search-service ") {
 		t.Fatalf("elevated retry should not disable selected file search service: %#v", args)
 	}
-	if !strings.Contains(joined, ` --settings-config C:\Users\luwei\AppData\Roaming\Ariadne\config.json `) {
+	if !strings.Contains(joined, ` --settings-config C:\Users\luwei\AppData\Roaming\Fancun\config.json `) {
 		t.Fatalf("elevated retry should preserve settings config path: %#v", args)
+	}
+	if !strings.Contains(joined, ` --legacy-roaming-source C:\Users\luwei\AppData\Roaming\Ariadne `) {
+		t.Fatalf("elevated retry should preserve selected legacy profile: %#v", args)
 	}
 }
 
 func TestUpdateSelectionPreservesRecordedInstallOptions(t *testing.T) {
 	installDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(installDir, "ariadne.exe"), []byte("exe"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(installDir, "fancun.exe"), []byte("exe"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeReceipt(filepath.Join(installDir, "install_receipt.json"), installReceipt{
-		ProductName: "Ariadne",
+		ProductName: "Fancun",
 		InstallDir:  installDir,
 		InstallOptions: &receiptInstallOptions{
 			CreateStartMenuShortcut:  false,
@@ -84,7 +88,7 @@ func TestUpdateSelectionPreservesRecordedInstallOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	selection := initialInteractiveSelection(Options{ProductName: "Ariadne", UpdateDir: installDir})
+	selection := initialInteractiveSelection(Options{ProductName: "Fancun", UpdateDir: installDir})
 
 	if selection.InstallDir != installDir || selection.CreateDesktopShortcut || selection.InstallFileSearchService || selection.AutoStart {
 		t.Fatalf("update selection did not preserve recorded options: %#v", selection)

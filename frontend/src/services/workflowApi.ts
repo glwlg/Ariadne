@@ -5,7 +5,7 @@ import type {
   WorkflowRunRequest,
   WorkflowRunResult,
   WorkflowStatus,
-} from '../types/ariadne'
+} from '../types/fancun'
 
 let fallbackWorkflows: WorkflowDefinition[] = [
   {
@@ -23,7 +23,7 @@ let fallbackWorkflows: WorkflowDefinition[] = [
 ]
 
 let fallbackStatus: WorkflowStatus = {
-  path: '%APPDATA%/Ariadne/ariadne.sqlite',
+  path: '%APPDATA%/Fancun/fancun.sqlite',
   legacyPath: '%APPDATA%/x-tools/config.json',
   count: fallbackWorkflows.length,
   legacyImported: false,
@@ -33,7 +33,7 @@ let fallbackStatus: WorkflowStatus = {
 async function tryWorkflowBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/workflows/service.js')
+    return await import('../../bindings/fancun/internal/workflows/service.js')
   } catch {
     return null
   }
@@ -100,7 +100,7 @@ export async function exportWorkflows(): Promise<WorkflowExportResult> {
   if (binding) {
     return normalizeExportResult(await binding.ExportData())
   }
-  const json = JSON.stringify({ version: 1, exportedBy: 'Ariadne fallback', exportedAt: Math.floor(Date.now() / 1000), workflows: fallbackWorkflows }, null, 2)
+  const json = JSON.stringify({ version: 1, exportedBy: 'Fancun fallback', exportedAt: Math.floor(Date.now() / 1000), workflows: fallbackWorkflows }, null, 2)
   return {
     ok: true,
     message: '开发态 fallback 已导出工作流',
@@ -130,7 +130,7 @@ export async function importWorkflows(raw: string): Promise<WorkflowImportResult
     fallbackStatus = { ...fallbackStatus, count: fallbackWorkflows.length, workflows: fallbackWorkflows }
     return { ok: true, message: `已导入 ${normalized.length} 个工作流`, importedCount: normalized.length, status: fallbackStatus }
   } catch {
-    return { ok: false, message: '导入内容不是 Ariadne 工作流 JSON', importedCount: 0, status: fallbackStatus }
+    return { ok: false, message: '导入内容不是 Fancun 工作流 JSON', importedCount: 0, status: fallbackStatus }
   }
 }
 
@@ -177,7 +177,7 @@ export async function runWorkflow(request: WorkflowRunRequest): Promise<Workflow
 function normalizeStatus(status: WorkflowStatus): WorkflowStatus {
   const workflows = normalizeWorkflows(status.workflows ?? [])
   return {
-    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
+    path: status.path || '%APPDATA%/Fancun/fancun.sqlite',
     legacyPath: status.legacyPath || '%APPDATA%/x-tools/config.json',
     count: Number(status.count ?? workflows.length),
     lastSaveError: status.lastSaveError,

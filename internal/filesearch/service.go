@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 const (
 	defaultMaxResults uint32 = 24
-	fileIndexProvider        = "Ariadne USN/MFT"
+	fileIndexProvider        = "Fancun USN/MFT"
 )
 
 type rawResult struct {
@@ -732,7 +732,7 @@ func fileToResult(raw rawResult, score float64) contracts.SearchResult {
 		metadata.Kind = "目录"
 		metadata.IsDirectory = true
 	}
-	tags := []string{"文件", "Ariadne 索引"}
+	tags := []string{"文件", "Fancun 索引"}
 	icon := "file"
 	if metadata.IsDirectory {
 		icon = "folder"
@@ -757,7 +757,7 @@ func fileToResult(raw rawResult, score float64) contracts.SearchResult {
 		payload["metadataError"] = metadata.Error
 	}
 	return contracts.SearchResult{
-		ID:       "file-ariadne-" + stableID(fullPath),
+		ID:       "file-fancun-" + stableID(fullPath),
 		Type:     contracts.ResultFile,
 		Title:    name,
 		Subtitle: dir,
@@ -769,7 +769,7 @@ func fileToResult(raw rawResult, score float64) contracts.SearchResult {
 		Preview: contracts.PreviewDescriptor{
 			Kind:     contracts.PreviewText,
 			Title:    name,
-			Subtitle: "Ariadne 文件索引",
+			Subtitle: "Fancun 文件索引",
 			Text:     fullPath,
 			Meta:     meta,
 		},
@@ -890,25 +890,25 @@ func fileIndexCoverageHint(status FileIndexStatus, indexErrors []string, query s
 		return "搜索服务未安装。请安装搜索服务后再搜索本机文件。"
 	}
 	if status.IndexStartedAt == 0 && !status.Ready && !status.Indexing {
-		return "Ariadne 文件索引尚未启动；应用启动后会自动建立，也可通过首次文件搜索触发。"
+		return "Fancun 文件索引尚未启动；应用启动后会自动建立，也可通过首次文件搜索触发。"
 	}
 	if status.Indexing && !status.Ready {
-		return "Ariadne 文件索引正在建立；完成后会返回本机文件结果。"
+		return "Fancun 文件索引正在建立；完成后会返回本机文件结果。"
 	}
 	if strings.TrimSpace(status.LastError) != "" && status.IndexedCount == 0 {
-		return "Ariadne 文件索引不可用：" + status.LastError
+		return "Fancun 文件索引不可用：" + status.LastError
 	}
 	if !status.Ready {
-		return "Ariadne 文件索引尚未就绪；NTFS USN/MFT 读取可能需要更高权限。"
+		return "Fancun 文件索引尚未就绪；NTFS USN/MFT 读取可能需要更高权限。"
 	}
 	if status.Indexing {
-		return "Ariadne 文件索引可用；后台正在刷新。"
+		return "Fancun 文件索引可用；后台正在刷新。"
 	}
 	if status.RequiresAdmin && !status.Elevated {
 		return "搜索服务未运行；当前索引可搜索，后台刷新需安装搜索服务。"
 	}
 	if len(indexErrors) > 0 {
-		return "Ariadne 文件索引已完成，部分磁盘未纳入索引：" + strings.Join(indexErrors, "；")
+		return "Fancun 文件索引已完成，部分磁盘未纳入索引：" + strings.Join(indexErrors, "；")
 	}
 	return ""
 }
@@ -919,7 +919,7 @@ func coverageHintResult(query string, status FileIndexStatus) contracts.SearchRe
 		hint = fileIndexCoverageHint(status, nil, query)
 	}
 	if hint == "" {
-		hint = "Ariadne 文件索引没有返回文件结果。"
+		hint = "Fancun 文件索引没有返回文件结果。"
 	}
 	title := "文件索引未命中"
 	subtitle := "文件搜索索引提示"

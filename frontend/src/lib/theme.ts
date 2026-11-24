@@ -4,8 +4,8 @@ import { getSettings } from '../services/settingsApi'
 
 export type ThemePreference = 'professional-pink' | 'light-graphite' | 'cloud-blue'
 
-const THEME_STORAGE_KEY = 'ariadne:theme-preference'
-const THEME_EVENT = 'ariadne:theme-changed'
+const THEME_STORAGE_KEY = 'fancun:theme-preference'
+const THEME_EVENT = 'fancun:theme-changed'
 
 let currentTheme: ThemePreference = 'cloud-blue'
 

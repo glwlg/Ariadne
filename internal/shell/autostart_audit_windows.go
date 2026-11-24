@@ -30,7 +30,7 @@ func auditAutostartRegistration(identifier string, statusPath string) autostartA
 			Identifier: identifier,
 			ValueName:  valueName,
 			Command:    command,
-			Notes:      []string{"读取当前 Ariadne 可执行文件失败: " + err.Error()},
+			Notes:      []string{"读取当前 Fancun 可执行文件失败: " + err.Error()},
 		}
 	}
 	return buildAutostartAudit(identifier, valueName, command, executable)

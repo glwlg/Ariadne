@@ -6,6 +6,6 @@ func auditAutostartRegistration(identifier string, statusPath string) autostartA
 	return autostartAudit{
 		Identifier: identifier,
 		ValueName:  identifier,
-		Notes:      []string{"当前平台未实现 Ariadne 开机启动命令审计: " + statusPath},
+		Notes:      []string{"当前平台未实现 Fancun 开机启动命令审计: " + statusPath},
 	}
 }

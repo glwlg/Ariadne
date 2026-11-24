@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"ariadne/internal/ocr"
-	"ariadne/internal/securestore"
+	"fancun/internal/ocr"
+	"fancun/internal/securestore"
 )
 
 type OpenAICompatibleImageOCR struct {
@@ -34,7 +34,7 @@ const ocrUploadMaxSide = 2600
 func NewOpenAICompatibleImageOCR() *OpenAICompatibleImageOCR {
 	return &OpenAICompatibleImageOCR{
 		HTTPClient:    &http.Client{Timeout: 60 * time.Second},
-		APIKeyEnv:     []string{"ARIADNE_OCR_API_KEY", "ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+		APIKeyEnv:     []string{"FANCUN_OCR_API_KEY", "FANCUN_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
 		SecretTargets: []string{securestore.TargetOpenAIAPIKey},
 	}
 }
@@ -62,7 +62,7 @@ func (o *OpenAICompatibleImageOCR) RecognizeImageOCR(ctx context.Context, job oc
 	apiKey := o.apiKey()
 	endpoint := openAIChatCompletionsEndpoint(job.BaseURL)
 	if apiKey == "" && strings.HasPrefix(endpoint, "https://api.openai.com/") {
-		return ocr.AIResult{}, errors.New("未检测到 ARIADNE_OCR_API_KEY、ARIADNE_AI_API_KEY 或 OPENAI_API_KEY")
+		return ocr.AIResult{}, errors.New("未检测到 FANCUN_OCR_API_KEY、FANCUN_AI_API_KEY 或 OPENAI_API_KEY")
 	}
 
 	payload := visionChatCompletionRequest{
@@ -71,7 +71,7 @@ func (o *OpenAICompatibleImageOCR) RecognizeImageOCR(ctx context.Context, job oc
 		Messages: []visionChatMessage{
 			{
 				Role:    "system",
-				Content: "你是 Ariadne 的视觉 OCR 引擎。只识别图片中实际可见的文字，保持原文语言，按阅读顺序输出纯文本；不要解释、不要 Markdown、不要编造不可见内容，密钥和 token 只输出占位符 [REDACTED]。",
+				Content: "你是 Fancun 的视觉 OCR 引擎。只识别图片中实际可见的文字，保持原文语言，按阅读顺序输出纯文本；不要解释、不要 Markdown、不要编造不可见内容，密钥和 token 只输出占位符 [REDACTED]。",
 			},
 			{
 				Role: "user",
@@ -211,7 +211,7 @@ func (o *OpenAICompatibleImageOCR) recognizeImageOllamaGenerate(ctx context.Cont
 func (o *OpenAICompatibleImageOCR) apiKey() string {
 	envs := o.APIKeyEnv
 	if len(envs) == 0 {
-		envs = []string{"ARIADNE_OCR_API_KEY", "ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
+		envs = []string{"FANCUN_OCR_API_KEY", "FANCUN_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"}
 	}
 	return apiKeyFromSources(envs, o.SecretTargets)
 }
@@ -232,9 +232,9 @@ func apiKeyFromSourcesWithReader(envs []string, targets []string, read credentia
 	return apiKeyFromEnv(envs, false)
 }
 
-func apiKeyFromEnv(envs []string, ariadneOnly bool) string {
+func apiKeyFromEnv(envs []string, fancunOnly bool) string {
 	for _, name := range envs {
-		if isAriadneAPIKeyEnv(name) != ariadneOnly {
+		if isFancunAPIKeyEnv(name) != fancunOnly {
 			continue
 		}
 		if value := cleanAPIKey(os.Getenv(name)); value != "" {
@@ -259,8 +259,8 @@ func apiKeyFromCredentialManagerWithReader(targets []string, read credentialRead
 	return ""
 }
 
-func isAriadneAPIKeyEnv(name string) bool {
-	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(name)), "ARIADNE_")
+func isFancunAPIKeyEnv(name string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(name)), "FANCUN_")
 }
 
 func cleanAPIKey(value string) string {

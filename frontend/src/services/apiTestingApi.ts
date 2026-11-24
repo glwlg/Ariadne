@@ -14,12 +14,12 @@ import type {
   APIRunStopResult,
   APITestingStatus,
   APIVariable,
-} from '../types/ariadne'
+} from '../types/fancun'
 
 async function tryAPITestingBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/apitesting/service.js')
+    return await import('../../bindings/fancun/internal/apitesting/service.js')
   } catch {
     return null
   }
@@ -47,7 +47,7 @@ let fallbackStatus: APITestingStatus = normalizeStatus({
           id: fallbackEnvironmentId,
           name: '默认环境',
           variables: [
-            { id: id('var'), name: 'traceId', value: 'ariadne-{{$timestamp}}', enabled: false },
+            { id: id('var'), name: 'traceId', value: 'fancun-{{$timestamp}}', enabled: false },
             { id: id('var'), name: 'apiKey', value: '', enabled: false, secret: true },
           ],
         },

@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
-	"ariadne/internal/contracts"
-	"ariadne/internal/ocr"
+	"fancun/internal/appdb"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
+	"fancun/internal/contracts"
+	"fancun/internal/ocr"
 )
 
 const (
@@ -765,7 +765,7 @@ func defaultIndexPath() string {
 	if strings.TrimSpace(base) == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "image_index.json")
+	return filepath.Join(base, "Fancun", "image_index.json")
 }
 
 func previewText(text string) string {

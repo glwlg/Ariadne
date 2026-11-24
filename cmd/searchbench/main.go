@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ariadne/internal/searchbench"
+	"fancun/internal/searchbench"
 )
 
 func main() {

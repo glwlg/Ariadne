@@ -11,7 +11,7 @@ import (
 func Run(options Options) Report {
 	options = normalizeOptions(options)
 	report := Report{
-		ProductName:        "Ariadne",
+		ProductName:        "Fancun",
 		CreatedAt:          time.Now().Unix(),
 		Options:            options,
 		Budgets:            DefaultBudgets(),
@@ -49,10 +49,10 @@ func Run(options Options) Report {
 
 func normalizeOptions(options Options) Options {
 	if options.ExePath == "" {
-		options.ExePath = filepath.Join("bin", "ariadne.exe")
+		options.ExePath = filepath.Join("bin", "fancun.exe")
 	}
 	if options.ReleaseZipPath == "" {
-		options.ReleaseZipPath = filepath.Join("dist", "release", "ariadne-dev-windows-x64.zip")
+		options.ReleaseZipPath = filepath.Join("dist", "release", "fancun-dev-windows-x64.zip")
 	}
 	if options.LegacyInstallerPath == "" {
 		options.LegacyInstallerPath = filepath.Join("..", "..", "dist", "x-tools-setup.exe")
@@ -170,14 +170,14 @@ func budgetVerdict(report Report) BudgetVerdict {
 	if report.Hotkey.P95 > 0 {
 		verdict.HotkeyWithinTarget = report.Hotkey.P95 <= report.Budgets.HotkeyTargetMs
 	} else if report.HotkeyRegistration.DuringBlocked {
-		verdict.Warnings = append(verdict.Warnings, "Ariadne 已注册 Alt+Q，但未获得有效唤起耗时样本")
+		verdict.Warnings = append(verdict.Warnings, "Fancun 已注册 Alt+Q，但未获得有效唤起耗时样本")
 	} else {
 		verdict.Warnings = append(verdict.Warnings, "未获得有效 Alt+Q 唤起样本")
 	}
 	if report.Package.ReleaseZipBytes > 0 && report.Package.LegacyInstallerBytes > 0 {
 		verdict.PackageSmallerThanLegacy = report.Package.ReleaseZipBytes < report.Package.LegacyInstallerBytes
 	} else {
-		verdict.Warnings = append(verdict.Warnings, "缺少 legacy installer 或 Ariadne release zip，无法对比包体积")
+		verdict.Warnings = append(verdict.Warnings, "缺少 legacy installer 或 Fancun release zip，无法对比包体积")
 	}
 	for _, sample := range report.Samples {
 		if sample.Error != "" {

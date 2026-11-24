@@ -5,20 +5,20 @@ import { toggleCapturePin } from '../services/captureApi'
 import { openCaptureOverlay } from '../services/captureOverlayApi'
 import { addClipboardText, copyClipboardImage, toggleClipboardPin } from '../services/clipboardApi'
 import {
-  createAriadneSearchRequest,
-  executeAriadneAction,
+  createFancunSearchRequest,
+  executeFancunAction,
   isSearchCancelled,
   recordResultUse,
   setResultFavorite,
-  type AriadneSearchRequest,
-} from '../services/ariadneApi'
+  type FancunSearchRequest,
+} from '../services/fancunApi'
 import { decodeCaptureQRCode } from '../services/qrScanApi'
 import { indexRecentImages } from '../services/imageIndexApi'
 import { openPinnedCapture, openPinnedClipboardImage, openPinnedQRText } from '../services/pinnedImageApi'
 import { runWorkflow } from '../services/workflowApi'
 import { useAppShellStore } from './appShell'
 import { toolViewForCommand } from '../lib/toolWindows'
-import type { ActionResult, PreviewAction, SearchResponse, SearchResult } from '../types/ariadne'
+import type { ActionResult, PreviewAction, SearchResponse, SearchResult } from '../types/fancun'
 
 export const useLauncherStore = defineStore('launcher', () => {
   const query = ref('')
@@ -28,7 +28,7 @@ export const useLauncherStore = defineStore('launcher', () => {
   const elapsedMs = ref(0)
   const totalResults = ref(0)
   const pendingConfirmationKey = ref('')
-  let activeSearchRequest: AriadneSearchRequest | null = null
+  let activeSearchRequest: FancunSearchRequest | null = null
   let searchRequestSerial = 0
   let selectionRevision = 0
   let pendingConfirmationTimer: number | undefined
@@ -274,7 +274,7 @@ export const useLauncherStore = defineStore('launcher', () => {
     if (action.kind === 'copy') {
       const text = String(action.payload?.text ?? activeResult?.detail ?? activeResult?.title ?? '')
       const copied = await writeClipboardText(text)
-      const response = await executeAriadneAction(action)
+      const response = await executeFancunAction(action)
       lastAction.value = copied ? response : { ok: false, message: '复制失败' }
       if (copied && activeResult?.id) {
         void recordResultUse(activeResult.id)
@@ -290,7 +290,7 @@ export const useLauncherStore = defineStore('launcher', () => {
     const actionToExecute = pendingConfirmationKey.value === confirmationKey
       ? { ...action, payload: { ...(action.payload ?? {}), confirmed: true, confirm: true } }
       : action
-    const response = await executeAriadneAction(actionToExecute)
+    const response = await executeFancunAction(actionToExecute)
     lastAction.value = response
     if (response.requiresConfirmation) {
       setPendingConfirmation(confirmationKey, action)
@@ -353,7 +353,7 @@ export const useLauncherStore = defineStore('launcher', () => {
       totalResults.value = response.totalResults ?? response.results.length
       selectedId.value = results.value.some((result) => result.id === selection) ? selection : (results.value[0]?.id ?? '')
     }
-    const request = createAriadneSearchRequest(value, applyResponse)
+    const request = createFancunSearchRequest(value, applyResponse)
     activeSearchRequest = request
     let response: SearchResponse
     try {

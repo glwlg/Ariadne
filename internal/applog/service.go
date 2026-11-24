@@ -63,7 +63,7 @@ func (s *Service) Start() error {
 	}
 	s.bytes = info.Size()
 	s.lastError = ""
-	_, err = s.writeLocked([]byte(time.Now().Format(time.RFC3339) + " ariadne log started\n"))
+	_, err = s.writeLocked([]byte(time.Now().Format(time.RFC3339) + " fancun log started\n"))
 	return err
 }
 
@@ -159,7 +159,7 @@ func defaultLogPath() string {
 			base = "."
 		}
 	}
-	return filepath.Join(base, "Ariadne", "logs", "ariadne.log")
+	return filepath.Join(base, "Fancun", "logs", "fancun.log")
 }
 
 func statusForPath(path string, lastError string) Status {

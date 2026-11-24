@@ -135,8 +135,8 @@ html[data-theme='light-graphite'] {
   --flow-shell-bg:
     radial-gradient(circle at 56% 0%, rgba(15, 23, 42, 0.07), transparent 30%),
     linear-gradient(180deg, #fbfcfd 0%, #f4f6f8 100%);
-  --ariadne-mark-thread: var(--primary);
-  --ariadne-mark-loop: var(--primary-hover);
+  --fancun-mark-thread: var(--primary);
+  --fancun-mark-loop: var(--primary-hover);
   --flow-scrollbar-thumb: rgba(15, 23, 42, 0.18);
   --flow-scrollbar-thumb-hover: rgba(15, 23, 42, 0.34);
   --flow-strong-fill: #111827;
@@ -211,7 +211,7 @@ html[data-theme='cloud-blue'] {
   --flow-scrollbar-thumb-hover: rgba(15, 23, 42, 0.28);
   --flow-strong-fill: #0f172a;
   --flow-strong-fill-foreground: #ffffff;
-  --ariadne-mark-thread: var(--primary);
-  --ariadne-mark-loop: var(--primary-hover);
+  --fancun-mark-thread: var(--primary);
+  --fancun-mark-loop: var(--primary-hover);
   color-scheme: light;
 }

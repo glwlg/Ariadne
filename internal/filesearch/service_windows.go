@@ -3,7 +3,7 @@
 package filesearch
 
 import (
-	"ariadne/internal/networkmonitor"
+	"fancun/internal/networkmonitor"
 	"context"
 	"errors"
 	"os"
@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 )
 
-const WindowsServiceName = "AriadneFileSearch"
+const WindowsServiceName = "FancunFileSearch"
 
 type windowsIndexerService struct {
 	policyProvider PolicyProvider

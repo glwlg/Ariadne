@@ -15,7 +15,7 @@ import {
   X,
 } from '@lucide/vue'
 import { computed, onMounted } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { useAppShellStore } from '../../stores/appShell'
 import { useWorkflowsStore } from '../../stores/workflows'
 
@@ -60,30 +60,30 @@ function formatTime(seconds?: number) {
               <Workflow :size="13" />
               {{ workflows.status?.count ?? workflows.workflows.length }} 个
             </span>
-            <AriButton size="sm" variant="secondary" @click="appShell.openLauncher()">
+            <FancunButton size="sm" variant="secondary" @click="appShell.openLauncher()">
               <ArrowLeft :size="14" />
               启动器
-            </AriButton>
+            </FancunButton>
           </div>
         </header>
 
         <div class="tool-toolbar workflow-toolbar">
-          <AriButton size="sm" variant="primary" @click="workflows.createWorkflow()">
+          <FancunButton size="sm" variant="primary" @click="workflows.createWorkflow()">
             <Plus :size="14" />
             新建工作流
-          </AriButton>
-          <AriButton size="sm" variant="secondary" :disabled="!workflows.draft || workflows.isSaving" @click="workflows.saveDraft()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" :disabled="!workflows.draft || workflows.isSaving" @click="workflows.saveDraft()">
             <Save :size="14" />
             保存工作流
-          </AriButton>
-          <AriButton size="sm" variant="secondary" :disabled="!selected" @click="workflows.deleteWorkflow(selected)">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" :disabled="!selected" @click="workflows.deleteWorkflow(selected)">
             <Trash2 :size="14" />
             {{ selected && workflows.deleteArmedId === selected.id ? '确认删除' : '删除工作流' }}
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="workflows.exportData()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="workflows.exportData()">
             <Download :size="14" />
             导出
-          </AriButton>
+          </FancunButton>
           <div class="hosts-toolbar-spacer" />
           <div class="tool-search workflow-run-input">
             <Search :size="17" />
@@ -93,10 +93,10 @@ function formatTime(seconds?: number) {
               placeholder="可选输入，步骤中用 {input} 引用..."
             />
           </div>
-          <AriButton size="sm" variant="primary" :disabled="!selected || workflows.isRunning" @click="workflows.runSelected(selected)">
+          <FancunButton size="sm" variant="primary" :disabled="!selected || workflows.isRunning" @click="workflows.runSelected(selected)">
             <Play :size="14" />
             {{ selected && workflows.riskArmedId === selected.id ? '确认运行' : '运行' }}
-          </AriButton>
+          </FancunButton>
         </div>
 
         <div class="workflow-workspace">
@@ -164,10 +164,10 @@ function formatTime(seconds?: number) {
                   <span class="preview-kicker">STEPS</span>
                   <h2>命令链步骤</h2>
                 </div>
-                <AriButton size="sm" variant="secondary" @click="workflows.addStep()">
+                <FancunButton size="sm" variant="secondary" @click="workflows.addStep()">
                   <Plus :size="14" />
                   添加步骤
-                </AriButton>
+                </FancunButton>
               </div>
 
               <div class="workflow-steps">
@@ -215,7 +215,7 @@ function formatTime(seconds?: number) {
 
             <div class="side-panel">
               <Database :size="16" />
-              <strong>{{ workflows.status?.path || '%APPDATA%/Ariadne/ariadne.sqlite' }}</strong>
+              <strong>{{ workflows.status?.path || '%APPDATA%/Fancun/fancun.sqlite' }}</strong>
               <small>旧配置：{{ workflows.status?.legacyPath || '%APPDATA%/x-tools/config.json' }}</small>
             </div>
 
@@ -224,7 +224,7 @@ function formatTime(seconds?: number) {
                 <Download :size="15" />
                 导入导出
               </div>
-              <p>导出会写入 Ariadne exports 目录，并把 JSON 复制到剪贴板；导入只接受 Ariadne 工作流 JSON。</p>
+              <p>导出会写入 Fancun exports 目录，并把 JSON 复制到剪贴板；导入只接受 Fancun 工作流 JSON。</p>
               <small v-if="workflows.exportResult?.path">{{ workflows.exportResult.path }}</small>
               <textarea
                 v-model="workflows.importText"
@@ -233,14 +233,14 @@ function formatTime(seconds?: number) {
                 placeholder="粘贴导出的 workflows JSON..."
               />
               <div class="workflow-side-actions">
-                <AriButton size="sm" variant="secondary" @click="workflows.exportData()">
+                <FancunButton size="sm" variant="secondary" @click="workflows.exportData()">
                   <Download :size="14" />
                   导出
-                </AriButton>
-                <AriButton size="sm" variant="secondary" :disabled="workflows.isSaving" @click="workflows.importData()">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" :disabled="workflows.isSaving" @click="workflows.importData()">
                   <Upload :size="14" />
                   导入
-                </AriButton>
+                </FancunButton>
               </div>
               <small v-if="workflows.importResult">{{ workflows.importResult.message }}</small>
             </div>

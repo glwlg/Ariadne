@@ -18,7 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 type CommandSchema struct {
@@ -82,7 +82,7 @@ func NewService() *Service {
 		}, executeHash),
 		manifest("json", "JSON 格式化", "格式化或压缩 JSON 字符串", []string{"j", "json"}, nil, CommandSchema{
 			Usage:    "json <json-text>",
-			Examples: []string{`json {"name":"ariadne","ok":true}`, `j {"items":[1,2,3]}`},
+			Examples: []string{`json {"name":"fancun","ok":true}`, `j {"items":[1,2,3]}`},
 			Params:   []CommandParam{{Name: "json_text", Label: "JSON", Placeholder: "输入 JSON 字符串", Required: true}},
 		}, executeJSON),
 		manifest("json_compare", "JSON 对比", "打开 JSON 对比工具窗口", []string{"jd", "jsondiff", "jsoncompare", "json对比"}, nil, CommandSchema{
@@ -538,7 +538,7 @@ func executeSystem(query string) []contracts.SearchResult {
 				Detail:   "高风险命令需要二次确认。",
 				Icon:     "command",
 				Tags:     []string{"系统命令"},
-				Preview:  contracts.PreviewDescriptor{Kind: contracts.PreviewText, Title: label, Subtitle: "系统命令", Text: "执行前必须由用户确认，Ariadne 不会自动运行高风险系统命令。"},
+				Preview:  contracts.PreviewDescriptor{Kind: contracts.PreviewText, Title: label, Subtitle: "系统命令", Text: "执行前必须由用户确认，Fancun 不会自动运行高风险系统命令。"},
 				Actions: []contracts.PreviewAction{{
 					ID:       "run_system",
 					Label:    "执行",

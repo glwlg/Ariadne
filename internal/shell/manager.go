@@ -5,15 +5,15 @@ import (
 	"strings"
 	"sync"
 
-	"ariadne/internal/launcherwindow"
+	"fancun/internal/launcherwindow"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 const (
-	navigateEvent = "ariadne:navigate"
-	autostartID   = "com.glwlg.ariadne"
+	navigateEvent = "fancun:navigate"
+	autostartID   = "com.glwlg.fancun"
 )
 
 type Status struct {
@@ -79,7 +79,7 @@ func (m *Manager) SingleInstanceOptions() *application.SingleInstanceOptions {
 	m.mu.Unlock()
 
 	return &application.SingleInstanceOptions{
-		UniqueID:               "com.glwlg.ariadne",
+		UniqueID:               "com.glwlg.fancun",
 		OnSecondInstanceLaunch: func(application.SecondInstanceData) {},
 	}
 }
@@ -332,11 +332,11 @@ func (m *Manager) configureTray(icon []byte) {
 	menu.Add("工作流").OnClick(func(*application.Context) { m.openView("workflow") })
 	menu.Add("设置").OnClick(func(*application.Context) { m.OpenSettings() })
 	menu.AddSeparator()
-	menu.Add("退出 Ariadne").OnClick(func(*application.Context) { m.Quit() })
+	menu.Add("退出 Fancun").OnClick(func(*application.Context) { m.Quit() })
 
 	tray := app.SystemTray.New()
 	tray.SetMenu(menu)
-	tray.SetTooltip("Ariadne")
+	tray.SetTooltip("Fancun")
 	if len(icon) > 0 {
 		tray.SetIcon(icon)
 	}
@@ -506,8 +506,8 @@ func (m *Manager) openView(view string) {
 	window.EmitEvent(navigateEvent, view)
 	window.ExecJS(fmt.Sprintf("window.dispatchEvent(new CustomEvent(%q, { detail: %q }));", navigateEvent, view))
 	if view == "launcher" {
-		window.EmitEvent("ariadne:focus-launcher", map[string]any{"selectAll": true})
-		window.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:focus-launcher", { detail: { selectAll: true } }));`)
+		window.EmitEvent("fancun:focus-launcher", map[string]any{"selectAll": true})
+		window.ExecJS(`window.dispatchEvent(new CustomEvent("fancun:focus-launcher", { detail: { selectAll: true } }));`)
 	}
 }
 

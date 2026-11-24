@@ -69,7 +69,7 @@ var (
 	procGlobalUnlock                              = kernel32.NewProc("GlobalUnlock")
 	procGlobalSize                                = kernel32.NewProc("GlobalSize")
 
-	clipboardWatcherClassName = windows.StringToUTF16Ptr("AriadneClipboardWatcherWindow")
+	clipboardWatcherClassName = windows.StringToUTF16Ptr("FancunClipboardWatcherWindow")
 	clipboardWatcherWndProc   = syscall.NewCallback(clipboardWatcherWindowProc)
 	clipboardWatcherCallbacks sync.Map
 	clipboardWriteSleep       = time.Sleep

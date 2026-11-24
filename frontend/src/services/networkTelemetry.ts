@@ -1,5 +1,5 @@
 import { JSONStream } from '@wailsio/runtime'
-import type { NetworkTrafficSnapshot, ProcessNetworkSnapshot } from '../types/ariadne'
+import type { NetworkTrafficSnapshot, ProcessNetworkSnapshot } from '../types/fancun'
 
 export const NETWORK_TELEMETRY_STREAM = 'network-telemetry'
 

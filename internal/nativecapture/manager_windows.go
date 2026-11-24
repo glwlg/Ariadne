@@ -118,7 +118,7 @@ func NewManager(options Options) *Manager {
 	}
 	pipeName := strings.TrimSpace(options.PipeName)
 	if pipeName == "" {
-		pipeName = "ariadne-capture-" + strconv.Itoa(os.Getpid())
+		pipeName = "fancun-capture-" + strconv.Itoa(os.Getpid())
 	}
 	return &Manager{exePath: exePath, pipeName: pipeName, actionPipeName: pipeName + "-actions"}
 }
@@ -346,9 +346,9 @@ func (m *Manager) roundTrip(ctx context.Context, request Request) (Response, err
 func defaultExePath() string {
 	executable, err := os.Executable()
 	if err != nil || strings.TrimSpace(executable) == "" {
-		return filepath.Join("bin", "native-capture", "Ariadne.CaptureHost.exe")
+		return filepath.Join("bin", "native-capture", "Fancun.CaptureHost.exe")
 	}
-	return filepath.Join(filepath.Dir(executable), "native-capture", "Ariadne.CaptureHost.exe")
+	return filepath.Join(filepath.Dir(executable), "native-capture", "Fancun.CaptureHost.exe")
 }
 
 func firstErr(err error, fallback error) error {

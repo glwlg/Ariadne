@@ -12,10 +12,10 @@ import (
 )
 
 func TestBundledRuntimeDiscovery(t *testing.T) {
-	runtimeDir := os.Getenv("ARIADNE_TEST_UXPLAY_RUNTIME")
-	ip := net.ParseIP(os.Getenv("ARIADNE_TEST_UXPLAY_IPV4")).To4()
+	runtimeDir := os.Getenv("FANCUN_TEST_UXPLAY_RUNTIME")
+	ip := net.ParseIP(os.Getenv("FANCUN_TEST_UXPLAY_IPV4")).To4()
 	if runtimeDir == "" || ip == nil {
-		t.Skip("set ARIADNE_TEST_UXPLAY_RUNTIME and ARIADNE_TEST_UXPLAY_IPV4 to test LAN discovery")
+		t.Skip("set FANCUN_TEST_UXPLAY_RUNTIME and FANCUN_TEST_UXPLAY_IPV4 to test LAN discovery")
 	}
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: ip})
 	if err != nil {
@@ -23,7 +23,7 @@ func TestBundledRuntimeDiscovery(t *testing.T) {
 	}
 	defer conn.Close()
 	s := newService(runtimeDir, filepath.Join(t.TempDir(), "投屏发现验证"))
-	s.name = fmt.Sprintf("Ariadne 发现测试 %d", time.Now().UnixNano())
+	s.name = fmt.Sprintf("Fancun 发现测试 %d", time.Now().UnixNano())
 	t.Cleanup(func() { s.Stop() })
 	if result := s.Start(); !result.OK {
 		t.Fatalf("receiver failed: %+v", result)

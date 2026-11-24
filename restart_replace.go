@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const restartReplacePIDArg = "--ariadne-replace-pid"
+const restartReplacePIDArg = "--fancun-replace-pid"
 
 type replacementWaiter func(pid int, timeout time.Duration) error
 

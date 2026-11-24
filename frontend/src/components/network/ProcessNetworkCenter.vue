@@ -4,8 +4,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAppShellStore } from '../../stores/appShell'
 import { useNetworkMonitorStore } from '../../stores/networkMonitor'
 import { sortProcessTraffic, type ProcessNetworkSortKey, type SortDirection } from '../../lib/processNetworkSort'
-import type { ProcessNetworkTraffic } from '../../types/ariadne'
-import AriButton from '../ui/AriButton.vue'
+import type { ProcessNetworkTraffic } from '../../types/fancun'
+import FancunButton from '../ui/FancunButton.vue'
 
 const appShell = useAppShellStore()
 const network = useNetworkMonitorStore()
@@ -122,10 +122,10 @@ function formatBytes(value: number) {
             <input v-model="query" type="search" placeholder="筛选进程 / PID" aria-label="筛选进程或 PID" />
           </label>
           <div class="process-network-actions">
-            <AriButton v-if="network.processConnection === 'disconnected'" class="process-network-action" size="sm" variant="primary" @click="network.startProcessPolling()"><RefreshCw :size="14" />重新连接</AriButton>
-            <AriButton v-else class="process-network-action" size="sm" variant="secondary" :disabled="network.processConnection === 'connecting'" @click="network.refreshProcesses()"><RefreshCw :size="14" />刷新</AriButton>
-            <AriButton class="process-network-action" size="sm" variant="secondary" :disabled="!processes.length" @click="copySummary"><ClipboardCopy :size="14" />复制摘要</AriButton>
-            <AriButton class="process-network-action" size="sm" variant="secondary" @click="returnToMini">返回小窗</AriButton>
+            <FancunButton v-if="network.processConnection === 'disconnected'" class="process-network-action" size="sm" variant="primary" @click="network.startProcessPolling()"><RefreshCw :size="14" />重新连接</FancunButton>
+            <FancunButton v-else class="process-network-action" size="sm" variant="secondary" :disabled="network.processConnection === 'connecting'" @click="network.refreshProcesses()"><RefreshCw :size="14" />刷新</FancunButton>
+            <FancunButton class="process-network-action" size="sm" variant="secondary" :disabled="!processes.length" @click="copySummary"><ClipboardCopy :size="14" />复制摘要</FancunButton>
+            <FancunButton class="process-network-action" size="sm" variant="secondary" @click="returnToMini">返回小窗</FancunButton>
           </div>
         </div>
 

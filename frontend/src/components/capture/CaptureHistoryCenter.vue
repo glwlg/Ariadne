@@ -13,12 +13,12 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { computed, onMounted } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import OCRImageOverlay from '../ocr/OCRImageOverlay.vue'
 import { useAppShellStore } from '../../stores/appShell'
 import { useCaptureHistoryStore } from '../../stores/captureHistory'
 import { ocrConfidenceLabel, ocrRectLabel } from '../../lib/ocrDisplay'
-import type { CaptureHistoryEntry } from '../../types/ariadne'
+import type { CaptureHistoryEntry } from '../../types/fancun'
 
 const appShell = useAppShellStore()
 const capture = useCaptureHistoryStore()
@@ -72,10 +72,10 @@ function formatBytes(bytes: number) {
               <Database :size="13" />
               {{ capture.status?.count ?? capture.entries.length }} 张
             </span>
-            <AriButton size="sm" variant="secondary" @click="appShell.openLauncher()">
+            <FancunButton size="sm" variant="secondary" @click="appShell.openLauncher()">
               <ArrowLeft :size="14" />
               启动器
-            </AriButton>
+            </FancunButton>
           </div>
         </header>
 
@@ -89,26 +89,26 @@ function formatBytes(bytes: number) {
               @input="capture.setQuery(($event.target as HTMLInputElement).value)"
             />
           </div>
-          <AriButton size="sm" variant="primary" :disabled="capture.isCapturing" @click="capture.captureScreen()">
+          <FancunButton size="sm" variant="primary" :disabled="capture.isCapturing" @click="capture.captureScreen()">
             <Camera :size="14" />
             {{ capture.isCapturing ? '捕获中' : '捕获当前屏幕' }}
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="capture.openOverlay()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="capture.openOverlay()">
             <ImageIcon :size="14" />
             区域截图
-          </AriButton>
-          <AriButton size="sm" variant="secondary" :disabled="capture.isScanningQR" @click="capture.scanCurrentScreenQRCode()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" :disabled="capture.isScanningQR" @click="capture.scanCurrentScreenQRCode()">
             <QrCode :size="14" />
             {{ capture.isScanningQR ? '识别中' : '识别当前屏幕' }}
-          </AriButton>
-          <AriButton size="sm" variant="secondary" :disabled="capture.isRecognizingOCR" @click="capture.recognizeCurrentScreenText()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" :disabled="capture.isRecognizingOCR" @click="capture.recognizeCurrentScreenText()">
             <FileText :size="14" />
             {{ capture.isRecognizingOCR ? 'OCR 中' : 'OCR 当前屏幕' }}
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="capture.clearUnpinned()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="capture.clearUnpinned()">
             <Trash2 :size="14" />
             {{ capture.clearArmed ? '确认清空' : '清空未置顶' }}
-          </AriButton>
+          </FancunButton>
         </div>
 
         <div class="capture-workspace">
@@ -169,38 +169,38 @@ function formatBytes(bytes: number) {
               </div>
 
               <div class="capture-actions">
-                <AriButton size="sm" variant="primary" @click="capture.openImage(selected)">
+                <FancunButton size="sm" variant="primary" @click="capture.openImage(selected)">
                   <ImageIcon :size="14" />
                   打开
-                </AriButton>
-                <AriButton size="sm" variant="secondary" @click="capture.openFolder(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" @click="capture.openFolder(selected)">
                   <FolderOpen :size="14" />
                   打开所在文件夹
-                </AriButton>
-                <AriButton size="sm" variant="secondary" @click="capture.copyPath(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" @click="capture.copyPath(selected)">
                   <Copy :size="14" />
                   复制路径
-                </AriButton>
-                <AriButton size="sm" variant="secondary" @click="capture.pinImage(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" @click="capture.pinImage(selected)">
                   <Pin :size="14" />
                   创建贴图
-                </AriButton>
-                <AriButton size="sm" variant="secondary" :disabled="capture.isScanningQR" @click="capture.scanQRCode(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" :disabled="capture.isScanningQR" @click="capture.scanQRCode(selected)">
                   <QrCode :size="14" />
                   {{ capture.isScanningQR ? '识别中' : '识别二维码' }}
-                </AriButton>
-                <AriButton size="sm" variant="secondary" :disabled="capture.isRecognizingOCR" @click="capture.recognizeText(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" :disabled="capture.isRecognizingOCR" @click="capture.recognizeText(selected)">
                   <FileText :size="14" />
                   {{ capture.isRecognizingOCR ? 'OCR 中' : '识别文字' }}
-                </AriButton>
-                <AriButton size="sm" variant="secondary" @click="capture.togglePin(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" @click="capture.togglePin(selected)">
                   <Pin :size="14" />
                   {{ selected.pinned ? '取消置顶' : '置顶' }}
-                </AriButton>
-                <AriButton size="sm" variant="secondary" @click="capture.deleteEntry(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" @click="capture.deleteEntry(selected)">
                   <Trash2 :size="14" />
                   {{ capture.deleteArmedId === selected.id ? '确认删除' : '删除' }}
-                </AriButton>
+                </FancunButton>
               </div>
 
               <div v-if="capture.qrResult" class="qr-result-panel" :class="{ 'is-success': capture.qrResult.ok }">
@@ -211,10 +211,10 @@ function formatBytes(bytes: number) {
                 <template v-if="capture.qrResult.ok">
                   <strong>{{ capture.qrResult.format || 'QR_CODE' }}</strong>
                   <p>{{ capture.qrResult.text }}</p>
-                  <AriButton size="sm" variant="secondary" @click="capture.copyQRText()">
+                  <FancunButton size="sm" variant="secondary" @click="capture.copyQRText()">
                     <Copy :size="14" />
                     复制内容
-                  </AriButton>
+                  </FancunButton>
                 </template>
                 <template v-else>
                   <strong>未识别到二维码</strong>
@@ -234,16 +234,16 @@ function formatBytes(bytes: number) {
                   </strong>
                   <div v-if="capture.ocrLines.length" class="ocr-selection-panel">
                     <div class="ocr-selection-actions">
-                      <AriButton size="sm" variant="secondary" @click="capture.selectAllOCRLines()">全选</AriButton>
-                      <AriButton size="sm" variant="ghost" @click="capture.clearOCRLineSelection()">清空</AriButton>
-                      <AriButton size="sm" variant="secondary" :disabled="!capture.selectedOCRLineCount" @click="capture.copySelectedOCRText()">
+                      <FancunButton size="sm" variant="secondary" @click="capture.selectAllOCRLines()">全选</FancunButton>
+                      <FancunButton size="sm" variant="ghost" @click="capture.clearOCRLineSelection()">清空</FancunButton>
+                      <FancunButton size="sm" variant="secondary" :disabled="!capture.selectedOCRLineCount" @click="capture.copySelectedOCRText()">
                         <Copy :size="14" />
                         复制选中
-                      </AriButton>
-                      <AriButton v-if="capture.ocrResult.text" size="sm" variant="secondary" @click="capture.copyOCRText()">
+                      </FancunButton>
+                      <FancunButton v-if="capture.ocrResult.text" size="sm" variant="secondary" @click="capture.copyOCRText()">
                         <Copy :size="14" />
                         复制全文
-                      </AriButton>
+                      </FancunButton>
                     </div>
                     <div class="ocr-line-list" aria-label="OCR 文本行">
                       <button
@@ -265,10 +265,10 @@ function formatBytes(bytes: number) {
                   </div>
                   <template v-else>
                     <p>{{ capture.ocrResult.text || '未识别到文字' }}</p>
-                    <AriButton v-if="capture.ocrResult.text" size="sm" variant="secondary" @click="capture.copyOCRText()">
+                    <FancunButton v-if="capture.ocrResult.text" size="sm" variant="secondary" @click="capture.copyOCRText()">
                       <Copy :size="14" />
                       复制全文
-                    </AriButton>
+                    </FancunButton>
                   </template>
                 </template>
                 <template v-else>
@@ -280,7 +280,7 @@ function formatBytes(bytes: number) {
               <div class="meta-grid">
                 <div class="meta-item">
                   <span>截图目录</span>
-                  <strong>{{ capture.status?.imageDir || '%APPDATA%/Ariadne/capture_images' }}</strong>
+                  <strong>{{ capture.status?.imageDir || '%APPDATA%/Fancun/capture_images' }}</strong>
                 </div>
                 <div v-if="capture.status?.virtualizedImageDir" class="meta-item">
                   <span>MSIX 实际目录</span>

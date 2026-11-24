@@ -1,9 +1,9 @@
-import type { AppUpdateResult, AppUpdateStatus } from '../types/ariadne'
+import type { AppUpdateResult, AppUpdateStatus } from '../types/fancun'
 
 async function tryAppUpdateBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/appupdate/service.js')
+    return await import('../../bindings/fancun/internal/appupdate/service.js')
   } catch {
     return null
   }

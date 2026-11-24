@@ -9,7 +9,7 @@ func TestRestartReplacementArgsWaitForOldPID(t *testing.T) {
 	var gotPID int
 	var gotTimeout time.Duration
 
-	handled, err := handleRestartReplacementArgs([]string{"--ariadne-replace-pid", "1234"}, 55, func(pid int, timeout time.Duration) error {
+	handled, err := handleRestartReplacementArgs([]string{"--fancun-replace-pid", "1234"}, 55, func(pid int, timeout time.Duration) error {
 		gotPID = pid
 		gotTimeout = timeout
 		return nil
@@ -32,7 +32,7 @@ func TestRestartReplacementArgsIgnoreUnrelatedArgs(t *testing.T) {
 }
 
 func TestRestartReplacementArgsRejectInvalidPID(t *testing.T) {
-	handled, err := handleRestartReplacementArgs([]string{"--ariadne-replace-pid", "bad"}, 55, nil)
+	handled, err := handleRestartReplacementArgs([]string{"--fancun-replace-pid", "bad"}, 55, nil)
 
 	if !handled || err == nil {
 		t.Fatalf("invalid replacement pid should be reported, handled=%v err=%v", handled, err)

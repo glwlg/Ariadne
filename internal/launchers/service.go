@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/contracts"
+	"fancun/internal/appdb"
+	"fancun/internal/contracts"
 )
 
 type LauncherKind string
@@ -302,9 +302,9 @@ func launcherSubtitle(launcher Launcher) string {
 
 func launcherPreviewText(launcher Launcher) string {
 	if launcher.Kind == LauncherCommand {
-		return "命令类启动项属于中高风险动作，Ariadne 只展示确认动作，不会把命令伪装成低风险打开。"
+		return "命令类启动项属于中高风险动作，Fancun 只展示确认动作，不会把命令伪装成低风险打开。"
 	}
-	return "来自 Ariadne 自定义启动项配置，可直接打开或复制目标。"
+	return "来自 Fancun 自定义启动项配置，可直接打开或复制目标。"
 }
 
 func launcherIcon(kind LauncherKind) string {
@@ -360,11 +360,11 @@ func defaultLaunchers() []Launcher {
 	launchers := []Launcher{}
 	if appData := os.Getenv("APPDATA"); appData != "" {
 		launchers = append(launchers, Launcher{
-			ID:       "ariadne-config-dir",
-			Name:     "Ariadne 配置目录",
+			ID:       "fancun-config-dir",
+			Name:     "Fancun 配置目录",
 			Kind:     LauncherFolder,
-			Target:   filepath.Join(appData, "Ariadne"),
-			Keywords: []string{"ariadne", "config", "配置"},
+			Target:   filepath.Join(appData, "Fancun"),
+			Keywords: []string{"fancun", "config", "配置"},
 			Tags:     []string{"配置"},
 			Enabled:  true,
 		})
@@ -383,7 +383,7 @@ func defaultConfigPath() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "launchers.json")
+	return filepath.Join(base, "Fancun", "launchers.json")
 }
 
 func findExisting(paths ...string) string {

@@ -1,9 +1,9 @@
 package securestore
 
 const (
-	TargetOpenAIAPIKey    = "Ariadne/OpenAI/APIKey"
-	TargetEmbeddingAPIKey = "Ariadne/Embedding/APIKey"
-	TargetMilvusToken     = "Ariadne/Milvus/Token"
+	TargetOpenAIAPIKey    = "Fancun/OpenAI/APIKey"
+	TargetEmbeddingAPIKey = "Fancun/Embedding/APIKey"
+	TargetMilvusToken     = "Fancun/Milvus/Token"
 )
 
 type Store interface {

@@ -21,7 +21,7 @@ func queryControlStatus() (ControlStatus, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	conn, err := winio.DialPipeContext(ctx, fmt.Sprintf(`\\.\pipe\ariadne-iphone-control-%d`, session))
+	conn, err := winio.DialPipeContext(ctx, fmt.Sprintf(`\\.\pipe\fancun-iphone-control-%d`, session))
 	if err != nil {
 		return ControlStatus{}, err
 	}

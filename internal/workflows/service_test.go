@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 type fakeExecutor struct{}

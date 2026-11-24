@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Copy, Globe2, Plus, Save, Trash2, X } from '@lucide/vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { useAPITestingStore } from '../../stores/apiTesting'
 
 const apiTesting = useAPITestingStore()
@@ -17,13 +17,13 @@ const apiTesting = useAPITestingStore()
           <span v-else-if="apiTesting.isDirty">未保存</span>
         </div>
         <div class="api-env-panel-actions">
-          <AriButton size="sm" variant="secondary" :disabled="!apiTesting.draftCollection || apiTesting.isSaving" @click="apiTesting.saveCollection()">
+          <FancunButton size="sm" variant="secondary" :disabled="!apiTesting.draftCollection || apiTesting.isSaving" @click="apiTesting.saveCollection()">
             <Save :size="14" />
             保存
-          </AriButton>
-          <AriButton size="icon" variant="ghost" aria-label="关闭" @click="apiTesting.closeEnvironmentPanel()">
+          </FancunButton>
+          <FancunButton size="icon" variant="ghost" aria-label="关闭" @click="apiTesting.closeEnvironmentPanel()">
             <X :size="16" />
-          </AriButton>
+          </FancunButton>
         </div>
       </header>
 
@@ -31,9 +31,9 @@ const apiTesting = useAPITestingStore()
         <aside class="api-env-rail" aria-label="环境列表">
           <div class="api-env-rail-title">
             <span>环境</span>
-            <AriButton size="icon" variant="ghost" aria-label="新环境" @click="apiTesting.createEnvironment()">
+            <FancunButton size="icon" variant="ghost" aria-label="新环境" @click="apiTesting.createEnvironment()">
               <Plus :size="15" />
-            </AriButton>
+            </FancunButton>
           </div>
           <button
             v-for="environment in apiTesting.draftCollection?.environments ?? []"
@@ -47,11 +47,11 @@ const apiTesting = useAPITestingStore()
             <small>{{ environment.variables.filter((variable) => variable.enabled).length }}</small>
           </button>
           <div class="api-env-rail-actions">
-            <AriButton size="sm" variant="secondary" :disabled="!apiTesting.selectedEnvironment" @click="apiTesting.duplicateEnvironment()">
+            <FancunButton size="sm" variant="secondary" :disabled="!apiTesting.selectedEnvironment" @click="apiTesting.duplicateEnvironment()">
               <Copy :size="14" />
               复制
-            </AriButton>
-            <AriButton
+            </FancunButton>
+            <FancunButton
               size="sm"
               variant="ghost"
               :disabled="(apiTesting.draftCollection?.environments.length ?? 0) <= 1"
@@ -59,7 +59,7 @@ const apiTesting = useAPITestingStore()
             >
               <Trash2 :size="14" />
               删除
-            </AriButton>
+            </FancunButton>
           </div>
         </aside>
 
@@ -75,10 +75,10 @@ const apiTesting = useAPITestingStore()
                   @input="apiTesting.updateEnvironment({ name: ($event.target as HTMLInputElement).value })"
                 />
               </label>
-              <AriButton size="sm" variant="secondary" @click="apiTesting.addEnvironmentVariable()">
+              <FancunButton size="sm" variant="secondary" @click="apiTesting.addEnvironmentVariable()">
                 <Plus :size="14" />
                 添加变量
-              </AriButton>
+              </FancunButton>
             </div>
             <div class="api-table">
               <div class="api-table-head is-env-var-grid">
@@ -103,9 +103,9 @@ const apiTesting = useAPITestingStore()
                   placeholder="变量值"
                   @input="apiTesting.updateEnvironmentVariable(index, { value: ($event.target as HTMLInputElement).value })"
                 />
-                <AriButton size="icon" variant="ghost" aria-label="删除变量" @click="apiTesting.removeEnvironmentVariable(index)">
+                <FancunButton size="icon" variant="ghost" aria-label="删除变量" @click="apiTesting.removeEnvironmentVariable(index)">
                   <Trash2 :size="14" />
-                </AriButton>
+                </FancunButton>
               </div>
               <div v-if="!(apiTesting.selectedEnvironment?.variables.length ?? 0)" class="api-empty-row">暂无环境变量</div>
             </div>
@@ -116,10 +116,10 @@ const apiTesting = useAPITestingStore()
               <div class="api-section-title">
                 <span>集合变量</span>
               </div>
-              <AriButton size="sm" variant="secondary" @click="apiTesting.addCollectionVariable()">
+              <FancunButton size="sm" variant="secondary" @click="apiTesting.addCollectionVariable()">
                 <Plus :size="14" />
                 添加变量
-              </AriButton>
+              </FancunButton>
             </div>
             <div class="api-table">
               <div class="api-table-head is-env-var-grid">
@@ -144,9 +144,9 @@ const apiTesting = useAPITestingStore()
                   placeholder="https://api.example.com"
                   @input="apiTesting.updateCollectionVariable(index, { value: ($event.target as HTMLInputElement).value })"
                 />
-                <AriButton size="icon" variant="ghost" aria-label="删除变量" @click="apiTesting.removeCollectionVariable(index)">
+                <FancunButton size="icon" variant="ghost" aria-label="删除变量" @click="apiTesting.removeCollectionVariable(index)">
                   <Trash2 :size="14" />
-                </AriButton>
+                </FancunButton>
               </div>
               <div v-if="!(apiTesting.draftCollection?.variables.length ?? 0)" class="api-empty-row">暂无集合变量</div>
             </div>

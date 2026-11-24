@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 type Shortcut struct {
@@ -128,7 +128,7 @@ func shortcutToResult(shortcut Shortcut, score float64) contracts.SearchResult {
 			Kind:     contracts.PreviewText,
 			Title:    shortcut.Name,
 			Subtitle: "Windows 应用快捷方式",
-			Text:     "从开始菜单扫描到的应用快捷方式。Ariadne 会把快捷方式交给 Windows Shell 启动，不解析或改写目标路径。",
+			Text:     "从开始菜单扫描到的应用快捷方式。Fancun 会把快捷方式交给 Windows Shell 启动，不解析或改写目标路径。",
 			Meta: []contracts.LabelValue{
 				{Label: "快捷方式", Value: shortcut.Path},
 				{Label: "来源", Value: shortcut.Source},

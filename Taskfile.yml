@@ -1,19 +1,19 @@
 version: '3'
 
 vars:
-  APP_NAME: ariadne
+  APP_NAME: fancun
   BIN_DIR: bin
-  APP_VERSION: '{{.ARIADNE_VERSION | default "dev"}}'
+  APP_VERSION: '{{.FANCUN_VERSION | default "dev"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
 tasks:
   build:
-    summary: Build Ariadne for the current platform.
+    summary: Build Fancun for the current platform.
     cmds:
       - wails3 task windows:build
 
   windows:build:
-    summary: Build Ariadne for Windows.
+    summary: Build Fancun for Windows.
     cmds:
       - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
       - wails3 task native:capture-host
@@ -25,7 +25,7 @@ tasks:
       - go build -ldflags="-H windowsgui -X main.appVersion={{.APP_VERSION}}" -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" .
 
   windows:mcp-build:
-    summary: Build a development-only Ariadne executable with the Wails MCP server.
+    summary: Build a development-only Fancun executable with the Wails MCP server.
     cmds:
       - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
       - wails3 task native:capture-host
@@ -53,64 +53,64 @@ tasks:
       - powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-iphone-control.ps1
 
   native:capture-host:
-    summary: Publish the WPF screenshot host used by the Windows native capture path.
+    summary: Publish the shared WPF host for Windows screenshots and network mini.
     cmds:
       - powershell -NoProfile -Command "if (-not ([System.IO.Path]::GetFullPath((Join-Path (Get-Location) '{{.BIN_DIR}}\native-capture')).StartsWith([System.IO.Path]::GetFullPath((Get-Location).Path), [System.StringComparison]::OrdinalIgnoreCase))) { throw 'Refusing to clean outside workspace' }; if (Test-Path -LiteralPath '{{.BIN_DIR}}\native-capture') { Remove-Item -LiteralPath '{{.BIN_DIR}}\native-capture' -Recurse -Force }; New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}\native-capture' | Out-Null"
-      - powershell -NoProfile -Command "if (Test-Path 'C:\Users\luwei\.codex\tools\dotnet-sdk-8.0\dotnet.exe') { & 'C:\Users\luwei\.codex\tools\dotnet-sdk-8.0\dotnet.exe' publish native\Ariadne.CaptureHost\Ariadne.CaptureHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -p:DebugSymbols=false -o '{{.BIN_DIR}}\native-capture' } else { dotnet publish native\Ariadne.CaptureHost\Ariadne.CaptureHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -p:DebugSymbols=false -o '{{.BIN_DIR}}\native-capture' }"
+      - powershell -NoProfile -Command "if (Test-Path 'C:\Users\luwei\.codex\tools\dotnet-sdk-8.0\dotnet.exe') { & 'C:\Users\luwei\.codex\tools\dotnet-sdk-8.0\dotnet.exe' publish native\Fancun.CaptureHost\Fancun.CaptureHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -p:DebugSymbols=false -o '{{.BIN_DIR}}\native-capture' } else { dotnet publish native\Fancun.CaptureHost\Fancun.CaptureHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -p:DebugSymbols=false -o '{{.BIN_DIR}}\native-capture' }"
 
   windows:resources:
-    summary: Generate Windows icon, manifest, and version resources for Ariadne.
+    summary: Generate Windows icon, manifest, and version resources for Fancun.
     cmds:
-      - go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --out ariadne_resource.syso --no-suffix
+      - go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --out fancun_resource.syso --no-suffix
 
   windows:package:
-    summary: Build Ariadne and create a user-level Windows setup exe plus updater checksum.
+    summary: Build Fancun and create a user-level Windows setup exe plus updater checksum.
     cmds:
       - wails3 task windows:verify
       - wails3 task windows:build
-      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/releasepack -version dev } else { go run ./cmd/releasepack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) }"
+      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('FANCUN_VERSION'))) { go run ./cmd/releasepack -version dev } else { go run ./cmd/releasepack -version ([Environment]::GetEnvironmentVariable('FANCUN_VERSION')) }"
 
   windows:setup:
-    summary: Alias for windows:package; produces AriadneSetup-<version>-windows-x64.exe.
+    summary: Alias for windows:package; produces FancunSetup-<version>-windows-x64.exe.
     cmds:
       - wails3 task windows:package
 
   windows:msix:
-    summary: Build Ariadne and create an unsigned MSIX layout.
+    summary: Build Fancun and create an unsigned MSIX layout.
     cmds:
       - wails3 task windows:verify
       - wails3 task windows:build
-      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/msixpack -version dev } else { go run ./cmd/msixpack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) }"
+      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('FANCUN_VERSION'))) { go run ./cmd/msixpack -version dev } else { go run ./cmd/msixpack -version ([Environment]::GetEnvironmentVariable('FANCUN_VERSION')) }"
 
   windows:msix-pack:
-    summary: Build Ariadne and pack an unsigned MSIX with makeappx.exe.
+    summary: Build Fancun and pack an unsigned MSIX with makeappx.exe.
     cmds:
       - wails3 task windows:verify
       - wails3 task windows:build
-      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('ARIADNE_VERSION'))) { go run ./cmd/msixpack -version dev -pack } else { go run ./cmd/msixpack -version ([Environment]::GetEnvironmentVariable('ARIADNE_VERSION')) -pack }"
+      - powershell -NoProfile -Command "if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('FANCUN_VERSION'))) { go run ./cmd/msixpack -version dev -pack } else { go run ./cmd/msixpack -version ([Environment]::GetEnvironmentVariable('FANCUN_VERSION')) -pack }"
 
   windows:perf:
     summary: Run the Windows desktop performance acceptance probe.
     cmds:
-      - go run ./cmd/perfcheck -iterations 3 -pretty -output dist/perf/ariadne-perf-latest.json
+      - go run ./cmd/perfcheck -iterations 3 -pretty -output dist/perf/fancun-perf-latest.json
 
   windows:search-perf:
-    summary: Run the repeatable Ariadne search p95 benchmark.
+    summary: Run the repeatable Fancun search p95 benchmark.
     cmds:
-      - go run ./cmd/searchbench -iterations 20 -warmup 2 -pretty -output dist/perf/ariadne-search-perf-latest.json
+      - go run ./cmd/searchbench -iterations 20 -warmup 2 -pretty -output dist/perf/fancun-search-perf-latest.json
 
   windows:autostart-smoke:
     summary: Run a non-destructive HKCU Run autostart registration smoke.
     cmds:
-      - go run ./cmd/autostartsmoke -exe bin/ariadne.exe -output dist/perf/ariadne-autostart-smoke-latest.json
+      - go run ./cmd/autostartsmoke -exe bin/fancun.exe -output dist/perf/fancun-autostart-smoke-latest.json
 
   dev:
-    summary: Run the Ariadne frontend in browser development mode.
+    summary: Run the Fancun frontend in browser development mode.
     cmds:
       - powershell -NoProfile -Command "Set-Location frontend; pnpm dev -- --host 127.0.0.1 --port {{.VITE_PORT}}"
 
   test:
-    summary: Run Ariadne backend and frontend checks.
+    summary: Run Fancun backend and frontend checks.
     cmds:
       - wails3 task windows:verify
 

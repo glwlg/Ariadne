@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"ariadne/internal/shell"
+	"fancun/internal/shell"
 )
 
 func main() {
@@ -15,7 +15,7 @@ func main() {
 	var valueName string
 	var outputPath string
 	var pretty bool
-	flag.StringVar(&exePath, "exe", "", "Ariadne executable path to validate in the temporary HKCU Run command")
+	flag.StringVar(&exePath, "exe", "", "Fancun executable path to validate in the temporary HKCU Run command")
 	flag.StringVar(&valueName, "value-name", "", "Optional temporary HKCU Run value name")
 	flag.StringVar(&outputPath, "output", "", "Optional JSON report path")
 	flag.BoolVar(&pretty, "pretty", true, "Pretty-print JSON output")

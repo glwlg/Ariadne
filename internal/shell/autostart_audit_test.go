@@ -7,10 +7,10 @@ import (
 
 func TestBuildAutostartAuditAcceptsCurrentExeWithHiddenArg(t *testing.T) {
 	audit := buildAutostartAudit(
-		"com.glwlg.ariadne",
-		"com.glwlg.ariadne",
-		`"C:\Program Files\Ariadne\ariadne.exe" --hidden`,
-		`C:\Program Files\Ariadne\ariadne.exe`,
+		"com.glwlg.fancun",
+		"com.glwlg.fancun",
+		`"C:\Program Files\Fancun\fancun.exe" --hidden`,
+		`C:\Program Files\Fancun\fancun.exe`,
 	)
 
 	if !audit.CommandValid || !audit.CommandMatchesExe || !audit.HiddenArgPresent {
@@ -23,10 +23,10 @@ func TestBuildAutostartAuditAcceptsCurrentExeWithHiddenArg(t *testing.T) {
 
 func TestBuildAutostartAuditFlagsVisibleStartup(t *testing.T) {
 	audit := buildAutostartAudit(
-		"com.glwlg.ariadne",
-		"com.glwlg.ariadne",
-		`C:\Tools\ariadne.exe`,
-		`C:\Tools\ariadne.exe`,
+		"com.glwlg.fancun",
+		"com.glwlg.fancun",
+		`C:\Tools\fancun.exe`,
+		`C:\Tools\fancun.exe`,
 	)
 
 	if audit.CommandValid || audit.HiddenArgPresent {
@@ -39,10 +39,10 @@ func TestBuildAutostartAuditFlagsVisibleStartup(t *testing.T) {
 
 func TestBuildAutostartAuditFlagsWrongExecutableAndValueName(t *testing.T) {
 	audit := buildAutostartAudit(
-		"com.glwlg.ariadne",
-		"AriadneOld",
+		"com.glwlg.fancun",
+		"FancunOld",
 		`"C:\Old\x-tools.exe" --hidden`,
-		`C:\Tools\ariadne.exe`,
+		`C:\Tools\fancun.exe`,
 	)
 
 	if audit.CommandValid || audit.CommandMatchesExe {
@@ -55,8 +55,8 @@ func TestBuildAutostartAuditFlagsWrongExecutableAndValueName(t *testing.T) {
 }
 
 func TestWindowsCommandLineTokensPreserveQuotedPathAndArgs(t *testing.T) {
-	tokens := windowsCommandLineTokens(`"C:\Program Files\Ariadne\ariadne.exe" --hidden --flag "quoted value"`)
-	want := []string{`C:\Program Files\Ariadne\ariadne.exe`, "--hidden", "--flag", "quoted value"}
+	tokens := windowsCommandLineTokens(`"C:\Program Files\Fancun\fancun.exe" --hidden --flag "quoted value"`)
+	want := []string{`C:\Program Files\Fancun\fancun.exe`, "--hidden", "--flag", "quoted value"}
 	if len(tokens) != len(want) {
 		t.Fatalf("tokens=%#v want %#v", tokens, want)
 	}

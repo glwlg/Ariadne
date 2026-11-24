@@ -7,7 +7,7 @@ import {
   normalizeSnapshot,
 } from '../services/networkMonitorApi'
 import { connectNetworkTelemetry } from '../services/networkTelemetry'
-import type { NetworkTrafficSnapshot, ProcessNetworkSnapshot } from '../types/ariadne'
+import type { NetworkTrafficSnapshot, ProcessNetworkSnapshot } from '../types/fancun'
 
 type ConnectionState = 'stopped' | 'connecting' | 'connected' | 'disconnected'
 

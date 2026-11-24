@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { CheckCircle2, Clock3, Copy, FileText, XCircle } from '@lucide/vue'
 import { computed } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import ApiJsonViewer from './ApiJsonViewer.vue'
 import { useAPITestingStore, type APIResponseTab } from '../../stores/apiTesting'
 
@@ -95,10 +95,10 @@ function formatBytes(bytes: number) {
       <section v-if="apiTesting.responseTab === 'body'" class="api-response-section">
         <div class="api-section-title">
           <span>响应体</span>
-          <AriButton size="sm" variant="secondary" @click="apiTesting.copyResponseBody()">
+          <FancunButton size="sm" variant="secondary" @click="apiTesting.copyResponseBody()">
             <Copy :size="14" />
             复制
-          </AriButton>
+          </FancunButton>
         </div>
         <ApiJsonViewer v-if="responseBody.kind === 'json'" class="api-json-viewer" :value="responseBody.value" root />
         <pre v-else class="api-response-body">{{ responseBody.text }}</pre>

@@ -1,6 +1,6 @@
-# Ariadne
+# Fancun
 
-Ariadne is a desktop productivity assistant for quick launch, local context recall, capture, and focused utility tools. Its domain language centers on explicit user actions, local evidence, and separate surfaces for search, tools, and memory.
+Fancun is a desktop productivity assistant for quick launch, local context recall, capture, and focused utility tools. Its domain language centers on explicit user actions, local evidence, and separate surfaces for search, tools, and memory.
 
 ## Language
 
@@ -71,9 +71,9 @@ The compact network monitor surface for quick traffic visibility.
 _Avoid_: Network widget, traffic badge
 
 **Settings Center**:
-The tool center for configuring Ariadne behavior, credentials, diagnostics, migration, and rollback state.
+The tool center for configuring Fancun behavior, credentials, diagnostics, migration, and rollback state.
 _Avoid_: Preferences page, config screen
 
 **Legacy x-tools**:
-The previous Python/PyQt runtime whose data can be imported and whose runtime behavior may coexist or conflict with Ariadne.
+The previous Python/PyQt runtime whose data can be imported and whose runtime behavior may coexist or conflict with Fancun.
 _Avoid_: x-tools mode, old app

@@ -1,11 +1,11 @@
-import type { CaptureHistoryEntry, CaptureHistoryStatus } from '../types/ariadne'
+import type { CaptureHistoryEntry, CaptureHistoryStatus } from '../types/fancun'
 
 let fallbackEntries: CaptureHistoryEntry[] = []
 
 let fallbackStatus: CaptureHistoryStatus = {
-  path: '%APPDATA%/Ariadne/ariadne.sqlite',
-  imageDir: '%APPDATA%/Ariadne/capture_images',
-  thumbnailDir: '%APPDATA%/Ariadne/capture_thumbnails',
+  path: '%APPDATA%/Fancun/fancun.sqlite',
+  imageDir: '%APPDATA%/Fancun/capture_images',
+  thumbnailDir: '%APPDATA%/Fancun/capture_thumbnails',
   count: 0,
   pinnedCount: 0,
   thumbnailCount: 0,
@@ -22,7 +22,7 @@ let fallbackStatus: CaptureHistoryStatus = {
 async function tryCaptureBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/capturehistory/service.js')
+    return await import('../../bindings/fancun/internal/capturehistory/service.js')
   } catch {
     return null
   }
@@ -59,7 +59,7 @@ export async function captureCurrentScreen(source = 'manual'): Promise<CaptureHi
   }
   const entry = normalizeEntry({
     id: crypto.randomUUID(),
-    imagePath: '%APPDATA%/Ariadne/capture_images/dev-placeholder.png',
+    imagePath: '%APPDATA%/Fancun/capture_images/dev-placeholder.png',
     thumbnailPath: '',
     createdAt: Math.floor(Date.now() / 1000),
     source,
@@ -155,9 +155,9 @@ function fallbackList(query: string, limit: number) {
 function normalizeStatus(status: CaptureHistoryStatus): CaptureHistoryStatus {
   const entries = normalizeEntries(status.entries ?? fallbackEntries)
   return {
-    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
-    imageDir: status.imageDir || '%APPDATA%/Ariadne/capture_images',
-    thumbnailDir: status.thumbnailDir ?? '%APPDATA%/Ariadne/capture_thumbnails',
+    path: status.path || '%APPDATA%/Fancun/fancun.sqlite',
+    imageDir: status.imageDir || '%APPDATA%/Fancun/capture_images',
+    thumbnailDir: status.thumbnailDir ?? '%APPDATA%/Fancun/capture_thumbnails',
     count: status.count ?? entries.length,
     pinnedCount: status.pinnedCount ?? entries.filter((item) => item.pinned).length,
     thumbnailCount: Number(status.thumbnailCount ?? 0),

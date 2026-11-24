@@ -89,7 +89,7 @@ func Write(target string, secret string) error {
 	if err != nil {
 		return err
 	}
-	userPtr, err := syscall.UTF16PtrFromString("Ariadne")
+	userPtr, err := syscall.UTF16PtrFromString("Fancun")
 	if err != nil {
 		return err
 	}

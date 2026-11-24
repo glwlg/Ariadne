@@ -6,7 +6,7 @@ import { isToolView, toolViews } from './lib/toolWindows'
 import { Window } from '@wailsio/runtime'
 import { defineAsyncComponent, onMounted, onUnmounted } from 'vue'
 
-const AriadneLauncher = defineAsyncComponent(() => import('./components/launcher/AriadneLauncher.vue'))
+const FancunLauncher = defineAsyncComponent(() => import('./components/launcher/FancunLauncher.vue'))
 const ApiTestingCenter = defineAsyncComponent(() => import('./components/apitesting/ApiTestingCenter.vue'))
 const AirPlayCenter = defineAsyncComponent(() => import('./components/airplay/AirPlayCenter.vue'))
 const CaptureOverlayWindow = defineAsyncComponent(() => import('./components/capture/CaptureOverlayWindow.vue'))
@@ -65,7 +65,7 @@ onMounted(() => {
     void ensureLauncherWindow()
     void syncThemeFromSettings()
     uninstallThemeEvents = installSystemThemeListener()
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { selectAll: true } })), 0)
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent('fancun:focus-launcher', { detail: { selectAll: true } })), 0)
     return
   }
   void ensureMainWindow()
@@ -166,7 +166,7 @@ function shouldRenderToolView(view: AppToolView) {
 <template>
   <PinnedImageWindow v-if="isPinnedImageWindow" :pin-id="pinId" :warm="isPinnedImageWarmWindow" />
   <CaptureOverlayWindow v-else-if="isCaptureOverlayWindow" :session-id="captureOverlaySessionId" />
-  <AriadneLauncher v-else-if="isLauncherWindow || (!standaloneToolView && appShell.activeView === 'launcher')" />
+  <FancunLauncher v-else-if="isLauncherWindow || (!standaloneToolView && appShell.activeView === 'launcher')" />
   <ClipboardCenter v-else-if="shouldRenderToolView('clipboard')" />
   <CaptureHistoryCenter v-else-if="shouldRenderToolView('capture')" />
   <HostsCenter v-else-if="shouldRenderToolView('hosts')" />
@@ -177,5 +177,5 @@ function shouldRenderToolView(view: AppToolView) {
   <NetworkMonitorCenter v-else-if="shouldRenderToolView('network-monitor')" />
   <NetworkMiniWindow v-else-if="shouldRenderToolView('network-mini')" />
   <SettingsCenter v-else-if="shouldRenderToolView('settings')" />
-  <AriadneLauncher v-else />
+  <FancunLauncher v-else />
 </template>

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 const onePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lkD1JwAAAABJRU5ErkJggg=="

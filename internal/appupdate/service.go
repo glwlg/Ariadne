@@ -150,7 +150,7 @@ func (s *Service) CheckForUpdates() Result {
 		return Result{OK: true, Message: "当前已是最新版本", Status: s.Status()}
 	}
 	if !isSetupArtifact(release.Artifact.Filename) {
-		return s.rejectCheck(fmt.Sprintf("更新版本 %s 没有匹配的 Ariadne 安装器", release.Version))
+		return s.rejectCheck(fmt.Sprintf("更新版本 %s 没有匹配的 Fancun 安装器", release.Version))
 	}
 	if !hasSHA256Verification(release) {
 		return s.rejectCheck("更新安装程序缺少 SHA-256 校验信息")
@@ -246,7 +246,7 @@ func busyState(state updater.State) bool {
 
 func isSetupArtifact(name string) bool {
 	name = strings.ToLower(strings.TrimSpace(filepath.Base(name)))
-	return strings.HasPrefix(name, "ariadnesetup-") && strings.HasSuffix(name, "-windows-x64.exe")
+	return strings.HasPrefix(name, "fancunsetup-") && strings.HasSuffix(name, "-windows-x64.exe")
 }
 
 func hasSHA256Verification(release *updater.Release) bool {
@@ -266,7 +266,7 @@ func validateStagedInstaller(path string) (string, error) {
 		return "", err
 	}
 	if !isSetupArtifact(absolute) {
-		return "", fmt.Errorf("文件名不是 Ariadne Windows 安装器")
+		return "", fmt.Errorf("文件名不是 Fancun Windows 安装器")
 	}
 	info, err := os.Stat(absolute)
 	if err != nil {

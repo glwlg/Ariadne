@@ -18,11 +18,11 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/contracts"
-	"ariadne/internal/imagepreview"
-	"ariadne/internal/qrscan"
+	"fancun/internal/appdb"
+	"fancun/internal/capturehistory"
+	"fancun/internal/contracts"
+	"fancun/internal/imagepreview"
+	"fancun/internal/qrscan"
 )
 
 type EntryType string
@@ -1501,7 +1501,7 @@ func defaultHistoryPath() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "clipboard_history.json")
+	return filepath.Join(base, "Fancun", "clipboard_history.json")
 }
 
 func defaultImageDir(historyPath string) string {
@@ -1517,7 +1517,7 @@ func defaultImageDir(historyPath string) string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "clipboard_images")
+	return filepath.Join(base, "Fancun", "clipboard_images")
 }
 
 func defaultThumbnailDir(imageDir string) string {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Globe2, MoreHorizontal, Send, TestTube2 } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { useAPITestingStore } from '../../stores/apiTesting'
 import { useAppShellStore } from '../../stores/appShell'
 import ApiEnvironmentPanel from './ApiEnvironmentPanel.vue'
@@ -80,10 +80,10 @@ function selectCommand(action: string) {
                 </option>
               </select>
             </label>
-            <AriButton size="sm" variant="ghost" aria-label="更多命令" @click="openCommandMenu">
+            <FancunButton size="sm" variant="ghost" aria-label="更多命令" @click="openCommandMenu">
               <MoreHorizontal :size="16" />
               更多
-            </AriButton>
+            </FancunButton>
           </div>
         </header>
 

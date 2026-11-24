@@ -25,7 +25,7 @@ func TestRunAppliesVariablesAndAssertions(t *testing.T) {
 			t.Fatalf("unexpected trace header: %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Service", "ariadne")
+		w.Header().Set("X-Service", "fancun")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok": true,
 			"data": map[string]any{
@@ -64,7 +64,7 @@ func TestRunAppliesVariablesAndAssertions(t *testing.T) {
 			},
 			Assertions: []Assertion{
 				{ID: "ast-status", Kind: "status", Operator: "equals", Expected: "200", Enabled: true},
-				{ID: "ast-header", Kind: "header", Target: "X-Service", Operator: "equals", Expected: "ariadne", Enabled: true},
+				{ID: "ast-header", Kind: "header", Target: "X-Service", Operator: "equals", Expected: "fancun", Enabled: true},
 				{ID: "ast-json", Kind: "json", Target: "data.id", Operator: "equals", Expected: "run-42", Enabled: true},
 				{ID: "ast-time", Kind: "response_time", Operator: "less_than", Expected: "1000", Enabled: true},
 			},

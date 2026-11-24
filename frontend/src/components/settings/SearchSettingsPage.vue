@@ -2,7 +2,7 @@
 import { AlertTriangle, Database, RotateCcw, Save, Search, ShieldCheck, Trash2 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useSettingsStore } from '../../stores/settings'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 
 const settings = useSettingsStore()
 const fileSearch = computed(() => settings.platformStatus?.fileSearch)
@@ -63,7 +63,7 @@ const fileSearchSummary = computed(() => {
 const fileSearchServiceSummary = computed(() => {
   const status = fileSearch.value
   if (!status) return '服务状态未加载'
-  if (status.serviceRunning) return status.serviceName || 'AriadneFileSearch'
+  if (status.serviceRunning) return status.serviceName || 'FancunFileSearch'
   if (status.serviceInstalled) return status.serviceState || 'stopped'
   return '安装后自动维护本机文件索引'
 })
@@ -153,11 +153,11 @@ function isSearchServiceStateMessage(value: string) {
       排除正则无效：{{ error }}
     </p>
     <div class="settings-inline-actions">
-      <AriButton size="sm" variant="secondary" @click="settings.refreshPlatformStatus()">
+      <FancunButton size="sm" variant="secondary" @click="settings.refreshPlatformStatus()">
         <RotateCcw :size="14" />
         刷新状态
-      </AriButton>
-      <AriButton
+      </FancunButton>
+      <FancunButton
         v-if="searchServiceMissing"
         size="sm"
         variant="primary"
@@ -166,8 +166,8 @@ function isSearchServiceStateMessage(value: string) {
       >
         <ShieldCheck :size="14" />
         {{ settings.isInstallingSearchService ? '正在安装搜索服务' : '安装搜索服务' }}
-      </AriButton>
-      <AriButton
+      </FancunButton>
+      <FancunButton
         size="sm"
         variant="secondary"
         class="danger-action"
@@ -176,7 +176,7 @@ function isSearchServiceStateMessage(value: string) {
       >
         <Trash2 :size="14" />
         {{ settings.searchUsageClearArmed ? '确认清理搜索数据' : '清理搜索数据' }}
-      </AriButton>
+      </FancunButton>
     </div>
   </section>
 
@@ -255,10 +255,10 @@ function isSearchServiceStateMessage(value: string) {
       正则错误会被跳过，请修改后保存。
     </p>
     <div class="settings-inline-actions">
-      <AriButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.saveSearchSettings()">
+      <FancunButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.saveSearchSettings()">
         <Save :size="14" />
         {{ settings.isSaving ? '保存中' : '保存索引规则' }}
-      </AriButton>
+      </FancunButton>
     </div>
   </section>
 </template>

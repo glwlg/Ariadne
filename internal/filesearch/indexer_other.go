@@ -18,5 +18,5 @@ func newSharedIndexBuilder() indexBuilder {
 }
 
 func (unsupportedIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
-	return IndexBuildResult{}, fmt.Errorf("Ariadne 文件索引仅支持 Windows NTFS")
+	return IndexBuildResult{}, fmt.Errorf("Fancun 文件索引仅支持 Windows NTFS")
 }

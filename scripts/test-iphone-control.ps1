@@ -1,13 +1,13 @@
-﻿param([string]$Executable = (Join-Path $PSScriptRoot '..\bin\iphone-control\Ariadne.iPhoneControl.exe'))
+﻿param([string]$Executable = (Join-Path $PSScriptRoot '..\bin\iphone-control\Fancun.iPhoneControl.exe'))
 $ErrorActionPreference = 'Stop'
 $Executable = (Resolve-Path -LiteralPath $Executable).Path
-if (Get-Process -Name Ariadne.iPhoneControl -ErrorAction SilentlyContinue) {
+if (Get-Process -Name Fancun.iPhoneControl -ErrorAction SilentlyContinue) {
     throw 'Stop the existing iPhone control service before running the lifecycle smoke.'
 }
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
-public static class AriadneControlWindowSmoke {
+public static class FancunControlWindowSmoke {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindow(string className, string title);
     [DllImport("user32.dll")]
@@ -16,7 +16,7 @@ public static class AriadneControlWindowSmoke {
     public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
-    public static IntPtr FindControl() { return FindWindow(null, "Ariadne · iPhone 控制"); }
+    public static IntPtr FindControl() { return FindWindow(null, "Fancun · iPhone 控制"); }
 }
 '@
 function Wait-Window($process, [bool]$Visible) {
@@ -24,11 +24,11 @@ function Wait-Window($process, [bool]$Visible) {
     do {
         $process.Refresh()
         if ($process.HasExited) { throw "Control exited before its window was ready: $($process.ExitCode)" }
-        $handle = [AriadneControlWindowSmoke]::FindControl()
+        $handle = [FancunControlWindowSmoke]::FindControl()
         [uint32]$windowProcess = 0
         if ($handle -ne [IntPtr]::Zero) {
-            $null = [AriadneControlWindowSmoke]::GetWindowThreadProcessId($handle, [ref]$windowProcess)
-            if ($windowProcess -eq $process.Id -and [AriadneControlWindowSmoke]::IsWindowVisible($handle) -eq $Visible) {
+            $null = [FancunControlWindowSmoke]::GetWindowThreadProcessId($handle, [ref]$windowProcess)
+            if ($windowProcess -eq $process.Id -and [FancunControlWindowSmoke]::IsWindowVisible($handle) -eq $Visible) {
                 return $handle
             }
         }
@@ -42,7 +42,7 @@ function Assert-Exit($process) {
     if ($process.ExitCode -ne 0) { throw "Control crashed: $($process.ExitCode)" }
 }
 function Assert-Status($process) {
-    $pipeName = 'ariadne-iphone-control-' + (Get-Process -Id $PID).SessionId
+    $pipeName = 'fancun-iphone-control-' + (Get-Process -Id $PID).SessionId
     $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', $pipeName, [System.IO.Pipes.PipeDirection]::InOut)
     try {
         $pipe.Connect(5000)
@@ -75,7 +75,7 @@ try {
     $control.Refresh()
     if ($control.HasExited) { throw 'Second invocation closed the first control.' }
     Write-Output 'PASS singleton activation'
-    if (-not [AriadneControlWindowSmoke]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
+    if (-not [FancunControlWindowSmoke]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
         throw 'Cannot close control window.'
     }
     $null = Wait-Window $control $false

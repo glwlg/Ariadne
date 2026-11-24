@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/appdb"
+	"fancun/internal/appdb"
 
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
@@ -106,8 +106,8 @@ func TestFindVirtualizedConfigPathDetectsMSIXLocalCache(t *testing.T) {
 	dir := t.TempDir()
 	appData := filepath.Join(dir, "Roaming")
 	localAppData := filepath.Join(dir, "Local")
-	configPath := filepath.Join(appData, "Ariadne", "config.json")
-	virtualizedPath := filepath.Join(localAppData, "Packages", "OpenAI.Codex_2p2nqsd0c76g0", "LocalCache", "Roaming", "Ariadne", "config.json")
+	configPath := filepath.Join(appData, "Fancun", "config.json")
+	virtualizedPath := filepath.Join(localAppData, "Packages", "OpenAI.Codex_2p2nqsd0c76g0", "LocalCache", "Roaming", "Fancun", "config.json")
 	if err := os.MkdirAll(filepath.Dir(virtualizedPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestFindVirtualizedConfigPathDetectsMSIXLocalCache(t *testing.T) {
 
 func TestImportLegacyConfigSkipsSecretsWhenCredentialStoreUnavailable(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "ariadne.json")
+	configPath := filepath.Join(dir, "fancun.json")
 	legacyPath := filepath.Join(dir, "x-tools.json")
 	legacy := map[string]any{
 		"work_memory": map[string]any{
@@ -153,7 +153,7 @@ func TestImportLegacyConfigSkipsSecretsWhenCredentialStoreUnavailable(t *testing
 	}
 	persistedText := readPersistedSettingsText(t, configPath)
 	if strings.Contains(persistedText, "legacy-ai-key") {
-		t.Fatalf("legacy secret leaked into Ariadne settings storage: %s", persistedText)
+		t.Fatalf("legacy secret leaked into Fancun settings storage: %s", persistedText)
 	}
 	status := service.LegacyConfigStatus()
 	if !noteContains(status.Notes, "安全凭据存储不可用") {

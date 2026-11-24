@@ -8,8 +8,8 @@ import (
 )
 
 func TestCommandLineEscapesArguments(t *testing.T) {
-	line := commandLine([]string{"filesearch-service-install", `C:\Program Files\Ariadne\ariadne.exe`})
-	if !strings.Contains(line, "filesearch-service-install") || !strings.Contains(line, `"C:\Program Files\Ariadne\ariadne.exe"`) {
+	line := commandLine([]string{"filesearch-service-install", `C:\Program Files\Fancun\fancun.exe`})
+	if !strings.Contains(line, "filesearch-service-install") || !strings.Contains(line, `"C:\Program Files\Fancun\fancun.exe"`) {
 		t.Fatalf("arguments should be Windows-escaped, got %q", line)
 	}
 }

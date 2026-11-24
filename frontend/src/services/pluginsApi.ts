@@ -1,9 +1,9 @@
-import type { PluginManifest } from '../types/ariadne'
+import type { PluginManifest } from '../types/fancun'
 
 async function tryPluginsBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/plugins/service.js')
+    return await import('../../bindings/fancun/internal/plugins/service.js')
   } catch {
     return null
   }

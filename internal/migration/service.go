@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
 )
 
 type LegacySourceStatus struct {
@@ -108,7 +108,7 @@ func (s *Service) Status() LegacyDataStatus {
 		}
 	}
 	if status.Exists && status.TotalCount > 0 && !status.NeedsImport {
-		status.Notes = append(status.Notes, "旧历史数据已在 Ariadne 中发现对应导入记录，迁移入口默认隐藏。")
+		status.Notes = append(status.Notes, "旧历史数据已在 Fancun 中发现对应导入记录，迁移入口默认隐藏。")
 	}
 	return status
 }

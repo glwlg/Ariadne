@@ -15,7 +15,12 @@ func setAutostart(productName string, exePath string) error {
 		return err
 	}
 	defer key.Close()
-	return key.SetStringValue(autostartValueName(productName), fmt.Sprintf("%q", exePath))
+	if strings.EqualFold(strings.TrimSpace(productName), "Fancun") {
+		if err := key.DeleteValue("Fancun"); err != nil && err != registry.ErrNotExist {
+			return err
+		}
+	}
+	return key.SetStringValue(autostartValueName(productName), fmt.Sprintf("%q --hidden", exePath))
 }
 
 func cleanupAutostart(productName string) {
@@ -25,11 +30,17 @@ func cleanupAutostart(productName string) {
 	}
 	defer key.Close()
 	_ = key.DeleteValue(autostartValueName(productName))
+	if strings.EqualFold(strings.TrimSpace(productName), "Fancun") {
+		_ = key.DeleteValue("Fancun")
+	}
 }
 
 func autostartValueName(productName string) string {
 	if strings.TrimSpace(productName) == "" {
-		return "Ariadne"
+		productName = "Fancun"
+	}
+	if strings.EqualFold(strings.TrimSpace(productName), "Fancun") {
+		return "com.glwlg.fancun"
 	}
 	return productName
 }

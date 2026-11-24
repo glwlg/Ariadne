@@ -1,4 +1,4 @@
-import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/ariadne'
+import type { AppSettings, LegacyConfigStatus, SettingsStorageStatus } from '../types/fancun'
 
 const fallbackSettings: AppSettings = {
   version: 23,
@@ -16,8 +16,8 @@ const fallbackSettings: AppSettings = {
     autoCopy: false,
     autoPin: false,
     autoSave: false,
-    saveDir: '~/Pictures/Ariadne',
-    filenameTemplate: 'ariadne_{date}_{time}',
+    saveDir: '~/Pictures/Fancun',
+    filenameTemplate: 'fancun_{date}_{time}',
     quality: 90,
     autoRedact: false,
     redactPhones: true,
@@ -77,7 +77,7 @@ const fallbackSettings: AppSettings = {
       String.raw`(?i)(^|[\\/])(site-packages|dist-packages)([\\/]|$)`,
       String.raw`(?i)(^|[\\/])(jetbrains|trae cn|trae|antigravity|zed|qoder)([\\/]|$)`,
       String.raw`(?i)(^|[\\/])(logs?|log)([\\/]|$)`,
-      String.raw`(?i)(^|[\\/])ariadne[\\/](capture_images|capture_thumbnails)([\\/]|$)`,
+      String.raw`(?i)(^|[\\/])fancun[\\/](capture_images|capture_thumbnails)([\\/]|$)`,
       String.raw`(?i)\.(log|journal|db-journal|sqlite-wal|sqlite-shm|db-wal|db-shm|odlgz|statistic|dxcache-shm|dxcache-wal)$`,
       String.raw`(?i)(^|[\\/])(\$mft|\$logfile|\$bitmap|\$boot|\$badclus|\$secure|\$upcase|\$volume|\$attrdef|pagefile\.sys|hiberfil\.sys|swapfile\.sys|dumpstack\.log\.tmp|thumbs\.db|desktop\.ini)$`,
       String.raw`(?i)(^|[\\/])(\.git|\.hg|\.svn|node_modules|\.pnpm-store|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache|\.gradle|\.idea|\.vscode|\.cache|\.codex|\.codex-audit|coverage|dist|build|target|out|bin|obj|\.next|\.nuxt|\.vite|\.turbo|\.parcel-cache|\.svelte-kit|\.angular|\.vercel)([\\/]|$)`,
@@ -109,7 +109,7 @@ let fallbackCurrent = structuredClone(fallbackSettings)
 async function trySettingsBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/settings/service.js')
+    return await import('../../bindings/fancun/internal/settings/service.js')
   } catch {
     return null
   }
@@ -189,8 +189,8 @@ function fallbackLegacyStatus(): LegacyConfigStatus {
 
 function fallbackStorageStatus(): SettingsStorageStatus {
   return {
-    path: '%APPDATA%/Ariadne/ariadne.sqlite',
-    directory: '%APPDATA%/Ariadne',
+    path: '%APPDATA%/Fancun/fancun.sqlite',
+    directory: '%APPDATA%/Fancun',
     directoryExists: false,
     exists: false,
     bytes: 0,

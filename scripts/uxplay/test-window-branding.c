@@ -1,13 +1,13 @@
 #include <gst/app/gstappsrc.h>
 #include <stdio.h>
-#include "ariadne-window.h"
+#include "fancun-window.h"
 
 static PVOID volatile video_window;
 static HANDLE control_started;
 static HWND control_window;
 static volatile LONG control_ready = 2, packet_count, reject_press;
 static volatile LONG keyboard_ready = 1;
-static AriadnePointerPacket packets[64];
+static FancunPointerPacket packets[64];
 static WNDPROC resize_original;
 #define TEST_SYSTEM_RESIZE (WM_APP + 301)
 #define TEST_FOCUS (WM_APP + 302)
@@ -82,8 +82,8 @@ static LRESULT CALLBACK test_control_proc(HWND window, UINT message, WPARAM wp, 
 {
     if (message == WM_COPYDATA) {
         COPYDATASTRUCT *data = (COPYDATASTRUCT *)lp;
-        if (data->dwData != ARIADNE_POINTER_TAG || data->cbData != sizeof(AriadnePointerPacket)) return 0;
-        AriadnePointerPacket *packet = data->lpData;
+        if (data->dwData != FANCUN_POINTER_TAG || data->cbData != sizeof(FancunPointerPacket)) return 0;
+        FancunPointerPacket *packet = data->lpData;
         if (packet->version != 1) return 0;
         if (packet->kind == POINTER_QUERY) return control_ready;
         if (packet->kind == KEYBOARD_QUERY) return keyboard_ready;
@@ -101,9 +101,9 @@ static LRESULT CALLBACK test_control_proc(HWND window, UINT message, WPARAM wp, 
 
 static DWORD WINAPI test_control_thread(void *unused)
 {
-    WNDCLASSW cls = {.lpfnWndProc = test_control_proc, .lpszClassName = L"Ariadne.ScreenInput.Test"};
+    WNDCLASSW cls = {.lpfnWndProc = test_control_proc, .lpszClassName = L"Fancun.ScreenInput.Test"};
     RegisterClassW(&cls);
-    control_window = CreateWindowW(cls.lpszClassName, ARIADNE_CONTROL_TITLE, 0, 0, 0, 1, 1,
+    control_window = CreateWindowW(cls.lpszClassName, FANCUN_CONTROL_TITLE, 0, 0, 0, 1, 1,
         NULL, NULL, GetModuleHandleW(NULL), NULL);
     SetEvent(control_started);
     MSG msg;
@@ -114,13 +114,13 @@ static DWORD WINAPI test_control_thread(void *unused)
 static int test_pointer_mapping(void)
 {
     POINT point;
-    if (ariadne_map_pointer(1000, 1000, 1920, 1080, 1, 1, 500, 20, FALSE, &point)) return 1;
-    if (!ariadne_map_pointer(1000, 1000, 1920, 1080, 1, 1, 500, 500, FALSE, &point) ||
+    if (fancun_map_pointer(1000, 1000, 1920, 1080, 1, 1, 500, 20, FALSE, &point)) return 1;
+    if (!fancun_map_pointer(1000, 1000, 1920, 1080, 1, 1, 500, 500, FALSE, &point) ||
         abs(point.x - 16384) > 64 || abs(point.y - 16384) > 64) return 1;
-    if (!ariadne_map_pointer(1000, 1000, 1080, 1920, 1, 1, -200, 2000, TRUE, &point) ||
+    if (!fancun_map_pointer(1000, 1000, 1080, 1920, 1, 1, -200, 2000, TRUE, &point) ||
         point.x != 0 || point.y != 32767) return 1;
-    if (ariadne_map_pointer(0, 1000, 1080, 1920, 1, 1, 0, 0, FALSE, &point)) return 1;
-    if (!ariadne_map_pointer(1000, 500, 500, 500, 2, 1, 500, 250, FALSE, &point) ||
+    if (fancun_map_pointer(0, 1000, 1080, 1920, 1, 1, 0, 0, FALSE, &point)) return 1;
+    if (!fancun_map_pointer(1000, 500, 500, 500, 2, 1, 500, 250, FALSE, &point) ||
         abs(point.x - 16384) > 64 || abs(point.y - 16384) > 64) return 1;
     return 0;
 }
@@ -128,19 +128,19 @@ static int test_pointer_mapping(void)
 static int test_key_mapping(void)
 {
     // Letters follow physical scan codes even when the desktop layout changes their virtual key.
-    if (ariadne_key_usage('Q', 0x1e0001) != 4 ||
-        ariadne_key_usage(VK_SHIFT, 0x2a0001) != 225 ||
-        ariadne_key_usage(VK_SHIFT, 0x360001) != 229 ||
-        ariadne_key_usage(VK_CONTROL, 0x011d0001) != 228 ||
-        ariadne_key_usage(VK_MENU, 0x01380001) != 230 ||
-        ariadne_key_usage(VK_RETURN, 0x1c0001) != 40 ||
-        ariadne_key_usage(VK_RETURN, 0x011c0001) != 88 ||
-        ariadne_key_usage(VK_INSERT, 0x520001) != 98 ||
-        ariadne_key_usage(VK_INSERT, 0x01520001) != 73 ||
-        ariadne_key_usage(VK_OEM_1, 0x270001) != 51 ||
-        ariadne_key_usage(VK_F12, 0x580001) != 69 ||
-        ariadne_key_usage(VK_PAUSE, 0x450001) != 72 ||
-        ariadne_key_usage(VK_VOLUME_UP, 0x01300001) != 0) {
+    if (fancun_key_usage('Q', 0x1e0001) != 4 ||
+        fancun_key_usage(VK_SHIFT, 0x2a0001) != 225 ||
+        fancun_key_usage(VK_SHIFT, 0x360001) != 229 ||
+        fancun_key_usage(VK_CONTROL, 0x011d0001) != 228 ||
+        fancun_key_usage(VK_MENU, 0x01380001) != 230 ||
+        fancun_key_usage(VK_RETURN, 0x1c0001) != 40 ||
+        fancun_key_usage(VK_RETURN, 0x011c0001) != 88 ||
+        fancun_key_usage(VK_INSERT, 0x520001) != 98 ||
+        fancun_key_usage(VK_INSERT, 0x01520001) != 73 ||
+        fancun_key_usage(VK_OEM_1, 0x270001) != 51 ||
+        fancun_key_usage(VK_F12, 0x580001) != 69 ||
+        fancun_key_usage(VK_PAUSE, 0x450001) != 72 ||
+        fancun_key_usage(VK_VOLUME_UP, 0x01300001) != 0) {
         fprintf(stderr, "Keyboard scan code mapping failed\n");
         return 1;
     }
@@ -172,9 +172,14 @@ static int test_direct_input(HWND window)
     SendMessageW(window, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(x + 20, y + 20));
     Sleep(80);
     SendMessageW(window, WM_LBUTTONUP, 0, MAKELPARAM(x + 30, y + 30));
-    INPUT_CHECK(packet_count >= 3 && packets[0].kind == POINTER_DOWN &&
-        packets[1].kind == POINTER_MOVE && packets[2].kind == POINTER_UP &&
-        packets[2].x > packets[0].x && packets[2].y > packets[0].y, "Drag sequence");
+    // Windows may enqueue additional mouse moves while capture is active.
+    LONG drag_count = packet_count;
+    INPUT_CHECK(drag_count >= 3 && drag_count <= 64 && packets[0].kind == POINTER_DOWN &&
+        packets[drag_count - 1].kind == POINTER_UP &&
+        packets[drag_count - 1].x > packets[0].x &&
+        packets[drag_count - 1].y > packets[0].y, "Drag sequence");
+    for (LONG index = 1; index + 1 < drag_count && index < 64; index++)
+        INPUT_CHECK(packets[index].kind == POINTER_MOVE, "Drag intermediate movement");
 
     InterlockedExchange(&packet_count, 0);
     SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
@@ -328,8 +333,8 @@ static int wait_orientation(HWND window, int landscape)
 static int test_controls(HWND window, GstElement *source)
 {
     if (wait_orientation(window, 0)) return 1;
-    ariadne_video_client("Test iPhone");
-    ariadne_video_metadata("Test \"episode\"", "Test artist");
+    fancun_video_client("Test iPhone");
+    fancun_video_metadata("Test \"episode\"", "Test artist");
     Sleep(100);
     wchar_t title[256] = {0};
     GetWindowTextW(window, title, 256);
@@ -398,10 +403,10 @@ static int test_controls(HWND window, GstElement *source)
     if (GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) return 1;
     SendMessageW(window, WM_KEYDOWN, VK_ESCAPE, 0);
     if (test_direct_input(window)) return 1;
-    ariadne_video_stopped();
+    fancun_video_stopped();
     Sleep(100);
     GetWindowTextW(window, title, 256);
-    if (wcscmp(title, L"Ariadne")) {
+    if (wcscmp(title, L"Fancun")) {
         fprintf(stderr, "Disconnected window retained stale metadata\n");
         return 1;
     }
@@ -410,7 +415,7 @@ static int test_controls(HWND window, GstElement *source)
 
 static GstBusSyncReply brand_window(GstBus *bus, GstMessage *message, gpointer unused)
 {
-    HWND window = ariadne_brand_video_window(message);
+    HWND window = fancun_brand_video_window(message);
     if (window) {
         InterlockedExchangePointer(&video_window, window);
     }
@@ -452,12 +457,12 @@ static int test_window(void)
                             GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_SHARED);
     HICON small = LoadImageW(module, MAKEINTRESOURCEW(101), IMAGE_ICON,
                             GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED);
-    int failed = !window || !IsWindowVisible(window) || wcscmp(title, L"Ariadne") ||
+    int failed = !window || !IsWindowVisible(window) || wcscmp(title, L"Fancun") ||
                  !large || !small ||
                  (HICON) SendMessageW(window, WM_GETICON, ICON_BIG, 0) != large ||
                  (HICON) SendMessageW(window, WM_GETICON, ICON_SMALL, 0) != small;
     if (failed) {
-        fprintf(stderr, "Video window must show Ariadne title and both embedded icons\n");
+        fprintf(stderr, "Video window must show Fancun title and both embedded icons\n");
         GstMessage *message = gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
         if (message) {
             gst_message_parse_error(message, &error, NULL);
@@ -480,7 +485,7 @@ int main(int argc, char **argv)
     if (test_pointer_mapping()) { fprintf(stderr, "Pointer mapping failed\n"); return 1; }
     if (test_key_mapping()) return 1;
     GError *error = NULL;
-    gchar *directory = g_dir_make_tmp("ariadne-video-test-XXXXXX", &error);
+    gchar *directory = g_dir_make_tmp("fancun-video-test-XXXXXX", &error);
     if (!directory || !SetCurrentDirectoryA(directory)) return 1;
     for (int connection = 0; connection < 2; connection++) {
         if (test_window()) return 1;
@@ -489,7 +494,7 @@ int main(int argc, char **argv)
     SetCurrentDirectoryW(L"..");
     RemoveDirectoryA(directory);
     g_free(directory);
-    puts("PASS Ariadne icons, rotation, remembered sizes, metadata, topmost, fullscreen, resize capture, direct pointer input, keyboard and reconnect");
+    puts("PASS Fancun icons, rotation, remembered sizes, metadata, topmost, fullscreen, resize capture, direct pointer input, keyboard and reconnect");
     gst_deinit();
     return 0;
 }

@@ -1,9 +1,9 @@
-import type { ReleaseBackupRequest, ReleaseBackupResult, ReleaseBackupStatus, ReleaseRestoreRequest, ReleaseRestoreResult } from '../types/ariadne'
+import type { ReleaseBackupRequest, ReleaseBackupResult, ReleaseBackupStatus, ReleaseRestoreRequest, ReleaseRestoreResult } from '../types/fancun'
 
 async function tryReleaseBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/release/service.js')
+    return await import('../../bindings/fancun/internal/release/service.js')
   } catch {
     return null
   }
@@ -48,13 +48,13 @@ export async function restoreRollbackCheckpoint(request: ReleaseRestoreRequest):
 function fallbackReleaseBackupStatus(): ReleaseBackupStatus {
   return {
     dataRoots: [
-      { kind: 'roaming', archiveName: 'roaming', path: '%APPDATA%/Ariadne', exists: false, fileCount: 0, bytes: 0 },
+      { kind: 'roaming', archiveName: 'roaming', path: '%APPDATA%/Fancun', exists: false, fileCount: 0, bytes: 0 },
     ],
-    backupDir: '%APPDATA%/Ariadne/backups',
+    backupDir: '%APPDATA%/Fancun/backups',
     backupCount: 0,
     backupBytes: 0,
     latestBackup: '',
-    notes: ['开发态 fallback 未读取 Ariadne 本地数据；桌面构建会调用 Go release 服务。'],
+    notes: ['开发态 fallback 未读取 Fancun 本地数据；桌面构建会调用 Go release 服务。'],
   }
 }
 

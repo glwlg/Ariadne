@@ -13,7 +13,7 @@ const viewSizes = {
 }
 
 function viewTitle(view: AppView) {
-  return view === 'launcher' ? 'Ariadne' : toolViews[view].title
+  return view === 'launcher' ? 'Fancun' : toolViews[view].title
 }
 
 export const useAppShellStore = defineStore('app-shell', () => {
@@ -38,7 +38,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
     if (isLauncherWindow()) {
       activeView.value = 'launcher'
       document.title = viewTitle('launcher')
-      window.setTimeout(() => window.dispatchEvent(new CustomEvent('ariadne:focus-launcher', { detail: { selectAll: true } })), 0)
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent('fancun:focus-launcher', { detail: { selectAll: true } })), 0)
       return
     }
     void showLauncherWindow()
@@ -122,7 +122,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
       openViewFallback(view)
       return true
     }
-    console.warn(`Ariadne tool window failed: ${result.message}`)
+    console.warn(`Fancun tool window failed: ${result.message}`)
     return false
   }
 
@@ -151,10 +151,10 @@ export const useAppShellStore = defineStore('app-shell', () => {
       handleNavigate(String((event as CustomEvent).detail ?? ''))
     }
 
-    window.addEventListener('ariadne:navigate', handleDomNavigate)
+    window.addEventListener('fancun:navigate', handleDomNavigate)
     let uninstallWailsEvent = () => {}
     try {
-      uninstallWailsEvent = Events.On('ariadne:navigate', (event) => {
+      uninstallWailsEvent = Events.On('fancun:navigate', (event) => {
         handleNavigate(String(event.data ?? ''))
       })
     } catch {
@@ -163,7 +163,7 @@ export const useAppShellStore = defineStore('app-shell', () => {
 
     return () => {
       uninstallWailsEvent()
-      window.removeEventListener('ariadne:navigate', handleDomNavigate)
+      window.removeEventListener('fancun:navigate', handleDomNavigate)
     }
   }
 

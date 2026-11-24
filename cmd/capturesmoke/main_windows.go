@@ -21,8 +21,8 @@ import (
 	"time"
 	"unsafe"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
 
 	"golang.org/x/sys/windows"
 )
@@ -244,7 +244,7 @@ func parseOptions() options {
 	opts := options{}
 	var timeoutMs int64
 	var maxPinMs int64
-	flag.StringVar(&opts.ExePath, "exe", filepath.Join("bin", "ariadne.exe"), "Path to ariadne.exe")
+	flag.StringVar(&opts.ExePath, "exe", filepath.Join("bin", "fancun.exe"), "Path to fancun.exe")
 	flag.StringVar(&opts.OutputPath, "output", "", "Optional JSON report path")
 	flag.Int64Var(&timeoutMs, "timeout-ms", 12000, "Timeout per UI wait in milliseconds")
 	flag.Int64Var(&maxPinMs, "max-pin-ms", 0, "Fail if the pinned image window takes longer than this many milliseconds to appear; 0 disables the latency assertion")
@@ -269,7 +269,7 @@ func parseOptions() options {
 func run(opts options) report {
 	startedAt := time.Now()
 	result := report{
-		ProductName: "Ariadne",
+		ProductName: "Fancun",
 		CreatedAt:   startedAt.Unix(),
 		ExePath:     opts.ExePath,
 	}
@@ -298,7 +298,7 @@ func run(opts options) report {
 	roaming := os.Getenv("APPDATA")
 	local := os.Getenv("LOCALAPPDATA")
 	if !opts.UseCurrentProfile {
-		tempRoot, err := os.MkdirTemp("", "ariadne-capture-smoke-")
+		tempRoot, err := os.MkdirTemp("", "fancun-capture-smoke-")
 		if err != nil {
 			return result.fail("create temp appdata", err)
 		}
@@ -336,7 +336,7 @@ func run(opts options) report {
 
 	pid := uint32(command.Process.Pid)
 	mainWindow, ok, err := waitForWindow(pid, minDuration(opts.Timeout, 2500*time.Millisecond), func(window windowSample) bool {
-		return strings.EqualFold(window.Title, "Ariadne")
+		return strings.EqualFold(window.Title, "Fancun")
 	}, exited)
 	if err != nil {
 		return result.fail("wait main window", err)
@@ -419,7 +419,7 @@ func run(opts options) report {
 		}
 	}
 	if !ok {
-		result.AppLogTail = readLogTail(filepath.Join(roaming, "Ariadne", "logs", "ariadne.log"), 40)
+		result.AppLogTail = readLogTail(filepath.Join(roaming, "Fancun", "logs", "fancun.log"), 40)
 		return result.fail("wait capture overlay", fmt.Errorf("capture overlay not found within %s after Alt+A", opts.Timeout))
 	}
 	overlay := chooseOverlay(overlays, selection)
@@ -457,7 +457,7 @@ func run(opts options) report {
 		}
 		result.addStep("copy_selection_to_clipboard", latencyOK, dimensionsDetail, copyElapsed)
 		result.Pass = latencyOK
-		result.AppLogTail = readLogTail(filepath.Join(roaming, "Ariadne", "logs", "ariadne.log"), 40)
+		result.AppLogTail = readLogTail(filepath.Join(roaming, "Fancun", "logs", "fancun.log"), 40)
 		return result
 	}
 
@@ -487,11 +487,11 @@ func run(opts options) report {
 	result.addStep("pin_selection", pinOK, pinDetail, pinElapsed)
 	if opts.PinLatencyOnly {
 		result.Pass = pinOK
-		result.AppLogTail = readLogTail(filepath.Join(roaming, "Ariadne", "logs", "ariadne.log"), 40)
+		result.AppLogTail = readLogTail(filepath.Join(roaming, "Fancun", "logs", "fancun.log"), 40)
 		return result
 	}
 
-	latestPNG, err := waitLatestPNG(filepath.Join(roaming, "Ariadne", "capture_images"), opts.Timeout)
+	latestPNG, err := waitLatestPNG(filepath.Join(roaming, "Fancun", "capture_images"), opts.Timeout)
 	if err != nil {
 		return result.fail("find captured png", err)
 	}
@@ -569,7 +569,7 @@ func run(opts options) report {
 	)
 
 	result.Pass = true
-	result.AppLogTail = readLogTail(filepath.Join(roaming, "Ariadne", "logs", "ariadne.log"), 40)
+	result.AppLogTail = readLogTail(filepath.Join(roaming, "Fancun", "logs", "fancun.log"), 40)
 	for _, step := range result.Steps {
 		if !step.OK && !step.Skipped {
 			result.Pass = false

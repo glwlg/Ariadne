@@ -58,11 +58,11 @@ func TestCheckForUpdatesExposesInstallerRelease(t *testing.T) {
 		state:   updater.StateIdle,
 		release: &updater.Release{
 			Version:      "1.1.0",
-			Name:         "Ariadne 1.1.0",
+			Name:         "Fancun 1.1.0",
 			Notes:        "修复与改进",
 			Verification: &updater.Verification{DigestAlgo: "sha256", Digest: make([]byte, 32)},
 			Artifact: updater.Artifact{
-				Filename: "AriadneSetup-1.1.0-windows-x64.exe",
+				Filename: "FancunSetup-1.1.0-windows-x64.exe",
 				Filetype: "exe",
 			},
 		},
@@ -85,7 +85,7 @@ func TestCheckRejectsInstallerWithoutSHA256Verification(t *testing.T) {
 		state:   updater.StateIdle,
 		release: &updater.Release{
 			Version:  "1.1.0",
-			Artifact: updater.Artifact{Filename: "AriadneSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
+			Artifact: updater.Artifact{Filename: "FancunSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
 		},
 	}
 
@@ -103,7 +103,7 @@ func TestRejectedCheckClearsPreviouslyAvailableRelease(t *testing.T) {
 		release: &updater.Release{
 			Version:      "1.1.0",
 			Verification: &updater.Verification{DigestAlgo: "sha256", Digest: make([]byte, 32)},
-			Artifact:     updater.Artifact{Filename: "AriadneSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
+			Artifact:     updater.Artifact{Filename: "FancunSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
 		},
 	}
 	service := NewService("1.0.0", client, nil)
@@ -112,7 +112,7 @@ func TestRejectedCheckClearsPreviouslyAvailableRelease(t *testing.T) {
 	}
 	client.release = &updater.Release{
 		Version:  "1.2.0",
-		Artifact: updater.Artifact{Filename: "AriadneSetup-1.2.0-windows-x64.exe", Filetype: "exe"},
+		Artifact: updater.Artifact{Filename: "FancunSetup-1.2.0-windows-x64.exe", Filetype: "exe"},
 	}
 	client.state = updater.StateIdle
 
@@ -124,7 +124,7 @@ func TestRejectedCheckClearsPreviouslyAvailableRelease(t *testing.T) {
 }
 
 func TestDownloadAndLaunchInstallerUsesVerifiedStagedSetup(t *testing.T) {
-	setupPath := filepath.Join(t.TempDir(), "AriadneSetup-1.1.0-windows-x64.exe")
+	setupPath := filepath.Join(t.TempDir(), "FancunSetup-1.1.0-windows-x64.exe")
 	if err := os.WriteFile(setupPath, []byte("setup"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -159,10 +159,10 @@ func TestDownloadAndLaunchInstallerUsesVerifiedStagedSetup(t *testing.T) {
 
 func TestSetupAssetMatcherSelectsOnlyWindowsInstaller(t *testing.T) {
 	assets := []githubprovider.ReleaseAsset{
-		{Name: "ariadne-1.1.0-windows-x64.zip"},
+		{Name: "fancun-1.1.0-windows-x64.zip"},
 		{Name: "SHA256SUMS"},
-		{Name: "AriadneSetup-1.1.0-linux-amd64.exe"},
-		{Name: "AriadneSetup-1.1.0-windows-x64.exe"},
+		{Name: "FancunSetup-1.1.0-linux-amd64.exe"},
+		{Name: "FancunSetup-1.1.0-windows-x64.exe"},
 	}
 
 	index := setupAssetMatcher(updater.CheckRequest{Platform: "windows", Arch: "amd64"}, assets)
@@ -200,7 +200,7 @@ func TestDownloadRejectsUnexpectedStagedExecutable(t *testing.T) {
 		release: &updater.Release{
 			Version:      "1.1.0",
 			Verification: &updater.Verification{DigestAlgo: "sha256", Digest: make([]byte, 32)},
-			Artifact:     updater.Artifact{Filename: "AriadneSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
+			Artifact:     updater.Artifact{Filename: "FancunSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
 		},
 	}
 	launched := false
@@ -220,7 +220,7 @@ func TestDownloadRejectsUnexpectedStagedExecutable(t *testing.T) {
 }
 
 func TestDownloadRejectsInstallerThatDoesNotMatchCheckedRelease(t *testing.T) {
-	stagedPath := filepath.Join(t.TempDir(), "AriadneSetup-1.2.0-windows-x64.exe")
+	stagedPath := filepath.Join(t.TempDir(), "FancunSetup-1.2.0-windows-x64.exe")
 	if err := os.WriteFile(stagedPath, []byte("setup"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestDownloadRejectsInstallerThatDoesNotMatchCheckedRelease(t *testing.T) {
 		release: &updater.Release{
 			Version:      "1.1.0",
 			Verification: &updater.Verification{DigestAlgo: "sha256", Digest: make([]byte, 32)},
-			Artifact:     updater.Artifact{Filename: "AriadneSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
+			Artifact:     updater.Artifact{Filename: "FancunSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
 		},
 	}
 	launched := false
@@ -292,7 +292,7 @@ func TestInstallStopsWhenPreUpdateCheckpointFails(t *testing.T) {
 		release: &updater.Release{
 			Version:      "1.1.0",
 			Verification: &updater.Verification{DigestAlgo: "sha256", Digest: make([]byte, 32)},
-			Artifact:     updater.Artifact{Filename: "AriadneSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
+			Artifact:     updater.Artifact{Filename: "FancunSetup-1.1.0-windows-x64.exe", Filetype: "exe"},
 		},
 	}
 	service := NewServiceWithPreparation("1.0.0", client, func(string) error {

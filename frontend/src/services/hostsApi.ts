@@ -1,4 +1,4 @@
-import type { HostsApplyPreview, HostsApplyResult, HostsProfile, HostsStatus } from '../types/ariadne'
+import type { HostsApplyPreview, HostsApplyResult, HostsProfile, HostsStatus } from '../types/fancun'
 
 let fallbackProfiles: HostsProfile[] = [
   {
@@ -12,7 +12,7 @@ let fallbackProfiles: HostsProfile[] = [
 ]
 
 let fallbackStatus: HostsStatus = {
-  configPath: '%APPDATA%/Ariadne/ariadne.sqlite',
+  configPath: '%APPDATA%/Fancun/fancun.sqlite',
   hostsPath: 'C:/Windows/System32/drivers/etc/hosts',
   legacyPath: '~/.x-tools/hosts_profiles.json',
   count: 1,
@@ -28,7 +28,7 @@ let fallbackStatus: HostsStatus = {
 async function tryHostsBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/hosts/service.js')
+    return await import('../../bindings/fancun/internal/hosts/service.js')
   } catch {
     return null
   }
@@ -144,7 +144,7 @@ export async function applyEnabledHostsProfiles(confirmed: boolean): Promise<Hos
 function normalizeStatus(status: HostsStatus): HostsStatus {
   const profiles = normalizeProfiles(status.profiles ?? fallbackProfiles)
   return {
-    configPath: status.configPath || '%APPDATA%/Ariadne/ariadne.sqlite',
+    configPath: status.configPath || '%APPDATA%/Fancun/fancun.sqlite',
     hostsPath: status.hostsPath || 'C:/Windows/System32/drivers/etc/hosts',
     legacyPath: status.legacyPath || '~/.x-tools/hosts_profiles.json',
     count: status.count ?? profiles.length,

@@ -8,10 +8,10 @@ import (
 )
 
 func TestWindowsCredentialManagerRoundTrip(t *testing.T) {
-	if os.Getenv("ARIADNE_TEST_CREDENTIAL_MANAGER") != "1" {
-		t.Skip("set ARIADNE_TEST_CREDENTIAL_MANAGER=1 to test the real Windows Credential Manager")
+	if os.Getenv("FANCUN_TEST_CREDENTIAL_MANAGER") != "1" {
+		t.Skip("set FANCUN_TEST_CREDENTIAL_MANAGER=1 to test the real Windows Credential Manager")
 	}
-	target := "Ariadne/Test/CredentialManagerRoundTrip"
+	target := "Fancun/Test/CredentialManagerRoundTrip"
 	_ = Delete(target)
 	t.Cleanup(func() { _ = Delete(target) })
 
@@ -37,9 +37,9 @@ func TestWindowsCredentialManagerRoundTrip(t *testing.T) {
 	}
 }
 
-func TestConfiguredAriadneCredentialsReadable(t *testing.T) {
-	if os.Getenv("ARIADNE_TEST_CONFIGURED_CREDENTIALS") != "1" {
-		t.Skip("set ARIADNE_TEST_CONFIGURED_CREDENTIALS=1 to verify configured Ariadne credentials")
+func TestConfiguredFancunCredentialsReadable(t *testing.T) {
+	if os.Getenv("FANCUN_TEST_CONFIGURED_CREDENTIALS") != "1" {
+		t.Skip("set FANCUN_TEST_CONFIGURED_CREDENTIALS=1 to verify configured Fancun credentials")
 	}
 	for _, target := range []string{TargetOpenAIAPIKey, TargetEmbeddingAPIKey} {
 		value, ok, err := Read(target)

@@ -11,18 +11,18 @@ import (
 )
 
 func TestParseArgsConsumesQuietFlags(t *testing.T) {
-	parsed := ParseArgs([]string{"--quiet", "-InstallDir", `C:\Temp\Ariadne`, "/silent", "-NoShortcuts"})
+	parsed := ParseArgs([]string{"--quiet", "-InstallDir", `C:\Temp\Fancun`, "/silent", "-NoShortcuts"})
 	if !parsed.Quiet {
 		t.Fatal("expected quiet mode")
 	}
-	if got := strings.Join(parsed.InstallArgs, " "); got != `-InstallDir C:\Temp\Ariadne -NoShortcuts` {
+	if got := strings.Join(parsed.InstallArgs, " "); got != `-InstallDir C:\Temp\Fancun -NoShortcuts` {
 		t.Fatalf("unexpected install args: %q", got)
 	}
 }
 
 func TestParseArgsConsumesUpdateDirectory(t *testing.T) {
-	parsed := ParseArgs([]string{"--update-from", `C:\Apps\Ariadne`})
-	if parsed.UpdateDir != `C:\Apps\Ariadne` {
+	parsed := ParseArgs([]string{"--update-from", `C:\Apps\Fancun`})
+	if parsed.UpdateDir != `C:\Apps\Fancun` {
 		t.Fatalf("update dir = %q", parsed.UpdateDir)
 	}
 	if len(parsed.InstallArgs) != 0 {
@@ -32,16 +32,17 @@ func TestParseArgsConsumesUpdateDirectory(t *testing.T) {
 
 func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 	command, err := parseCommandOptions([]string{
-		"-InstallDir", `C:\Apps\Ariadne`,
+		"-InstallDir", `C:\Apps\Fancun`,
 		"--no-desktop-shortcut",
 		"--no-autostart",
 		"--launch-after-install",
 		"--no-file-search-service",
+		"--legacy-roaming-source", `C:\Users\luwei\AppData\Roaming\Ariadne`,
 	})
 	if err != nil {
 		t.Fatalf("parse command options: %v", err)
 	}
-	if command.InstallDir != `C:\Apps\Ariadne` {
+	if command.InstallDir != `C:\Apps\Fancun` {
 		t.Fatalf("install dir = %q", command.InstallDir)
 	}
 	if command.CreateDesktopShortcut {
@@ -55,6 +56,9 @@ func TestParseCommandOptionsAcceptsInstallerChoices(t *testing.T) {
 	}
 	if command.InstallFileSearchService {
 		t.Fatal("file search service should be disabled")
+	}
+	if command.LegacyRoamingSource != `C:\Users\luwei\AppData\Roaming\Ariadne` {
+		t.Fatalf("legacy roaming source = %q", command.LegacyRoamingSource)
 	}
 }
 
@@ -98,8 +102,8 @@ func TestParseCommandOptionsDefaultsToAutostartAndFileSearchService(t *testing.T
 func TestParseCommandOptionsAcceptsFileSearchServiceCommand(t *testing.T) {
 	command, err := parseCommandOptions([]string{
 		"--file-search-service-command", "install",
-		"--file-search-service-exe", `C:\Apps\Ariadne\ariadne.exe`,
-		"--settings-config", `C:\Users\luwei\AppData\Roaming\Ariadne\config.json`,
+		"--file-search-service-exe", `C:\Apps\Fancun\fancun.exe`,
+		"--settings-config", `C:\Users\luwei\AppData\Roaming\Fancun\config.json`,
 	})
 	if err != nil {
 		t.Fatalf("parse command options: %v", err)
@@ -107,10 +111,10 @@ func TestParseCommandOptionsAcceptsFileSearchServiceCommand(t *testing.T) {
 	if command.FileSearchServiceCommand != "install" {
 		t.Fatalf("service command = %q", command.FileSearchServiceCommand)
 	}
-	if command.FileSearchServiceExePath != `C:\Apps\Ariadne\ariadne.exe` {
+	if command.FileSearchServiceExePath != `C:\Apps\Fancun\fancun.exe` {
 		t.Fatalf("service exe = %q", command.FileSearchServiceExePath)
 	}
-	if command.FileSearchSettingsConfig != `C:\Users\luwei\AppData\Roaming\Ariadne\config.json` {
+	if command.FileSearchSettingsConfig != `C:\Users\luwei\AppData\Roaming\Fancun\config.json` {
 		t.Fatalf("settings config = %q", command.FileSearchSettingsConfig)
 	}
 }
@@ -142,49 +146,52 @@ func TestShouldNotRetryInstallElevatedForFileInUse(t *testing.T) {
 }
 
 func TestProcessListContainsImage(t *testing.T) {
-	output := "\r\nariadne.exe                 1234 Console                    1     42,000 K\r\n"
-	if !processListContainsImage(output, "ariadne.exe") {
+	output := "\r\nfancun.exe                 1234 Console                    1     42,000 K\r\n"
+	if !processListContainsImage(output, "fancun.exe") {
 		t.Fatal("tasklist parser should detect matching process image")
 	}
-	if processListContainsImage("INFO: No tasks are running which match the specified criteria.\r\n", "ariadne.exe") {
+	if processListContainsImage("INFO: No tasks are running which match the specified criteria.\r\n", "fancun.exe") {
 		t.Fatal("tasklist parser should not report a process when tasklist found none")
 	}
 }
 
 func TestProductProcessImageNamesIncludesNativeCaptureHost(t *testing.T) {
-	names := productProcessImageNames("Ariadne")
-	if !contains(names, "ariadne.exe") {
+	names := productProcessImageNames("Fancun")
+	if !contains(names, "fancun.exe") {
 		t.Fatalf("product process list should include main exe: %#v", names)
 	}
-	if !contains(names, "Ariadne.CaptureHost.exe") {
+	if !contains(names, "Fancun.CaptureHost.exe") {
 		t.Fatalf("product process list should include native capture host: %#v", names)
+	}
+	if !contains(names, "Fancun.iPhoneControl.exe") {
+		t.Fatalf("product process list should include native iPhone control: %#v", names)
 	}
 }
 
 func TestExtractPayloadFindsPackageRootWithoutScripts(t *testing.T) {
 	payload := zipPayload(t, map[string]string{
-		"ariadne-dev-windows-x64/app/ariadne.exe": "fake exe",
-		"ariadne-dev-windows-x64/app/logo.ico":    "fake icon",
-		"ariadne-dev-windows-x64/manifest.json":   "{}",
+		"fancun-dev-windows-x64/app/fancun.exe": "fake exe",
+		"fancun-dev-windows-x64/app/logo.ico":   "fake icon",
+		"fancun-dev-windows-x64/manifest.json":  "{}",
 	})
-	root, err := ExtractPayload(payload, t.TempDir(), "Ariadne")
+	root, err := ExtractPayload(payload, t.TempDir(), "Fancun")
 	if err != nil {
 		t.Fatalf("extract payload: %v", err)
 	}
-	if filepath.Base(root) != "ariadne-dev-windows-x64" {
+	if filepath.Base(root) != "fancun-dev-windows-x64" {
 		t.Fatalf("unexpected package root: %s", root)
 	}
-	if _, err := os.Stat(filepath.Join(root, "app", "ariadne.exe")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "app", "fancun.exe")); err != nil {
 		t.Fatalf("app exe missing after extraction: %v", err)
 	}
 }
 
 func TestExtractPayloadRejectsZipSlip(t *testing.T) {
 	payload := zipPayload(t, map[string]string{
-		"ariadne-dev-windows-x64/app/ariadne.exe": "fake exe",
-		"../escape.txt": "escape",
+		"fancun-dev-windows-x64/app/fancun.exe": "fake exe",
+		"../escape.txt":                         "escape",
 	})
-	_, err := ExtractPayload(payload, t.TempDir(), "Ariadne")
+	_, err := ExtractPayload(payload, t.TempDir(), "Fancun")
 	if err == nil || !strings.Contains(err.Error(), "unsafe zip entry") {
 		t.Fatalf("expected unsafe zip entry error, got %v", err)
 	}
@@ -192,25 +199,25 @@ func TestExtractPayloadRejectsZipSlip(t *testing.T) {
 
 func TestExtractPayloadRequiresSelectedProductExecutable(t *testing.T) {
 	payload := zipPayload(t, map[string]string{
-		"release/app/ariadne.exe": "production app",
+		"release/app/fancun.exe": "production app",
 	})
-	_, err := ExtractPayload(payload, t.TempDir(), "AriadneReleaseCheck")
-	if err == nil || !strings.Contains(err.Error(), "app/ariadnereleasecheck.exe") {
+	_, err := ExtractPayload(payload, t.TempDir(), "FancunReleaseCheck")
+	if err == nil || !strings.Contains(err.Error(), "app/fancunreleasecheck.exe") {
 		t.Fatalf("isolated product must not use the real app executable: %v", err)
 	}
 }
 
 func TestRunInstallsAndUninstallsPayloadWithoutScripts(t *testing.T) {
 	base := t.TempDir()
-	const productName = "AriadneSetupTest"
+	const productName = "FancunSetupTest"
 	installDir := filepath.Join(base, "install")
 	startMenuDir := filepath.Join(base, "start-menu")
 	desktopDir := filepath.Join(base, "desktop")
 	payload := zipPayload(t, map[string]string{
-		"ariadne-dev-windows-x64/app/ariadne.exe":          "fake exe",
-		"ariadne-dev-windows-x64/app/ariadnesetuptest.exe": "fake test exe",
-		"ariadne-dev-windows-x64/app/logo.ico":             "fake icon",
-		"ariadne-dev-windows-x64/manifest.json":            "{}",
+		"fancun-dev-windows-x64/app/fancun.exe":          "fake exe",
+		"fancun-dev-windows-x64/app/fancunsetuptest.exe": "fake test exe",
+		"fancun-dev-windows-x64/app/logo.ico":            "fake icon",
+		"fancun-dev-windows-x64/manifest.json":           "{}",
 	})
 
 	options := Options{
@@ -229,7 +236,7 @@ func TestRunInstallsAndUninstallsPayloadWithoutScripts(t *testing.T) {
 		t.Fatalf("action = %s, want %s", result.Action, ActionInstall)
 	}
 	for _, path := range []string{
-		filepath.Join(installDir, "ariadnesetuptest.exe"),
+		filepath.Join(installDir, "fancunsetuptest.exe"),
 		filepath.Join(installDir, "logo.ico"),
 		filepath.Join(installDir, productName+"Setup.exe"),
 		filepath.Join(installDir, "install_receipt.json"),
@@ -308,11 +315,11 @@ func TestInstallRequiresStartMenuDirectory(t *testing.T) {
 	if err := os.Mkdir(appSource, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(appSource, "ariadne.exe"), []byte("exe"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(appSource, "fancun.exe"), []byte("exe"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	installDir := filepath.Join(t.TempDir(), "install")
-	_, err := install(packageRoot, Options{ProductName: "Ariadne"}, commandOptions{
+	_, err := install(packageRoot, Options{ProductName: "Fancun"}, commandOptions{
 		InstallDir: installDir, SkipProcessStop: true, SkipServiceChanges: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "无法确定开始菜单目录") {
@@ -328,9 +335,9 @@ func TestRemoveShortcutsOnlyRemovesRecordedEntries(t *testing.T) {
 	t.Setenv("APPDATA", filepath.Join(base, "appdata"))
 	t.Setenv("USERPROFILE", filepath.Join(base, "user"))
 	preserved := []string{
-		filepath.Join(defaultStartMenuDir(), "Ariadne.lnk"),
-		filepath.Join(defaultStartMenuDir(), "Uninstall Ariadne.lnk"),
-		filepath.Join(defaultDesktopDir(), "Ariadne.lnk"),
+		filepath.Join(defaultStartMenuDir(), "Fancun.lnk"),
+		filepath.Join(defaultStartMenuDir(), "Uninstall Fancun.lnk"),
+		filepath.Join(defaultDesktopDir(), "Fancun.lnk"),
 	}
 	recorded := filepath.Join(base, "test-install.lnk")
 	for _, shortcut := range append(preserved, recorded) {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 type videoEvent struct {
@@ -56,7 +56,7 @@ func (w *videoEventWriter) Write(data []byte) (int, error) {
 }
 
 func (w *videoEventWriter) parse(line []byte) {
-	payload, ok := bytes.CutPrefix(line, []byte("ARIADNE_VIDEO "))
+	payload, ok := bytes.CutPrefix(line, []byte("FANCUN_VIDEO "))
 	if !ok {
 		return
 	}

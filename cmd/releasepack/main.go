@@ -7,12 +7,12 @@ import (
 	"log"
 	"os"
 
-	"ariadne/internal/releasepack"
+	"fancun/internal/releasepack"
 )
 
 func main() {
 	version := flag.String("version", "dev", "release version")
-	exePath := flag.String("exe", "bin/ariadne.exe", "path to ariadne.exe")
+	exePath := flag.String("exe", "bin/fancun.exe", "path to fancun.exe")
 	iconPath := flag.String("icon", "assets/logo.ico", "path to logo.ico")
 	outputDir := flag.String("output", "dist/release", "output directory")
 	keepZip := flag.Bool("keep-zip", false, "keep the intermediate portable zip")

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useSettingsStore } from '../../stores/settings'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 
 const settings = useSettingsStore()
 const credential = computed(() => settings.secretStatus?.records.find((record) => record.kind === 'ai_api_key'))
@@ -42,8 +42,8 @@ const credential = computed(() => settings.secretStatus?.records.find((record) =
         <input v-model="settings.secretInputs.ai_api_key" class="settings-input" type="password" autocomplete="off" />
       </label>
       <div class="launcher-actions">
-        <AriButton variant="primary" size="sm" :disabled="!settings.secretStatus?.available || !settings.secretInputs.ai_api_key?.trim() || settings.isSaving" @click="settings.saveSecret('ai_api_key')">保存密钥</AriButton>
-        <AriButton variant="secondary" size="sm" :disabled="!credential?.stored || settings.isSaving" @click="settings.clearSecret('ai_api_key')">清除密钥</AriButton>
+        <FancunButton variant="primary" size="sm" :disabled="!settings.secretStatus?.available || !settings.secretInputs.ai_api_key?.trim() || settings.isSaving" @click="settings.saveSecret('ai_api_key')">保存密钥</FancunButton>
+        <FancunButton variant="secondary" size="sm" :disabled="!credential?.stored || settings.isSaving" @click="settings.clearSecret('ai_api_key')">清除密钥</FancunButton>
       </div>
     </section>
   </template>

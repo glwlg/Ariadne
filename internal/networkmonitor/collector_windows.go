@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	networkCollectorPipe = `\\.\pipe\AriadneNetworkCollector.v1`
+	networkCollectorPipe = `\\.\pipe\FancunNetworkCollector.v1`
 	networkCollectorSDDL = `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)`
 )
 
@@ -67,7 +67,7 @@ func RunCollector(ctx context.Context) error {
 
 func startKernelNetworkCollector(ctx context.Context) (*kernelNetworkCollector, error) {
 	collector := &kernelNetworkCollector{accumulator: newTrafficAccumulator()}
-	collector.session = etw.NewRealTimeSession("AriadneNetworkMonitor")
+	collector.session = etw.NewRealTimeSession("FancunNetworkMonitor")
 	provider := etw.Provider{
 		GUID:            *etw.MustParseGUID("{7DD42A49-5329-4832-8DFD-43D979153A88}"),
 		Name:            "Microsoft-Windows-Kernel-Network",

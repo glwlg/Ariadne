@@ -14,10 +14,10 @@ try {
     Invoke-Check 'backend, isolated setup upgrade and shortcut repair' { go test -count=1 . ./cmd/... ./internal/... }
     Invoke-Check 'frontend regression tests' { pnpm --dir frontend test }
     Invoke-Check 'native screenshot regression tests' {
-        & $sdk run --project native/Ariadne.CaptureHost.Tests/Ariadne.CaptureHost.Tests.csproj -c Release
+        & $sdk run --project native/Fancun.CaptureHost.Tests/Fancun.CaptureHost.Tests.csproj -c Release
     }
     Invoke-Check 'iPhone input, drag, IPC and status regression tests' {
-        & $sdk run --project native/Ariadne.iPhoneControl.Tests/Ariadne.iPhoneControl.Tests.csproj -c Release
+        & $sdk run --project native/Fancun.iPhoneControl.Tests/Fancun.iPhoneControl.Tests.csproj -c Release
     }
     Invoke-Check 'desktop bindings' { wails3 generate bindings -clean=false }
     Invoke-Check 'frontend type check and production build' { pnpm --dir frontend build }

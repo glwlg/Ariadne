@@ -41,7 +41,7 @@ export interface NetworkMiniScreenStatus {
 async function tryToolWindowBinding() {
   try {
     // @ts-expect-error Wails generated bindings are JavaScript-only, but this import must stay static for Vite packaging.
-    return await import('../../bindings/ariadne/internal/toolwindows/service.js')
+    return await import('../../bindings/fancun/internal/toolwindows/service.js')
   } catch {
     return null
   }

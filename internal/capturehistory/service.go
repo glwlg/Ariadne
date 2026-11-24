@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/contracts"
-	"ariadne/internal/imagepreview"
+	"fancun/internal/appdb"
+	"fancun/internal/contracts"
+	"fancun/internal/imagepreview"
 )
 
 type Entry struct {
@@ -1327,5 +1327,5 @@ func defaultBaseDir() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne")
+	return filepath.Join(base, "Fancun")
 }

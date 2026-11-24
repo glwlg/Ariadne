@@ -125,7 +125,7 @@ func (b *usnIndexBuilder) Build(ctx context.Context) (IndexBuildResult, error) {
 		Elevated:          elevated,
 	}
 	if !elevated {
-		result.Errors = append(result.Errors, "需要以管理员身份运行 Ariadne 后才能读取 NTFS USN/MFT")
+		result.Errors = append(result.Errors, "需要以管理员身份运行 Fancun 后才能读取 NTFS USN/MFT")
 		return result, errFileIndexRequiresAdmin
 	}
 	index := newCompactFileIndex(volumes)

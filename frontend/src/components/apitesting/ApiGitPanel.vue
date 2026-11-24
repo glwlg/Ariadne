@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Download, GitBranch, RefreshCw, Upload, X } from '@lucide/vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { useAPITestingStore } from '../../stores/apiTesting'
 
 const props = defineProps<{
@@ -76,17 +76,17 @@ function commitPush() {
           <input v-model="remote" class="api-input" placeholder="https://example.com/team/opscore-api.git" />
         </label>
         <div class="api-git-actions">
-          <AriButton v-if="isBound" size="sm" variant="secondary" :disabled="apiTesting.isGitSyncing || !repoPath.trim()" @click="configure">
+          <FancunButton v-if="isBound" size="sm" variant="secondary" :disabled="apiTesting.isGitSyncing || !repoPath.trim()" @click="configure">
             更新绑定
-          </AriButton>
-          <AriButton size="sm" variant="secondary" :disabled="apiTesting.isGitSyncing || !apiTesting.draftCollection?.git?.path" @click="refresh">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" :disabled="apiTesting.isGitSyncing || !apiTesting.draftCollection?.git?.path" @click="refresh">
             <RefreshCw :size="14" />
             状态
-          </AriButton>
-          <AriButton size="sm" variant="secondary" :disabled="apiTesting.isGitSyncing || !apiTesting.draftCollection?.git?.path" @click="pull">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" :disabled="apiTesting.isGitSyncing || !apiTesting.draftCollection?.git?.path" @click="pull">
             <Download :size="14" />
             拉取
-          </AriButton>
+          </FancunButton>
         </div>
 
         <section class="api-git-status" :class="{ 'is-danger': apiTesting.gitStatus && !apiTesting.gitStatus.ok }">
@@ -107,15 +107,15 @@ function commitPush() {
       </div>
 
       <footer>
-        <AriButton size="sm" variant="ghost" @click="emit('close')">关闭</AriButton>
-        <AriButton v-if="!isBound" size="sm" variant="primary" :disabled="apiTesting.isGitSyncing || !repoPath.trim()" @click="configure">
+        <FancunButton size="sm" variant="ghost" @click="emit('close')">关闭</FancunButton>
+        <FancunButton v-if="!isBound" size="sm" variant="primary" :disabled="apiTesting.isGitSyncing || !repoPath.trim()" @click="configure">
           <GitBranch :size="14" />
           绑定
-        </AriButton>
-        <AriButton v-else size="sm" variant="primary" :disabled="apiTesting.isGitSyncing" @click="commitPush">
+        </FancunButton>
+        <FancunButton v-else size="sm" variant="primary" :disabled="apiTesting.isGitSyncing" @click="commitPush">
           <Upload :size="14" />
           提交并推送
-        </AriButton>
+        </FancunButton>
       </footer>
     </section>
   </div>

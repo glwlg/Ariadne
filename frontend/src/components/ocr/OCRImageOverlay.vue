@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { OCRLine } from '../../types/ariadne'
+import type { OCRLine } from '../../types/fancun'
 
 const props = withDefaults(
   defineProps<{

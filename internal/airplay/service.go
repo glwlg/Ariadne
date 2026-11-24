@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/contracts"
-	"ariadne/internal/elevation"
+	"fancun/internal/contracts"
+	"fancun/internal/elevation"
 )
 
 type Status struct {
@@ -64,7 +64,7 @@ type Service struct {
 func NewService() *Service {
 	executable, exeErr := os.Executable()
 	configDir, configErr := os.UserConfigDir()
-	s := newService(filepath.Join(filepath.Dir(executable), "uxplay"), filepath.Join(configDir, "Ariadne", "airplay"))
+	s := newService(filepath.Join(filepath.Dir(executable), "uxplay"), filepath.Join(configDir, "Fancun", "airplay"))
 	if err := errors.Join(exeErr, configErr); err != nil {
 		s.initError = err.Error()
 	}
@@ -80,7 +80,7 @@ func newService(runtimeDir, dataDir string) *Service {
 	s := &Service{
 		runtimeDir:   runtimeDir,
 		dataDir:      dataDir,
-		name:         "Ariadne · " + hostname,
+		name:         "Fancun · " + hostname,
 		initError:    initError,
 		command:      exec.Command,
 		elevate:      elevation.RunasWait,
@@ -146,18 +146,18 @@ func (s *Service) Execute(command string) contracts.ActionResult {
 			return contracts.ActionResult{Message: "投屏已停止：" + status.LastError}
 		}
 		if !status.Ready {
-			return contracts.ActionResult{Message: "投屏组件缺失，请重新安装 Ariadne。"}
+			return contracts.ActionResult{Message: "投屏组件缺失，请重新安装 Fancun。"}
 		}
 		return contracts.ActionResult{OK: true, Message: "投屏接收服务未启动"}
 	case "firewall":
 		if !s.Status().Ready {
-			return contracts.ActionResult{Message: "投屏组件缺失，请重新安装 Ariadne。"}
+			return contracts.ActionResult{Message: "投屏组件缺失，请重新安装 Fancun。"}
 		}
 		path := strings.ReplaceAll(filepath.Join(s.runtimeDir, "uxplay.exe"), "'", "''")
 		script := "$ErrorActionPreference='Stop'; " +
-			"$rule=Get-NetFirewallRule -Name 'Ariadne-UxPlay' -ErrorAction SilentlyContinue; " +
+			"$rule=Get-NetFirewallRule -Name 'Fancun-UxPlay' -ErrorAction SilentlyContinue; " +
 			"if ($rule) { $rule | Remove-NetFirewallRule }; " +
-			"New-NetFirewallRule -Name 'Ariadne-UxPlay' -DisplayName 'Ariadne iPhone 投屏' " +
+			"New-NetFirewallRule -Name 'Fancun-UxPlay' -DisplayName 'Fancun iPhone 投屏' " +
 			"-Direction Inbound -Action Allow -Enabled True -Profile Private -RemoteAddress LocalSubnet -Program '" + path + "' | Out-Null"
 		if err := s.elevate("powershell.exe", []string{"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script}); err != nil {
 			return contracts.ActionResult{Message: "允许局域网投屏失败：" + err.Error()}
@@ -183,7 +183,7 @@ func (s *Service) startLocked() contracts.ActionResult {
 		if status.LastError != "" {
 			return contracts.ActionResult{Message: "启动投屏失败：" + status.LastError}
 		}
-		return contracts.ActionResult{Message: "投屏组件缺失，请重新安装 Ariadne。"}
+		return contracts.ActionResult{Message: "投屏组件缺失，请重新安装 Fancun。"}
 	}
 	if err := os.MkdirAll(s.dataDir, 0o700); err != nil {
 		return s.startFailure(err)

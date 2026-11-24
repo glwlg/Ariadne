@@ -1,26 +1,26 @@
 # iPhone 投屏
 
-Ariadne 内置 `airplay` 插件，通过独立的 UxPlay 接收进程显示 iPhone 屏幕并播放声音。
+Fancun 内置 `airplay` 插件，通过独立的 UxPlay 接收进程显示 iPhone 屏幕并播放声音。
 
 ## 使用
 
 1. 将 iPhone 和电脑连接到同一局域网，电脑的 Windows 网络类型设为“专用”。
 2. 按 `Alt+Q`，输入 `投屏` 或 `airplay`，回车选择“打开 iPhone 投屏”，在独立窗口点击“启动投屏”。也可以从托盘菜单打开。
-3. 在 iPhone 控制中心打开“屏幕镜像”，选择投屏窗口显示的 `Ariadne · 电脑名称`。
+3. 在 iPhone 控制中心打开“屏幕镜像”，选择投屏窗口显示的 `Fancun · 电脑名称`。
 4. 首次配对时，在 iPhone 输入投屏窗口中的四位配对码。
 
 投屏中心集中管理接收开关、实时连接状态、配对码、帧率、防火墙授权和接收日志。
-重复唤起复用已有窗口。关闭投屏中心不停止接收，正常退出 Ariadne 会停止其启动的接收进程。
+重复唤起复用已有窗口。关闭投屏中心不停止接收，正常退出 Fancun 会停止其启动的接收进程。
 启动器仅负责打开工具窗口；旧的 `airplay start/stop/status/logs/firewall/control/fps` 输入同样只打开投屏中心，不再直接执行操作。
 
-手机连接后，画面显示在 Ariadne 投屏窗口中，声音通过电脑默认音频设备播放。
+手机连接后，画面显示在 Fancun 投屏窗口中，声音通过电脑默认音频设备播放。
 窗口跟随实际视频的横竖屏比例，在当前显示器可用区域内调整，并分别记住手动调整后的横屏和竖屏大小。
 最大化、最小化和全屏期间不自动改变窗口大小。
 
 - 双击画面或按 `Alt+Enter` 切换全屏，`Esc` 退出全屏。
 - 右键画面可切换“窗口置顶”“跟随横竖屏”，或执行“适配画面”。
 - 实际视频开始显示后保持电脑亮屏；最小化、断开或关闭窗口后释放亮屏请求，恢复显示后重新申请。不会更改系统的休眠设置。
-- 收到手机发送的播放标题、作者元数据时，标题栏显示 `Ariadne · 标题 · 作者`。断开时清除元数据。屏幕镜像中的抖音视频标题、红果剧名是否可用，取决于应用是否实际发送对应 AirPlay 元数据，不能保证。
+- 收到手机发送的播放标题、作者元数据时，标题栏显示 `Fancun · 标题 · 作者`。断开时清除元数据。屏幕镜像中的抖音视频标题、红果剧名是否可用，取决于应用是否实际发送对应 AirPlay 元数据，不能保证。
 Windows 启动接收进程时仅禁止创建控制台，不设置 `SW_HIDE`，以免隐藏首个视频窗口。
 
 | 投屏中心操作 | 作用 |
@@ -54,7 +54,8 @@ Windows 启动接收进程时仅禁止创建控制台，不设置 `SW_HIDE`，�
 5. 直接在投屏画面点击、按住拖动或长按；滚轮向下切换下一个视频，向上切换上一个视频。控制设置可以关闭，投屏中心也可以关闭，只保留视频窗口即可。
 6. 点击投屏窗口后，可用电脑键盘输入字母、数字、标点，使用回车、退格、方向键、功能键和组合键。中文使用 iPhone 上选中的中文硬件键盘输入法；投屏窗口不启用 Windows 输入法，按键布局、组合键含义和长按重复由手机处理。
 
-关闭控制设置只隐藏界面，后台控制继续运行。“停止控制”按钮停止广播与输入；再次连接投屏或点击“启动蓝牙控制”可重新启动。退出 Ariadne 时自动回收后台控制服务。
+关闭控制设置只隐藏界面，后台控制继续运行。“停止控制”按钮停止广播与输入；再次连接投屏或点击“启动蓝牙控制”可重新启动。退出 Fancun 时自动回收后台控制服务。
+广播意外中断时，控制组件会自动重试，重试间隔逐步增加至 30 秒；恢复前不会主动结束已连接手机的控制服务。投屏中心分别显示广播和手机控制状态。若 Windows 蓝牙关闭，请重新开启蓝牙。
 若记住的手机不在线，即使有其他手机连接也不会自动切换目标。需要换手机时，在控制设置中重新选择。
 自动恢复以 iPhone 已完成辅助触控蓝牙配对、并重新连接鼠标控制服务为前提；普通音频或通话连接不能代替鼠标控制连接。
 
@@ -86,8 +87,8 @@ Windows 系统快捷键仍由系统处理，键盘不使用全局拦截。断线
 投屏窗口通过带版本号的 `WM_COPYDATA` 包发送坐标与键盘 HID usage；控制组件校验输入范围与 UxPlay 进程路径，
 限制单个活动视频窗口，合并连续移动并按 BLE 连接间隔发送。画面消息不改变用户选择的目标。
 失去焦点、丢失鼠标捕获、断线或关闭控制窗时取消排队动作并尝试释放按键。
-控制窗与视频窗口通过各自输入事件控制手机，不使用全局键鼠拦截。关闭控制设置保留后台广播；点击“停止控制”或父 Ariadne 退出后停止广播并退出。
-控制日志为 `%APPDATA%\Ariadne\airplay\control.log`。如果手机不能重连，删除 Windows 与手机两端的旧配对后重新连接。
+控制窗与视频窗口通过各自输入事件控制手机，不使用全局键鼠拦截。关闭控制设置保留后台广播；点击“停止控制”或父 Fancun 退出后停止广播并退出。
+控制日志为 `%APPDATA%\Fancun\airplay\control.log`。如果手机不能重连，删除 Windows 与手机两端的旧配对后重新连接。
 投屏中心通过同一用户、同一 Windows 会话内的只读命名管道读取控制窗口缓存的状态；查询不会同步调用蓝牙或阻塞控制窗口。
 组件安装、进程启动、等待连接、选择手机、触控板可用和直接操作可用分别显示。控制组件晚于启动阶段异常退出也会记录在状态中；本次连接期间不循环重启，再次连接投屏时重新启动。
 如果普通蓝牙设置显示已连接，但控制列表为空，回到“辅助触控 → 设备 → 蓝牙设备”连接电脑。
@@ -101,7 +102,7 @@ Windows 系统快捷键仍由系统处理，键盘不使用全局拦截。断线
 - 投屏中心显示异常退出时，展开“接收日志”查看原因。
 - 首次启动会创建 GStreamer 插件缓存，需要几秒完成初始化。
 
-运行数据位于 `%APPDATA%\Ariadne\airplay`：`receiver.conf`、`uxplay.log`、`gstreamer-registry.bin`、帧率设置 `preferences.json`、窗口设置 `window.ini` 和控制目标 `control-target.txt`。日志每次启动重新写入；配对码每次启动随机生成，不保存在设置中。已有受信任设备的重新认证行为由 UxPlay 协议处理。
+运行数据位于 `%APPDATA%\Fancun\airplay`：`receiver.conf`、`uxplay.log`、`gstreamer-registry.bin`、帧率设置 `preferences.json`、窗口设置 `window.ini` 和控制目标 `control-target.txt`。日志每次启动重新写入；配对码每次启动随机生成，不保存在设置中。已有受信任设备的重新认证行为由 UxPlay 协议处理。
 
 ## 构建和打包
 
@@ -119,15 +120,15 @@ wails3 task windows:build
 - MSYS2 基础环境：2026-09-27，Windows x64 / UCRT64
 - 禁用 `-march=native`，避免将本机 CPU 指令集要求带入发布包。
 - 修正 Windows 网卡筛选：保留承载局域网网关的 Hyper-V 外部交换机接口，避免设备发现广播缺失主机地址。构建时运行对应的原生回归测试。
-- 投屏窗口使用 Ariadne 标题和应用图标；每次创建视频窗口时设置，包括断开后重连。原生窗口扩展负责尺寸适配、置顶、全屏、亮屏管理以及结构化视频状态事件；元数据沿用 UxPlay 的 DMAP 解析。构建时使用真实 Direct3D11 视频窗口验证横竖屏、尺寸记忆、元数据标题、置顶、全屏、断开及重连。
+- 投屏窗口使用 Fancun 标题和应用图标；每次创建视频窗口时设置，包括断开后重连。原生窗口扩展负责尺寸适配、置顶、全屏、亮屏管理以及结构化视频状态事件；元数据沿用 UxPlay 的 DMAP 解析。构建时使用真实 Direct3D11 视频窗口验证横竖屏、尺寸记忆、元数据标题、置顶、全屏、断开及重连。
 - 仅打包屏幕镜像和音频所需的 GStreamer 插件及其 DLL 依赖；构建时验证视频输出、音频输出、解析器和解码器。
 
-安装器和 MSIX 打包都要求包含 `uxplay\uxplay.exe`，并递归收集其 DLL、GStreamer 插件、扫描器、许可证和上游源码压缩包。Ariadne 只启动应用目录下的 `uxplay\uxplay.exe`，不搜索系统 PATH 或自动切换到其他投屏程序。
+安装器和 MSIX 打包都要求包含 `uxplay\uxplay.exe`，并递归收集其 DLL、GStreamer 插件、扫描器、许可证和上游源码压缩包。Fancun 只启动应用目录下的 `uxplay\uxplay.exe`，不搜索系统 PATH 或自动切换到其他投屏程序。
 
-控制组件发布为自带 .NET 运行时的 `iphone-control\Ariadne.iPhoneControl.exe`，
+控制组件发布为自带 .NET 运行时的 `iphone-control\Fancun.iPhoneControl.exe`，
 Windows 构建、安装包和 MSIX 均包含它及 MIT 许可证。蓝牙核心固定来自
 `abhishek-raj/windows-ble-hid` 提交 `b33a0043b3865ea8251a242eae27aa2f72816512`，
-来源、许可证与局部修改见 `native/Ariadne.iPhoneControl/Vendor/BleHid/NOTICE.md`。
+来源、许可证与局部修改见 `native/Fancun.iPhoneControl/Vendor/BleHid/NOTICE.md`。
 
 上游 UxPlay 使用 GPLv3；运行库保留 `LICENSE-UxPlay`、对应的 `UxPlay-source.zip`、`README-UxPlay.md` 及 MSYS2 依赖许可证和版本清单。更新时应同步更新脚本中的提交、源码校验值和相关通知。
 Windows 网卡筛选、窗口品牌及直接操作的完整源文件、资源文件随运行库放在 `modified-source/`；将此目录的内容覆盖到对应上游源码即可重建。
@@ -137,13 +138,13 @@ Windows 网卡筛选、窗口品牌及直接操作的完整源文件、资源文
 ```powershell
 wails3 task windows:verify
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-iphone-control.ps1
-$env:ARIADNE_TEST_UXPLAY_RUNTIME = (Resolve-Path bin\uxplay).Path
+$env:FANCUN_TEST_UXPLAY_RUNTIME = (Resolve-Path bin\uxplay).Path
 go test ./internal/airplay -run TestBundledRuntimeSmoke -v -count=1
-$env:ARIADNE_TEST_UXPLAY_IPV4 = (Get-NetIPConfiguration | Where-Object IPv4DefaultGateway | Select-Object -First 1).IPv4Address.IPAddress
+$env:FANCUN_TEST_UXPLAY_IPV4 = (Get-NetIPConfiguration | Where-Object IPv4DefaultGateway | Select-Object -First 1).IPv4Address.IPAddress
 go test ./internal/airplay -run TestBundledRuntimeDiscovery -v -count=1
 ```
 
-本机蓝牙完整服务烟测：`bin\iphone-control\Ariadne.iPhoneControl.exe --probe "$env:TEMP\Ariadne-BluetoothProbe.json"`。
+本机蓝牙完整服务烟测：`bin\iphone-control\Fancun.iPhoneControl.exe --probe "$env:TEMP\Fancun-BluetoothProbe.json"`。
 它实际创建加密 HID 服务、报告描述符、电池服务并开始广播，将诊断写入指定 JSON 后停止。
 `ok: true` 验证电脑侧服务可用，不代表已经完成 iPhone 配对或应用内操作验收。
 

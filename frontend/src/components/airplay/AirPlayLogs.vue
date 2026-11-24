@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { RefreshCw } from '@lucide/vue'
 import { ref } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { getAirPlayLogs } from '../../services/airplayApi'
 
 const logs = ref('')
@@ -31,9 +31,9 @@ function onToggle(event: Event) {
     <summary>接收日志</summary>
     <div class="airplay-log-toolbar">
       <span>最近 4 KB</span>
-      <AriButton size="sm" variant="ghost" :disabled="loading" @click="refresh">
+      <FancunButton size="sm" variant="ghost" :disabled="loading" @click="refresh">
         <RefreshCw :size="14" />{{ loading ? '读取中' : '刷新日志' }}
-      </AriButton>
+      </FancunButton>
     </div>
     <p v-if="error" class="airplay-log-error" role="alert">{{ error }}</p>
     <pre v-else>{{ loading && !logs ? '正在读取日志…' : logs || '暂无日志，启动投屏后可查看。' }}</pre>

@@ -1,9 +1,9 @@
-import type { ActionResult } from '../types/ariadne'
+import type { ActionResult } from '../types/fancun'
 import type { AirPlayCommand, AirPlayStatus } from '../types/airplay'
 
 async function binding() {
   // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-  return await import('../../bindings/ariadne/internal/airplay/service.js')
+  return await import('../../bindings/fancun/internal/airplay/service.js')
 }
 
 export async function getAirPlayStatus(): Promise<AirPlayStatus> {

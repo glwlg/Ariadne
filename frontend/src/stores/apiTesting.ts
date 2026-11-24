@@ -22,7 +22,7 @@ import {
   stopAPIRequest,
   upsertAPICollection,
 } from '../services/apiTestingApi'
-import type { APIAssertion, APICollection, APIEnvironment, APIGitStatus, APIHeader, APIParam, APIRequest, APIRunResult, APITestingStatus, APIVariable } from '../types/ariadne'
+import type { APIAssertion, APICollection, APIEnvironment, APIGitStatus, APIHeader, APIParam, APIRequest, APIRunResult, APITestingStatus, APIVariable } from '../types/fancun'
 
 export type APIEditorTab = 'params' | 'headers' | 'body' | 'variables' | 'assertions'
 export type APIResponseTab = 'body' | 'headers' | 'assertions'

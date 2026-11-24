@@ -9,7 +9,105 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
+
+func TestRestoreLegacyCheckpointRebrandsDataAndPreservesMigrationReceipts(t *testing.T) {
+	base := t.TempDir()
+	oldRoot := filepath.Join(base, "Ariadne")
+	current := filepath.Join(base, "Fancun")
+	backups := filepath.Join(current, "backups")
+	writeTestFile(t, filepath.Join(oldRoot, "capture_images", "old.png"), "image")
+	oldDatabase := filepath.Join(oldRoot, "ariadne.sqlite")
+	conn, err := sqlite.OpenConn(oldDatabase, sqlite.OpenReadWrite|sqlite.OpenCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlitex.ExecScript(conn, `CREATE TABLE image_index_entries(image_path TEXT);`); err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlitex.Execute(conn, `INSERT INTO image_index_entries VALUES (?1)`, &sqlitex.ExecOptions{
+		Args: []any{filepath.Join(oldRoot, "capture_images", "old.png")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	database, err := os.ReadFile(oldDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(current, ".brand-migration.json"), "keep-root-receipt")
+	writeTestFile(t, filepath.Join(current, ".brand-credentials-migrated"), "keep-credential-marker")
+	writeTestFile(t, filepath.Join(current, "obsolete.txt"), "replace")
+	if err := os.MkdirAll(backups, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := filepath.Join(backups, "ariadne-rollback-test.zip")
+	file, err := os.Create(checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	manifest, _ := json.Marshal(backupManifest{
+		App: "Ariadne", Kind: "rollback_checkpoint",
+		Roots: []DataRootStatus{{Kind: "roaming", ArchiveName: "roaming", Path: oldRoot}},
+	})
+	for name, data := range map[string][]byte{
+		"manifest.json":                       manifest,
+		"data/roaming/ariadne.sqlite":         database,
+		"data/roaming/capture_images/old.png": []byte("image"),
+		"data/roaming/config.json":            []byte(`{"screenshot":{"filenameTemplate":"ariadne_{date}_{time}"},"note":"Ariadne"}`),
+		"data/roaming/.brand-migration.json":  []byte("do-not-restore"),
+	} {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writer.Close()
+	file.Close()
+	service := NewServiceWithRoots([]DataRootStatus{{Kind: "roaming", Path: current}}, backups)
+	result := service.RestoreRollbackCheckpoint(RestoreRequest{Path: checkpoint, Confirm: true})
+	if !result.OK {
+		t.Fatalf("restore failed: %#v", result)
+	}
+	for name, want := range map[string]string{
+		".brand-migration.json": "keep-root-receipt", ".brand-credentials-migrated": "keep-credential-marker",
+		"capture_images/old.png": "image",
+	} {
+		raw, err := os.ReadFile(filepath.Join(current, name))
+		if err != nil || string(raw) != want {
+			t.Fatalf("%s: %q: %v", name, raw, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(current, "ariadne.sqlite")); !os.IsNotExist(err) {
+		t.Fatalf("old database name was restored: %v", err)
+	}
+	conn, err = sqlite.OpenConn(filepath.Join(current, "fancun.sqlite"), sqlite.OpenReadOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := sqlitex.Execute(conn, `SELECT image_path FROM image_index_entries`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			if got := stmt.ColumnText(0); got != filepath.Join(current, "capture_images", "old.png") {
+				t.Fatalf("restored image path not migrated: %s", got)
+			}
+			return nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(current, "config.json"))
+	if !strings.Contains(string(raw), "fancun_{date}_{time}") || !strings.Contains(string(raw), `"note": "Ariadne"`) {
+		t.Fatalf("restored settings changed user content or lost defaults: %s", raw)
+	}
+}
 
 func TestStatusCountsDataRootsAndExistingBackups(t *testing.T) {
 	base := t.TempDir()
@@ -90,7 +188,7 @@ func TestCreateRollbackCheckpointWritesManifestAndData(t *testing.T) {
 
 	var manifest backupManifest
 	readZipJSON(t, result.Path, "manifest.json", &manifest)
-	if manifest.App != "Ariadne" || manifest.Kind != "rollback_checkpoint" || manifest.Reason != "manual_settings_checkpoint" {
+	if manifest.App != "Fancun" || manifest.Kind != "rollback_checkpoint" || manifest.Reason != "manual_settings_checkpoint" {
 		t.Fatalf("unexpected manifest identity: %#v", manifest)
 	}
 	if manifest.FileCount != 3 || manifest.Bytes <= 0 || len(manifest.RestoreNotes) == 0 {
@@ -180,15 +278,15 @@ func TestRestoreRollbackCheckpointRestoresDataAndCreatesPreRestoreBackup(t *test
 }
 
 func TestRealUserRollbackSmoke(t *testing.T) {
-	if os.Getenv("ARIADNE_TEST_REAL_ROLLBACK") != "1" {
-		t.Skip("set ARIADNE_TEST_REAL_ROLLBACK=1 to run the real user data rollback smoke")
+	if os.Getenv("FANCUN_TEST_REAL_ROLLBACK") != "1" {
+		t.Skip("set FANCUN_TEST_REAL_ROLLBACK=1 to run the real user data rollback smoke")
 	}
 
 	service := NewService()
 	status := service.Status()
 	roots := existingRealRoots(status.DataRoots)
 	if len(roots) == 0 {
-		t.Fatalf("real rollback smoke requires at least one existing Ariadne data root: %#v", status.DataRoots)
+		t.Fatalf("real rollback smoke requires at least one existing Fancun data root: %#v", status.DataRoots)
 	}
 
 	runID := fmt.Sprintf("real-%d-%d", time.Now().UTC().UnixNano(), os.Getpid())
@@ -277,7 +375,7 @@ func smokeDir(root DataRootStatus, runID string) string {
 }
 
 func smokeRootDir(root DataRootStatus) string {
-	return filepath.Join(root.Path, ".ariadne-rollback-smoke")
+	return filepath.Join(root.Path, ".fancun-rollback-smoke")
 }
 
 func smokeSentinelPath(root DataRootStatus, runID string) string {

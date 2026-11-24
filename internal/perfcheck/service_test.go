@@ -24,8 +24,8 @@ func TestSummarize(t *testing.T) {
 
 func TestPackageComparison(t *testing.T) {
 	root := t.TempDir()
-	exe := writeSizedFile(t, filepath.Join(root, "ariadne.exe"), 30)
-	zip := writeSizedFile(t, filepath.Join(root, "ariadne.zip"), 20)
+	exe := writeSizedFile(t, filepath.Join(root, "fancun.exe"), 30)
+	zip := writeSizedFile(t, filepath.Join(root, "fancun.zip"), 20)
 	legacyInstaller := writeSizedFile(t, filepath.Join(root, "x-tools-setup.exe"), 100)
 	legacyDist := filepath.Join(root, "legacy")
 	if err := os.MkdirAll(legacyDist, 0o755); err != nil {

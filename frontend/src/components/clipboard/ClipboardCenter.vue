@@ -13,12 +13,12 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import OCRImageOverlay from '../ocr/OCRImageOverlay.vue'
 import { useAppShellStore } from '../../stores/appShell'
 import { useClipboardHistoryStore } from '../../stores/clipboardHistory'
 import { ocrConfidenceLabel, ocrRectLabel } from '../../lib/ocrDisplay'
-import type { ClipboardHistoryEntry } from '../../types/ariadne'
+import type { ClipboardHistoryEntry } from '../../types/fancun'
 
 const appShell = useAppShellStore()
 const clipboard = useClipboardHistoryStore()
@@ -103,10 +103,10 @@ function contentLabel(entry: ClipboardHistoryEntry) {
               <Image :size="13" />
               图片 {{ clipboard.status?.imageCount ?? 0 }}
             </span>
-            <AriButton size="sm" variant="secondary" @click="appShell.openLauncher()">
+            <FancunButton size="sm" variant="secondary" @click="appShell.openLauncher()">
               <ArrowLeft :size="14" />
               启动器
-            </AriButton>
+            </FancunButton>
           </div>
         </header>
 
@@ -120,14 +120,14 @@ function contentLabel(entry: ClipboardHistoryEntry) {
               @input="clipboard.setQuery(($event.target as HTMLInputElement).value)"
             />
           </div>
-          <AriButton size="sm" variant="primary" @click="clipboard.collectCurrentText()">
+          <FancunButton size="sm" variant="primary" @click="clipboard.collectCurrentText()">
             <Plus :size="14" />
             收集当前剪贴板
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="clipboard.clearUnpinned()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="clipboard.clearUnpinned()">
             <Trash2 :size="14" />
             {{ clipboard.clearArmed ? '确认清空' : '清空未置顶' }}
-          </AriButton>
+          </FancunButton>
         </div>
 
         <div class="clipboard-workspace">
@@ -175,34 +175,34 @@ function contentLabel(entry: ClipboardHistoryEntry) {
               </div>
 
               <div class="clipboard-actions">
-                <AriButton size="sm" variant="primary" @click="clipboard.copyEntry(selected)">
+                <FancunButton size="sm" variant="primary" @click="clipboard.copyEntry(selected)">
                   <Copy :size="14" />
                   {{ selected.type === 'image' ? '复制图片' : '复制内容' }}
-                </AriButton>
-                <AriButton v-if="selected.type === 'image'" size="sm" variant="secondary" @click="clipboard.scanQRCode(selected)">
+                </FancunButton>
+                <FancunButton v-if="selected.type === 'image'" size="sm" variant="secondary" @click="clipboard.scanQRCode(selected)">
                   <QrCode :size="14" />
                   识别二维码
-                </AriButton>
-                <AriButton v-if="selected.type === 'image'" size="sm" variant="secondary" :disabled="clipboard.isRecognizingOCR" @click="clipboard.recognizeText(selected)">
+                </FancunButton>
+                <FancunButton v-if="selected.type === 'image'" size="sm" variant="secondary" :disabled="clipboard.isRecognizingOCR" @click="clipboard.recognizeText(selected)">
                   <FileText :size="14" />
                   {{ clipboard.isRecognizingOCR ? 'OCR 中' : '识别文字' }}
-                </AriButton>
-                <AriButton v-if="selected.type === 'image'" size="sm" variant="secondary" @click="clipboard.addImageToCapture(selected)">
+                </FancunButton>
+                <FancunButton v-if="selected.type === 'image'" size="sm" variant="secondary" @click="clipboard.addImageToCapture(selected)">
                   <Image :size="14" />
                   加入截图历史
-                </AriButton>
-                <AriButton v-if="selected.type === 'image'" size="sm" variant="secondary" @click="clipboard.pinImage(selected)">
+                </FancunButton>
+                <FancunButton v-if="selected.type === 'image'" size="sm" variant="secondary" @click="clipboard.pinImage(selected)">
                   <Pin :size="14" />
                   贴到屏幕
-                </AriButton>
-                <AriButton size="sm" variant="secondary" @click="clipboard.togglePin(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" @click="clipboard.togglePin(selected)">
                   <Pin :size="14" />
                   {{ selected.pinned ? '取消置顶' : '置顶' }}
-                </AriButton>
-                <AriButton size="sm" variant="secondary" @click="clipboard.deleteEntry(selected)">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" @click="clipboard.deleteEntry(selected)">
                   <Trash2 :size="14" />
                   {{ clipboard.deleteArmedId === selected.id ? '确认删除' : '删除' }}
-                </AriButton>
+                </FancunButton>
               </div>
 
               <figure v-if="selected.type === 'image'" class="clipboard-image-preview">
@@ -229,10 +229,10 @@ function contentLabel(entry: ClipboardHistoryEntry) {
                 <template v-if="clipboard.qrResult.ok">
                   <strong>{{ clipboard.qrResult.format || 'QR_CODE' }}</strong>
                   <p>{{ clipboard.qrResult.text }}</p>
-                  <AriButton size="sm" variant="secondary" @click="clipboard.copyQRText()">
+                  <FancunButton size="sm" variant="secondary" @click="clipboard.copyQRText()">
                     <Copy :size="14" />
                     复制内容
-                  </AriButton>
+                  </FancunButton>
                 </template>
                 <template v-else>
                   <strong>未识别到二维码</strong>
@@ -252,16 +252,16 @@ function contentLabel(entry: ClipboardHistoryEntry) {
                   </strong>
                   <div v-if="clipboard.ocrLines.length" class="ocr-selection-panel">
                     <div class="ocr-selection-actions">
-                      <AriButton size="sm" variant="secondary" @click="clipboard.selectAllOCRLines()">全选</AriButton>
-                      <AriButton size="sm" variant="ghost" @click="clipboard.clearOCRLineSelection()">清空</AriButton>
-                      <AriButton size="sm" variant="secondary" :disabled="!clipboard.selectedOCRLineCount" @click="clipboard.copySelectedOCRText()">
+                      <FancunButton size="sm" variant="secondary" @click="clipboard.selectAllOCRLines()">全选</FancunButton>
+                      <FancunButton size="sm" variant="ghost" @click="clipboard.clearOCRLineSelection()">清空</FancunButton>
+                      <FancunButton size="sm" variant="secondary" :disabled="!clipboard.selectedOCRLineCount" @click="clipboard.copySelectedOCRText()">
                         <Copy :size="14" />
                         复制选中
-                      </AriButton>
-                      <AriButton v-if="clipboard.ocrResult.text" size="sm" variant="secondary" @click="clipboard.copyOCRText()">
+                      </FancunButton>
+                      <FancunButton v-if="clipboard.ocrResult.text" size="sm" variant="secondary" @click="clipboard.copyOCRText()">
                         <Copy :size="14" />
                         复制全文
-                      </AriButton>
+                      </FancunButton>
                     </div>
                     <div class="ocr-line-list" aria-label="OCR 文本行">
                       <button
@@ -283,10 +283,10 @@ function contentLabel(entry: ClipboardHistoryEntry) {
                   </div>
                   <template v-else>
                     <p>{{ clipboard.ocrResult.text || '未识别到文字' }}</p>
-                    <AriButton v-if="clipboard.ocrResult.text" size="sm" variant="secondary" @click="clipboard.copyOCRText()">
+                    <FancunButton v-if="clipboard.ocrResult.text" size="sm" variant="secondary" @click="clipboard.copyOCRText()">
                       <Copy :size="14" />
                       复制全文
-                    </AriButton>
+                    </FancunButton>
                   </template>
                 </template>
                 <template v-else>
@@ -298,7 +298,7 @@ function contentLabel(entry: ClipboardHistoryEntry) {
               <div class="meta-grid">
                 <div class="meta-item">
                   <span>{{ selected.type === 'image' ? '图片路径' : '配置文件' }}</span>
-                  <strong>{{ selected.type === 'image' ? selected.imagePath : clipboard.status?.path || '%APPDATA%/Ariadne/ariadne.sqlite' }}</strong>
+                  <strong>{{ selected.type === 'image' ? selected.imagePath : clipboard.status?.path || '%APPDATA%/Fancun/fancun.sqlite' }}</strong>
                 </div>
                 <div class="meta-item">
                   <span>签名</span>

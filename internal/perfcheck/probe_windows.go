@@ -106,7 +106,7 @@ func probeStartup(options Options, iteration int) StartupSample {
 
 	var tempRoot string
 	if options.UseTempAppData {
-		tempRoot, err = os.MkdirTemp("", "ariadne-perf-")
+		tempRoot, err = os.MkdirTemp("", "fancun-perf-")
 		if err != nil {
 			sample.Error = "create temp appdata: " + err.Error()
 			return sample
@@ -161,7 +161,7 @@ func probeStartup(options Options, iteration int) StartupSample {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	sample.Error = fmt.Sprintf("Ariadne window not found within %dms", options.TimeoutMs)
+	sample.Error = fmt.Sprintf("Fancun window not found within %dms", options.TimeoutMs)
 	return sample
 }
 
@@ -177,7 +177,7 @@ func probeHotkey(options Options) []HotkeySample {
 
 	var tempRoot string
 	if options.UseTempAppData {
-		tempRoot, err = os.MkdirTemp("", "ariadne-perf-hotkey-")
+		tempRoot, err = os.MkdirTemp("", "fancun-perf-hotkey-")
 		if err != nil {
 			return hotkeyErrorSamples(options, "create temp appdata: "+err.Error())
 		}
@@ -214,7 +214,7 @@ func probeHotkey(options Options) []HotkeySample {
 		return hotkeyErrorSamples(options, err.Error())
 	}
 	if !ok {
-		return hotkeyErrorSamples(options, fmt.Sprintf("Ariadne window not found within %dms", options.TimeoutMs))
+		return hotkeyErrorSamples(options, fmt.Sprintf("Fancun window not found within %dms", options.TimeoutMs))
 	}
 	hwnd := uintptr(window.Handle)
 	time.Sleep(250 * time.Millisecond)
@@ -267,7 +267,7 @@ func probeHotkeyRegistration(options Options) HotkeyRegistrationProbe {
 
 	var tempRoot string
 	if options.UseTempAppData {
-		tempRoot, err = os.MkdirTemp("", "ariadne-perf-hotkey-reg-")
+		tempRoot, err = os.MkdirTemp("", "fancun-perf-hotkey-reg-")
 		if err != nil {
 			result.Note = "create temp appdata: " + err.Error()
 			return result
@@ -303,7 +303,7 @@ func probeHotkeyRegistration(options Options) HotkeyRegistrationProbe {
 		result.Note = err.Error()
 		return result
 	} else if !ok {
-		result.Note = fmt.Sprintf("Ariadne window not found within %dms", options.TimeoutMs)
+		result.Note = fmt.Sprintf("Fancun window not found within %dms", options.TimeoutMs)
 		return result
 	}
 
@@ -313,11 +313,11 @@ func probeHotkeyRegistration(options Options) HotkeyRegistrationProbe {
 	result.DuringError = during.Error
 	if during.OK {
 		unregisterHotkeyProbe(61002)
-		result.Note = "Alt+Q was still available after Ariadne startup; Ariadne did not appear to own the hotkey"
+		result.Note = "Alt+Q was still available after Fancun startup; Fancun did not appear to own the hotkey"
 	} else if result.DuringBlocked {
-		result.Note = "Alt+Q registration is blocked while Ariadne is running, which is consistent with Ariadne owning the global hotkey"
+		result.Note = "Alt+Q registration is blocked while Fancun is running, which is consistent with Fancun owning the global hotkey"
 	} else {
-		result.Note = "Alt+Q registration failed for a non-ownership reason while Ariadne was running"
+		result.Note = "Alt+Q registration failed for a non-ownership reason while Fancun was running"
 	}
 	return result
 }
@@ -365,7 +365,7 @@ func findProcessWindow(pid uint32) (WindowSample, bool) {
 			return 1
 		}
 		title := windowTitle(hwnd)
-		if !strings.Contains(strings.ToLower(title), "ariadne") {
+		if !strings.Contains(strings.ToLower(title), "fancun") {
 			return 1
 		}
 		search.window = readWindowSample(hwnd, title)

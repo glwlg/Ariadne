@@ -3,8 +3,8 @@ package imageindex
 import (
 	"sort"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/ocr"
+	"fancun/internal/appdb"
+	"fancun/internal/ocr"
 
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"

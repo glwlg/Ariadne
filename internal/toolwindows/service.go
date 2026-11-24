@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/launcherwindow"
-	"ariadne/internal/toolregistry"
+	"fancun/internal/appdb"
+	"fancun/internal/launcherwindow"
+	"fancun/internal/networkmonitor"
+	"fancun/internal/toolregistry"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -84,20 +85,27 @@ type networkMiniConfig struct {
 type FullscreenDetector func() (bool, error)
 
 type Service struct {
-	mu                 sync.RWMutex
-	app                *application.App
-	windowIcon         []byte
-	networkMiniPath    string
-	networkMiniConfig  networkMiniConfig
-	fullscreenDetector FullscreenDetector
-	fullscreenActive   bool
-	networkMiniHidden  bool
-	networkMiniError   string
-	monitorStop        chan struct{}
-	networkMiniLayerAt time.Time
-	networkMiniLayout  string
-	captureFocusPaused bool
-	captureMiniHidden  bool
+	mu                   sync.RWMutex
+	app                  *application.App
+	windowIcon           []byte
+	networkMiniPath      string
+	networkMiniConfig    networkMiniConfig
+	fullscreenDetector   FullscreenDetector
+	fullscreenActive     bool
+	networkMiniHidden    bool
+	networkMiniError     string
+	monitorStop          chan struct{}
+	monitorDone          chan struct{}
+	networkMiniLayerAt   time.Time
+	networkMiniLayout    string
+	captureFocusPaused   bool
+	captureMiniHidden    bool
+	nativeMiniMu         sync.Mutex
+	nativeMiniRenderer   nativeNetworkMini
+	nativeMiniSnapshot   func() networkmonitor.TrafficSnapshot
+	nativeMiniTraffic    networkmonitor.TrafficSnapshot
+	nativeMiniSampleAt   time.Time
+	nativeMiniWasVisible bool
 }
 
 func NewService() *Service {
@@ -147,6 +155,10 @@ func (s *Service) SetCaptureFocusSuspended(suspended bool) {
 	s.captureFocusPaused = suspended
 	app := s.app
 	s.mu.Unlock()
+	if s.usesNativeNetworkMini() {
+		_ = s.syncNativeNetworkMini()
+		return
+	}
 	if suspended {
 		s.hideNetworkMiniForCapture(app)
 		return
@@ -225,7 +237,7 @@ func (s *Service) ShowLauncher() OpenResult {
 	app := s.app
 	s.mu.RUnlock()
 	if app == nil {
-		return OpenResult{OK: false, Message: "Ariadne 窗口服务尚未就绪", View: "launcher"}
+		return OpenResult{OK: false, Message: "Fancun 窗口服务尚未就绪", View: "launcher"}
 	}
 	if existing, ok := app.Window.Get(launcherWindowName); ok {
 		existing.Restore()
@@ -239,7 +251,7 @@ func (s *Service) ShowLauncher() OpenResult {
 	launcherPosition, launcherX, launcherY, launcherScreen := launcherwindow.InitialPlacement(app.Screen.GetPrimary())
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             launcherWindowName,
-		Title:            "Ariadne",
+		Title:            "Fancun",
 		URL:              "/?view=launcher",
 		Width:            launcherwindow.Width,
 		Height:           launcherwindow.CollapsedHeight,
@@ -399,6 +411,12 @@ func (s *Service) CloseNetworkMini() OpenResult {
 		s.networkMiniError = err.Error()
 	}
 	s.mu.Unlock()
+	if s.usesNativeNetworkMini() {
+		if err := s.syncNativeNetworkMini(); err != nil {
+			return OpenResult{OK: false, Message: err.Error(), View: networkMiniView}
+		}
+		return OpenResult{OK: true, Message: "网速小窗已关闭", View: networkMiniView}
+	}
 	if app != nil {
 		if window, ok := app.Window.Get("tool-" + networkMiniView); ok {
 			window.Hide()
@@ -410,10 +428,12 @@ func (s *Service) CloseNetworkMini() OpenResult {
 func (s *Service) Stop() {
 	s.mu.Lock()
 	stop := s.monitorStop
+	done := s.monitorDone
 	s.monitorStop = nil
 	s.mu.Unlock()
 	if stop != nil {
 		close(stop)
+		<-done
 	}
 }
 
@@ -422,7 +442,11 @@ func (s *Service) open(view string) error {
 	app := s.app
 	s.mu.RUnlock()
 	if app == nil {
-		return errors.New("Ariadne 工具窗口服务尚未就绪")
+		return errors.New("Fancun 工具窗口服务尚未就绪")
+	}
+	if view == networkMiniView && s.usesNativeNetworkMini() {
+		s.markNetworkMiniVisible()
+		return s.syncNativeNetworkMini()
 	}
 
 	name := "tool-" + view
@@ -496,8 +520,8 @@ func focusLauncher(window application.Window) {
 	if window == nil {
 		return
 	}
-	window.EmitEvent("ariadne:focus-launcher", map[string]any{"selectAll": true})
-	window.ExecJS(`window.dispatchEvent(new CustomEvent("ariadne:focus-launcher", { detail: { selectAll: true } }));`)
+	window.EmitEvent("fancun:focus-launcher", map[string]any{"selectAll": true})
+	window.ExecJS(`window.dispatchEvent(new CustomEvent("fancun:focus-launcher", { detail: { selectAll: true } }));`)
 }
 
 func normalizeView(view string) string {
@@ -511,7 +535,7 @@ func normalizeView(view string) string {
 func toolTitle(view string) string {
 	definition, ok := toolregistry.Lookup(view)
 	if !ok {
-		return "Ariadne"
+		return "Fancun"
 	}
 	return definition.Title
 }
@@ -851,12 +875,27 @@ func (s *Service) startNetworkMiniMonitorLocked() {
 	}
 	stop := make(chan struct{})
 	s.monitorStop = stop
-	go s.runNetworkMiniMonitor(stop)
+	done := make(chan struct{})
+	s.monitorDone = done
+	go func() {
+		defer close(done)
+		s.runNetworkMiniMonitor(stop)
+	}()
 }
 
 func (s *Service) runNetworkMiniMonitor(stop <-chan struct{}) {
 	ticker := time.NewTicker(networkMiniLayerWatch)
 	defer ticker.Stop()
+	if s.usesNativeNetworkMini() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				s.tickNetworkMiniAutoHide()
+			}
+		}
+	}
 	taskbarEvents := make(chan struct{}, 1)
 	go func() {
 		_ = watchNetworkMiniTaskbarForeground(stop, func() {
@@ -906,6 +945,10 @@ func (s *Service) tickNetworkMiniAutoHide() {
 	s.mu.Unlock()
 
 	if err != nil {
+		return
+	}
+	if s.usesNativeNetworkMini() {
+		_ = s.syncNativeNetworkMini()
 		return
 	}
 
@@ -976,6 +1019,10 @@ func (s *Service) restoreAutoHiddenNetworkMini() {
 	if app == nil || !wasAutoHidden || s.captureFocusSuspended() {
 		return
 	}
+	if s.usesNativeNetworkMini() {
+		_ = s.syncNativeNetworkMini()
+		return
+	}
 	if window, ok := app.Window.Get("tool-" + networkMiniView); ok {
 		s.applyNetworkMiniPlacement(window, app)
 		window.SetAlwaysOnTop(true).Show()
@@ -990,6 +1037,10 @@ func (s *Service) applyNetworkMiniPlacementToExisting() {
 	app := s.app
 	s.mu.RUnlock()
 	if app == nil {
+		return
+	}
+	if s.usesNativeNetworkMini() {
+		_ = s.syncNativeNetworkMini()
 		return
 	}
 	if window, ok := app.Window.Get("tool-" + networkMiniView); ok {
@@ -1195,7 +1246,7 @@ func screenForNetworkMini(app *application.App, config networkMiniConfig) *appli
 
 func defaultNetworkMiniConfigPath() string {
 	if dir, err := os.UserConfigDir(); err == nil && strings.TrimSpace(dir) != "" {
-		return filepath.Join(dir, "Ariadne", "network_mini_window.json")
+		return filepath.Join(dir, "Fancun", "network_mini_window.json")
 	}
 	return filepath.Join(".", "network_mini_window.json")
 }

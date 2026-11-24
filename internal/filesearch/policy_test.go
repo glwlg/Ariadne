@@ -70,7 +70,7 @@ func TestFileSearchFilterUsesExtensionAllowlistFirst(t *testing.T) {
 	if filter.Excludes(`P:\workspace\notes\README.md`) {
 		t.Fatal("extension allowlist should accept normalized wildcard extensions")
 	}
-	if !filter.Excludes(`P:\workspace\logs\ariadne.log`) {
+	if !filter.Excludes(`P:\workspace\logs\fancun.log`) {
 		t.Fatal("extension denylist should exclude files not on allowlist")
 	}
 }
@@ -87,7 +87,7 @@ func TestDefaultFileSearchFilterExcludesCommonRuntimeNoise(t *testing.T) {
 	excluded := []string{
 		`C:\Users\luwei\AppData\Local\D3DSCache\4921e6f431b0944a\F4EB2D6C-ED2B-4BDD-AD9D-F913287E6768.dxcache-shm`,
 		`C:\Users\luwei\AppData\Local\Temp\edge-local-state.tmp`,
-		`C:\Users\luwei\AppData\Roaming\ariadne.exe\EBWebView\Default\Code Cache\js\index-dir\temp-index\the-real-index`,
+		`C:\Users\luwei\AppData\Roaming\fancun.exe\EBWebView\Default\Code Cache\js\index-dir\temp-index\the-real-index`,
 		`C:\Users\luwei\AppData\Local\Google\Chrome\User Data\Default\Service Worker\CacheStorage\2fb1\index-dir\the-real-index`,
 		`C:\Users\luwei\AppData\Roaming\Mozilla\Firefox\Profiles\profile.default-release\cache2\entries\A1B2C3`,
 		`C:\Users\luwei\AppData\Local\Packages\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\LocalState\EBWebView\Default\Code Cache\js\index-dir\56a2206c.tmp`,
@@ -96,7 +96,7 @@ func TestDefaultFileSearchFilterExcludesCommonRuntimeNoise(t *testing.T) {
 		`C:\Users\luwei\AppData\Roaming\Tencent\xwechat\net\kvcomm\key_2961520020_4065598005_1_1783301876_7742_3600_ready.statistic`,
 		`C:\Users\luwei\AppData\Local\Microsoft\OneDrive\logs\ListSync\Consumer_9cf4ddf2cc2d756a\NucleusLocal-2026-07-06.0001.57016.27.odlgz`,
 		`C:\Users\luwei\AppData\Local\Microsoft\Edge Beta\User Data\Default\Network\TransportSecurity`,
-		`C:\Users\luwei\AppData\Roaming\Ariadne\capture_images\capture-20260706-094138.970034400-535c8e18a2ac.png`,
+		`C:\Users\luwei\AppData\Roaming\Fancun\capture_images\capture-20260706-094138.970034400-535c8e18a2ac.png`,
 		`C:\Users\luwei\.gemini\cache\state.json`,
 		`C:\Users\luwei\.m2\repository\org\example\artifact\1.0.0\artifact-1.0.0.jar`,
 		`C:\Windows\System32\ntdll.dll`,
@@ -106,9 +106,9 @@ func TestDefaultFileSearchFilterExcludesCommonRuntimeNoise(t *testing.T) {
 		`P:\DevApp\Unity\Editor\Data\PlaybackEngines\AndroidPlayer\Tools\gradle\cache.bin`,
 		`P:\Program Files\Tencent\WeChat\WeChatAppEx.exe`,
 		`P:\workspace\env\npm\_cacache\content-v2\sha512\aa\bb`,
-		`P:\workspace\glwlg\app\Ariadne\.venv\Lib\site-packages\pkg\__init__.py`,
-		`P:\workspace\glwlg\app\Ariadne\.git\refs\codex\turn-diffs\captures\1783301386046\base`,
-		`P:\workspace\glwlg\app\Ariadne\frontend\node_modules\.pnpm\vue\index.js`,
+		`P:\workspace\glwlg\app\Fancun\.venv\Lib\site-packages\pkg\__init__.py`,
+		`P:\workspace\glwlg\app\Fancun\.git\refs\codex\turn-diffs\captures\1783301386046\base`,
+		`P:\workspace\glwlg\app\Fancun\frontend\node_modules\.pnpm\vue\index.js`,
 	}
 	for _, path := range excluded {
 		if !filter.Excludes(path) {
@@ -116,7 +116,7 @@ func TestDefaultFileSearchFilterExcludesCommonRuntimeNoise(t *testing.T) {
 		}
 	}
 
-	if filter.Excludes(`P:\workspace\glwlg\app\Ariadne\internal\filesearch\policy.go`) {
+	if filter.Excludes(`P:\workspace\glwlg\app\Fancun\internal\filesearch\policy.go`) {
 		t.Fatal("default filter should not exclude ordinary source files")
 	}
 }

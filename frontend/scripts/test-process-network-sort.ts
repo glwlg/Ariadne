@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { sortProcessTraffic } from '../src/lib/processNetworkSort.ts'
-import type { ProcessNetworkTraffic } from '../src/types/ariadne.ts'
+import type { ProcessNetworkTraffic } from '../src/types/fancun.ts'
 
 const process = (pid: number, name: string, download: number, upload: number): ProcessNetworkTraffic => ({
   pid,

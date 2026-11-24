@@ -1713,7 +1713,7 @@
 
 .api-url-row > button,
 .api-composer-row > button {
-  /* Let AriButton variants own the action color so themes stay consistent. */
+  /* Let FancunButton variants own the action color so themes stay consistent. */
 }
 
 .api-editor-tabs,
@@ -4443,7 +4443,7 @@ html.dark .capture-overlay-toast {
 
 /* Final layout hardening for the six Flow redesign pages. */
 
-/* Theme bridge for Flow: keep the redesigned layout, but source colors from Ariadne themes. */
+/* Theme bridge for Flow: keep the redesigned layout, but source colors from Fancun themes. */
 
 /* Theme bridge for launcher/search and capture surfaces. */
 :root {
@@ -5255,7 +5255,7 @@ html.dark .capture-overlay-toast {
 
 .api-url-row .api-method-select,
 .api-url-row .api-url-input,
-.api-url-row > .ari-button {
+.api-url-row > .fancun-button {
   height: 40px;
   border-radius: 5px;
 }
@@ -5269,7 +5269,7 @@ html.dark .capture-overlay-toast {
   border-right: 1px solid var(--border);
 }
 
-.api-url-row > .ari-button {
+.api-url-row > .fancun-button {
   min-width: 84px;
   border-radius: 5px;
 }

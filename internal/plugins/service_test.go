@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 func TestListIncludesMigratedBuiltins(t *testing.T) {
@@ -112,7 +112,7 @@ func TestTextPluginsExecuteOnGoPath(t *testing.T) {
 		{name: "calculator", query: "calc 12*(8+3)", want: "132"},
 		{name: "base64", query: "base64 hello", want: "aGVsbG8="},
 		{name: "hash", query: "hash hello", want: "SHA256"},
-		{name: "json", query: `json {"service":"ariadne","ok":true}`, want: `"service": "ariadne"`},
+		{name: "json", query: `json {"service":"fancun","ok":true}`, want: `"service": "fancun"`},
 		{name: "url", query: "url hello world", want: "hello%20world"},
 	}
 

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { Box, ChevronDown, ChevronRight, Folder, MoreHorizontal } from '@lucide/vue'
 import { computed, ref } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { useAPITestingStore } from '../../stores/apiTesting'
-import type { APICollection, APIRequest } from '../../types/ariadne'
+import type { APICollection, APIRequest } from '../../types/fancun'
 import ApiActionDialog from './ApiActionDialog.vue'
 import ApiContextMenu from './ApiContextMenu.vue'
 import ApiNewRequestDialog from './ApiNewRequestDialog.vue'
@@ -386,9 +386,9 @@ function createRequest(payload: { folder: string } & Partial<Omit<APIRequest, 'i
   <aside class="api-request-list" aria-label="集合树">
     <header class="api-sidebar-header">
       <span>集合</span>
-      <AriButton size="icon" variant="ghost" aria-label="集合菜单" @click="openMenu($event, { kind: 'global' })">
+      <FancunButton size="icon" variant="ghost" aria-label="集合菜单" @click="openMenu($event, { kind: 'global' })">
         <MoreHorizontal :size="15" />
-      </AriButton>
+      </FancunButton>
     </header>
 
     <div class="api-tree" role="tree">
@@ -404,9 +404,9 @@ function createRequest(payload: { folder: string } & Partial<Omit<APIRequest, 'i
             <Box :size="15" />
             <span>{{ collection.name }}</span>
           </button>
-          <AriButton size="icon" variant="ghost" aria-label="集合菜单" @click="openMenu($event, { kind: 'collection', collectionId: collection.id })">
+          <FancunButton size="icon" variant="ghost" aria-label="集合菜单" @click="openMenu($event, { kind: 'collection', collectionId: collection.id })">
             <MoreHorizontal :size="14" />
-          </AriButton>
+          </FancunButton>
         </div>
 
         <div v-if="isCollectionExpanded(collection.id)" class="api-tree-collection-body">
@@ -419,9 +419,9 @@ function createRequest(payload: { folder: string } & Partial<Omit<APIRequest, 'i
                 <span>{{ group.name }}</span>
                 <small>{{ group.requests.length }}</small>
               </button>
-              <AriButton size="icon" variant="ghost" aria-label="分组菜单" @click="openMenu($event, { kind: 'folder', collectionId: collection.id, name: group.name })">
+              <FancunButton size="icon" variant="ghost" aria-label="分组菜单" @click="openMenu($event, { kind: 'folder', collectionId: collection.id, name: group.name })">
                 <MoreHorizontal :size="14" />
-              </AriButton>
+              </FancunButton>
             </div>
 
             <div v-if="!isGroupCollapsed(collection.id, group.name)" class="api-tree-requests">
@@ -440,9 +440,9 @@ function createRequest(payload: { folder: string } & Partial<Omit<APIRequest, 'i
                   <span class="api-method-text" :class="`is-${request.method.toLowerCase()}`">{{ request.method }}</span>
                   <strong>{{ request.name }}</strong>
                 </button>
-                <AriButton size="icon" variant="ghost" aria-label="请求菜单" @click="openMenu($event, { kind: 'request', collectionId: collection.id, id: request.id })">
+                <FancunButton size="icon" variant="ghost" aria-label="请求菜单" @click="openMenu($event, { kind: 'request', collectionId: collection.id, id: request.id })">
                   <MoreHorizontal :size="14" />
-                </AriButton>
+                </FancunButton>
               </div>
             </div>
           </section>

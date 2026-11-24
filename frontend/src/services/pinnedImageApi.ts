@@ -1,9 +1,9 @@
-import type { PinnedImage, PinnedImageOpenResult } from '../types/ariadne'
+import type { PinnedImage, PinnedImageOpenResult } from '../types/fancun'
 
 async function tryPinnedImageBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/pinnedimage/service.js')
+    return await import('../../bindings/fancun/internal/pinnedimage/service.js')
   } catch {
     return null
   }

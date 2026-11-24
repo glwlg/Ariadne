@@ -1,9 +1,9 @@
-import type { QRScanResult } from '../types/ariadne'
+import type { QRScanResult } from '../types/fancun'
 
 async function tryQRScanBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/qrscan/service.js')
+    return await import('../../bindings/fancun/internal/qrscan/service.js')
   } catch {
     return null
   }

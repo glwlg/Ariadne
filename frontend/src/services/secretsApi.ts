@@ -1,4 +1,4 @@
-import type { SecretActionResult, SecretStatus } from '../types/ariadne'
+import type { SecretActionResult, SecretStatus } from '../types/fancun'
 
 const fallbackStatus: SecretStatus = {
   available: false,
@@ -7,9 +7,9 @@ const fallbackStatus: SecretStatus = {
     {
       kind: 'ai_api_key',
       label: 'OCR API key',
-      targetName: 'Ariadne/OpenAI/APIKey',
+      targetName: 'Fancun/OpenAI/APIKey',
       stored: false,
-      envNames: ['ARIADNE_AI_API_KEY', 'OPENAI__API_KEY', 'OPENAI_API_KEY'],
+      envNames: ['FANCUN_AI_API_KEY', 'OPENAI__API_KEY', 'OPENAI_API_KEY'],
       envPresent: false,
       activeSource: 'missing',
     },
@@ -19,7 +19,7 @@ const fallbackStatus: SecretStatus = {
 async function trySecretsBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/secrets/service.js')
+    return await import('../../bindings/fancun/internal/secrets/service.js')
   } catch {
     return null
   }

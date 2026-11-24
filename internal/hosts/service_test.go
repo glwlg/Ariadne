@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 func TestHostsPreviewMergesEnabledProfilesAndDetectsConflicts(t *testing.T) {
@@ -23,8 +23,8 @@ func TestHostsPreviewMergesEnabledProfilesAndDetectsConflicts(t *testing.T) {
 
 	preview := service.PreviewApply()
 
-	if !strings.Contains(preview.FinalContent, ariadneStartMarker) || strings.Contains(preview.FinalContent, legacyStartMarker) {
-		t.Fatalf("expected ariadne marker and stripped legacy marker:\n%s", preview.FinalContent)
+	if !strings.Contains(preview.FinalContent, fancunStartMarker) || strings.Contains(preview.FinalContent, legacyStartMarker) {
+		t.Fatalf("expected fancun marker and stripped legacy marker:\n%s", preview.FinalContent)
 	}
 	if len(preview.Conflicts) != 1 || preview.Conflicts[0].Host != "app.local" {
 		t.Fatalf("expected app.local conflict, got %#v", preview.Conflicts)

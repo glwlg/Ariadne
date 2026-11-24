@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { X } from '@lucide/vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -70,10 +70,10 @@ function confirm() {
       </div>
 
       <footer>
-        <AriButton size="sm" variant="ghost" @click="emit('close')">{{ cancelLabel }}</AriButton>
-        <AriButton size="sm" :variant="danger ? 'secondary' : 'primary'" :class="{ 'api-dialog-danger-button': danger }" :disabled="!canConfirm" @click="confirm">
+        <FancunButton size="sm" variant="ghost" @click="emit('close')">{{ cancelLabel }}</FancunButton>
+        <FancunButton size="sm" :variant="danger ? 'secondary' : 'primary'" :class="{ 'api-dialog-danger-button': danger }" :disabled="!canConfirm" @click="confirm">
           {{ confirmLabel }}
-        </AriButton>
+        </FancunButton>
       </footer>
     </section>
   </div>

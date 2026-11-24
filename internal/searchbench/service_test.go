@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/contracts"
-	"ariadne/internal/search"
+	"fancun/internal/contracts"
+	"fancun/internal/search"
 )
 
 func TestRunWithRunnerSummarizesSearchP95AndFileIndexHits(t *testing.T) {
@@ -119,9 +119,9 @@ func validResult(id string, resultType contracts.SearchResultType, tags []string
 }
 
 func everythingFileResult() contracts.SearchResult {
-	result := validResult("file-ariadne-readme", contracts.ResultFile, []string{"文件", "Ariadne 索引"})
+	result := validResult("file-fancun-readme", contracts.ResultFile, []string{"文件", "Fancun 索引"})
 	result.Icon = "file"
-	result.Payload = map[string]interface{}{"source": "Ariadne USN/MFT", "path": `P:\workspace\README.md`}
+	result.Payload = map[string]interface{}{"source": "Fancun USN/MFT", "path": `P:\workspace\README.md`}
 	result.Actions = append(result.Actions, contracts.PreviewAction{
 		ID:      "open_parent",
 		Label:   "打开所在文件夹",

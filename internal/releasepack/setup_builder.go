@@ -61,12 +61,13 @@ func buildSetupInstaller(options Options, packageName string, zipPath string) (P
 
 func buildSetupResources(options Options, moduleRoot string, buildDir string, setupName string) error {
 	iconSource := setupIconSource(options, moduleRoot)
-	iconTarget := filepath.Join(buildDir, "setup-logo.png")
+	iconName := "setup-logo" + filepath.Ext(iconSource)
+	iconTarget := filepath.Join(buildDir, iconName)
 	if err := copyFile(iconSource, iconTarget); err != nil {
 		return err
 	}
 	configPath := filepath.Join(buildDir, "winres.json")
-	if err := os.WriteFile(configPath, []byte(setupWinresConfig(options, "setup-logo.png", setupName)), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(setupWinresConfig(options, iconName, setupName)), 0o644); err != nil {
 		return err
 	}
 	cmd := exec.Command("go", "run", "github.com/tc-hib/go-winres@v0.3.3", "make", "--in", "winres.json", "--arch", "amd64", "--out", "setup_resource.syso", "--no-suffix")
@@ -79,12 +80,9 @@ func buildSetupResources(options Options, moduleRoot string, buildDir string, se
 }
 
 func setupIconSource(options Options, moduleRoot string) string {
-	iconPath := filepath.Join(moduleRoot, "assets", "logo.png")
-	if info, err := os.Stat(iconPath); err != nil || info.IsDir() {
-		iconPath = options.IconPath
-		if !filepath.IsAbs(iconPath) {
-			iconPath = filepath.Join(moduleRoot, iconPath)
-		}
+	iconPath := options.IconPath
+	if !filepath.IsAbs(iconPath) {
+		iconPath = filepath.Join(moduleRoot, iconPath)
 	}
 	return iconPath
 }
@@ -93,9 +91,7 @@ func setupWinresConfig(options Options, iconPath string, setupName string) strin
 	return fmt.Sprintf(`{
   "RT_GROUP_ICON": {
     "APP": {
-      "0000": [
-        %s
-      ]
+      "0000": %s
     }
   },
   "RT_MANIFEST": {
@@ -128,8 +124,8 @@ func setupWinresConfig(options Options, iconPath string, setupName string) strin
             "CompanyName": %s,
             "FileDescription": %s,
             "FileVersion": "0.0.0.0",
-            "InternalName": "ariadne-setup",
-            "LegalCopyright": "Ariadne contributors",
+            "InternalName": "fancun-setup",
+            "LegalCopyright": "Fancun contributors",
             "OriginalFilename": %s,
             "ProductName": %s,
             "ProductVersion": %s
@@ -157,7 +153,7 @@ import (
 	"fmt"
 	"os"
 
-	"ariadne/internal/setupstub"
+	"fancun/internal/setupstub"
 )
 
 //go:embed payload.zip

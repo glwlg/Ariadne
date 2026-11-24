@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
 )
 
 func TestRecognizeCaptureUsesExplicitCaptureImage(t *testing.T) {
@@ -231,40 +231,40 @@ func TestDetectStatusDoesNotUseRepoVenvUnlessOptedIn(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("LOCALAPPDATA", filepath.Join(root, "local"))
 	t.Setenv("APPDATA", filepath.Join(root, "roaming"))
-	t.Setenv("ARIADNE_OCR_HOME", "")
-	t.Setenv("ARIADNE_OCR_PYTHON", "")
-	t.Setenv("ARIADNE_OCR_ALLOW_REPO_PYTHON", "")
+	t.Setenv("FANCUN_OCR_HOME", "")
+	t.Setenv("FANCUN_OCR_PYTHON", "")
+	t.Setenv("FANCUN_OCR_ALLOW_REPO_PYTHON", "")
 
 	status := NewService(nil, nil).detectStatus()
 	if status.Available || strings.EqualFold(status.PythonPath, repoPython) {
 		t.Fatalf("repo .venv should not be used by default, got %#v", status)
 	}
 
-	t.Setenv("ARIADNE_OCR_ALLOW_REPO_PYTHON", "1")
+	t.Setenv("FANCUN_OCR_ALLOW_REPO_PYTHON", "1")
 	status = NewService(nil, nil).detectStatus()
 	if !status.Available || !strings.EqualFold(status.PythonPath, repoPython) {
 		t.Fatalf("repo .venv should be used only when explicitly enabled, got %#v want %s", status, repoPython)
 	}
 }
 
-func TestDetectStatusPrefersAriadneOCRRuntime(t *testing.T) {
+func TestDetectStatusPrefersFancunOCRRuntime(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "pyproject.toml"), "[project]\nname='x-tools'\n")
 	writeFile(t, filepath.Join(root, "uv.lock"), "")
 	writeFile(t, repoPythonPath(root), "")
-	localPython := filepath.Join(root, "local", "Ariadne", "ocr-python", "python.exe")
+	localPython := filepath.Join(root, "local", "Fancun", "ocr-python", "python.exe")
 	writeFile(t, localPython, "")
 	chdir(t, root)
 	t.Setenv("PATH", "")
 	t.Setenv("LOCALAPPDATA", filepath.Join(root, "local"))
 	t.Setenv("APPDATA", filepath.Join(root, "roaming"))
-	t.Setenv("ARIADNE_OCR_HOME", "")
-	t.Setenv("ARIADNE_OCR_PYTHON", "")
-	t.Setenv("ARIADNE_OCR_ALLOW_REPO_PYTHON", "1")
+	t.Setenv("FANCUN_OCR_HOME", "")
+	t.Setenv("FANCUN_OCR_PYTHON", "")
+	t.Setenv("FANCUN_OCR_ALLOW_REPO_PYTHON", "1")
 
 	status := NewService(nil, nil).detectStatus()
 	if !status.Available || !strings.EqualFold(status.PythonPath, localPython) {
-		t.Fatalf("Ariadne OCR runtime should be preferred, got %#v want %s", status, localPython)
+		t.Fatalf("Fancun OCR runtime should be preferred, got %#v want %s", status, localPython)
 	}
 }
 

@@ -19,12 +19,12 @@ import {
   Upload,
 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import OCRSettingsPage from './OCRSettingsPage.vue'
 import HistorySettingsPage from './HistorySettingsPage.vue'
 import SearchSettingsPage from './SearchSettingsPage.vue'
 import { useSettingsStore } from '../../stores/settings'
-import type { HotkeySettings, Launcher } from '../../types/ariadne'
+import type { HotkeySettings, Launcher } from '../../types/fancun'
 
 const settings = useSettingsStore()
 const settingsContentRef = ref<HTMLElement | null>(null)
@@ -224,7 +224,7 @@ onMounted(() => {
 <template>
   <main class="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
     <div class="app-frame">
-      <section class="launcher-shell settings-shell is-design-surface" aria-label="Ariadne settings center">
+      <section class="launcher-shell settings-shell is-design-surface" aria-label="Fancun settings center">
         <div v-if="settings.isLoading" class="empty-state">
           <Sparkles :size="22" />
           <span>正在读取设置</span>
@@ -345,10 +345,10 @@ onMounted(() => {
               <p v-if="platformLogs?.lastError" class="settings-note is-danger">
                 {{ platformLogs.lastError }}
               </p>
-              <AriButton size="sm" variant="secondary" :disabled="settings.isExportingDiagnostics" @click="settings.exportDiagnostics()">
+              <FancunButton size="sm" variant="secondary" :disabled="settings.isExportingDiagnostics" @click="settings.exportDiagnostics()">
                 <HardDrive :size="14" />
                 {{ settings.isExportingDiagnostics ? '导出中' : '导出诊断包' }}
-              </AriButton>
+              </FancunButton>
               <p v-if="settings.diagnosticsExportResult?.path" class="settings-note">
                 诊断包 {{ formatBytes(settings.diagnosticsExportResult.bytes) }} · {{ settings.diagnosticsExportResult.path }}
               </p>
@@ -389,7 +389,7 @@ onMounted(() => {
                   <li v-for="note in legacyRuntime.notes" :key="note">{{ note }}</li>
                 </ul>
                 <div v-if="legacyRuntime.processRunning || legacyRuntime.hotkeyConflictLikely" class="legacy-handoff-actions">
-                  <AriButton
+                  <FancunButton
                     size="sm"
                     variant="secondary"
                     :disabled="settings.isResolvingLegacyConflict"
@@ -397,8 +397,8 @@ onMounted(() => {
                   >
                     <Shield :size="14" />
                     {{ settings.legacyHandoffMode === 'graceful' ? '确认交接' : '交接 Alt+Q' }}
-                  </AriButton>
-                  <AriButton
+                  </FancunButton>
+                  <FancunButton
                     v-if="legacyRuntime.processRunning"
                     size="sm"
                     variant="ghost"
@@ -408,7 +408,7 @@ onMounted(() => {
                   >
                     <AlertTriangle :size="14" />
                     {{ settings.legacyHandoffMode === 'force' ? '确认强制结束' : '强制结束旧版' }}
-                  </AriButton>
+                  </FancunButton>
                 </div>
               </div>
               <div v-if="settings.legacyHandoffResult" class="legacy-handoff-result">
@@ -429,7 +429,7 @@ onMounted(() => {
                 <ul v-if="settings.legacyStatus?.notes?.length" class="settings-note-list">
                   <li v-for="note in settings.legacyStatus.notes" :key="note">{{ note }}</li>
                 </ul>
-                <AriButton
+                <FancunButton
                   size="sm"
                   variant="secondary"
                   :disabled="!settings.legacyStatus?.exists || settings.isSaving"
@@ -437,7 +437,7 @@ onMounted(() => {
                 >
                   <Upload :size="14" />
                   导入旧配置
-                </AriButton>
+                </FancunButton>
               </template>
 
               <div v-if="legacyHistoryNeedsAttention" class="legacy-data-block">
@@ -482,11 +482,11 @@ onMounted(() => {
                 <p v-for="note in settings.legacyDataStatus?.notes" :key="note" class="settings-note">{{ note }}</p>
 
                 <div class="legacy-actions">
-                  <AriButton size="sm" variant="ghost" :disabled="settings.isMigrating" @click="settings.refreshLegacyDataStatus()">
+                  <FancunButton size="sm" variant="ghost" :disabled="settings.isMigrating" @click="settings.refreshLegacyDataStatus()">
                     <RotateCcw :size="14" />
                     刷新历史
-                  </AriButton>
-                  <AriButton
+                  </FancunButton>
+                  <FancunButton
                     size="sm"
                     variant="secondary"
                     :disabled="!settings.legacyDataStatus?.totalCount || settings.isMigrating"
@@ -494,7 +494,7 @@ onMounted(() => {
                   >
                     <Database :size="14" />
                     {{ settings.isMigrating ? '迁移中' : '迁移旧历史' }}
-                  </AriButton>
+                  </FancunButton>
                 </div>
               </div>
 
@@ -509,7 +509,7 @@ onMounted(() => {
                 <div class="legacy-data-head">
                   <div>
                     <strong>回滚检查点</strong>
-                    <p>{{ settings.releaseBackupStatus?.backupDir || '%APPDATA%/Ariadne/backups' }}</p>
+                    <p>{{ settings.releaseBackupStatus?.backupDir || '%APPDATA%/Fancun/backups' }}</p>
                   </div>
                   <span>{{ releaseBackupSummary }}</span>
                 </div>
@@ -562,7 +562,7 @@ onMounted(() => {
                 </p>
 
                 <div class="legacy-actions">
-                  <AriButton
+                  <FancunButton
                     size="sm"
                     variant="secondary"
                     :disabled="settings.isCreatingRollbackCheckpoint"
@@ -570,8 +570,8 @@ onMounted(() => {
                   >
                     <Shield :size="14" />
                     {{ settings.isCreatingRollbackCheckpoint ? '创建中' : '创建检查点' }}
-                  </AriButton>
-                  <AriButton
+                  </FancunButton>
+                  <FancunButton
                     size="sm"
                     variant="ghost"
                     class="danger-action"
@@ -586,7 +586,7 @@ onMounted(() => {
                           ? '确认恢复'
                           : '恢复最近检查点'
                     }}
-                  </AriButton>
+                  </FancunButton>
                 </div>
               </div>
             </details>
@@ -596,7 +596,7 @@ onMounted(() => {
             <section class="settings-page-header">
               <div>
                 <h2>{{ activeSettingsPageInfo.label }}</h2>
-                <p>{{ activeSettingsPage === 'general' ? '配置 Ariadne 的基本使用选项。' : activeSettingsPageInfo.detail }}</p>
+                <p>{{ activeSettingsPage === 'general' ? '配置 Fancun 的基本使用选项。' : activeSettingsPageInfo.detail }}</p>
               </div>
               <span class="settings-page-status" v-if="activeSettingsPage === 'plugins'">
                 {{ settings.enabledPluginCount }} / {{ settings.visiblePluginManifests.length }} 启用
@@ -611,7 +611,7 @@ onMounted(() => {
                 <label class="settings-preference-row">
                   <span class="settings-preference-copy">
                     <strong>主题</strong>
-                    <small>选择 Ariadne 的界面主题</small>
+                    <small>选择 Fancun 的界面主题</small>
                   </span>
                   <select v-model="settings.settings.general.theme" class="settings-select settings-preference-control">
                     <option value="professional-pink">专业粉（亮色）</option>
@@ -623,7 +623,7 @@ onMounted(() => {
                 <label class="settings-preference-row">
                   <span class="settings-preference-copy">
                     <strong>语言</strong>
-                    <small>选择 Ariadne 的显示语言</small>
+                    <small>选择 Fancun 的显示语言</small>
                   </span>
                   <select v-model="settings.settings.general.language" class="settings-select settings-preference-control">
                     <option value="zh-CN">简体中文</option>
@@ -634,7 +634,7 @@ onMounted(() => {
                 <label class="settings-preference-row">
                   <span class="settings-preference-copy">
                     <strong>开机启动</strong>
-                    <small>系统启动时自动运行 Ariadne</small>
+                    <small>系统启动时自动运行 Fancun</small>
                   </span>
                   <span class="settings-preference-control">
                     <input v-model="settings.settings.general.runOnStartup" type="checkbox" class="settings-switch-input" />
@@ -784,10 +784,10 @@ onMounted(() => {
               </p>
               <div class="hotkey-actions">
                 <p class="settings-help-text">可以直接输入 alt+q 这类文本，也可以点击输入框后按组合键；应用后会重注册主窗口、截图和贴图热键。</p>
-                <AriButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.applyHotkeys()">
+                <FancunButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.applyHotkeys()">
                   <KeyRound :size="14" />
                   {{ settings.isSaving ? '应用中' : '应用快捷键' }}
-                </AriButton>
+                </FancunButton>
               </div>
             </section>
 
@@ -852,17 +852,17 @@ onMounted(() => {
                   <div v-if="!settings.launcherStatus?.items.length" class="launcher-empty">
                     还没有自定义启动项
                   </div>
-                  <AriButton size="sm" variant="secondary" @click="settings.newLauncher()">
+                  <FancunButton size="sm" variant="secondary" @click="settings.newLauncher()">
                     <Plus :size="14" />
                     新建启动项
-                  </AriButton>
+                  </FancunButton>
                 </div>
 
                 <div class="launcher-form" aria-label="启动项编辑">
                   <div class="settings-hotkey-grid">
                     <label class="settings-field">
                       <span>名称</span>
-                      <input v-model="settings.launcherDraft.name" class="settings-input" placeholder="例如 Ariadne 配置目录" />
+                      <input v-model="settings.launcherDraft.name" class="settings-input" placeholder="例如 Fancun 配置目录" />
                     </label>
                     <label class="settings-field">
                       <span>类型</span>
@@ -920,18 +920,18 @@ onMounted(() => {
                     命令类启动项会作为高风险动作展示，执行前必须确认。
                   </p>
                   <p class="settings-note">
-                    配置文件 {{ settings.launcherStatus?.path || '%APPDATA%/Ariadne/ariadne.sqlite' }}
+                    配置文件 {{ settings.launcherStatus?.path || '%APPDATA%/Fancun/fancun.sqlite' }}
                   </p>
 
                   <div class="launcher-actions">
-                    <AriButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.saveLauncher()">
+                    <FancunButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.saveLauncher()">
                       <Save :size="14" />
                       保存启动项
-                    </AriButton>
-                    <AriButton size="sm" variant="secondary" :disabled="settings.isSaving" @click="settings.deleteLauncher()">
+                    </FancunButton>
+                    <FancunButton size="sm" variant="secondary" :disabled="settings.isSaving" @click="settings.deleteLauncher()">
                       <Trash2 :size="14" />
                       {{ settings.launcherDeleteArmedId === settings.launcherDraft.id ? '确认删除' : '删除' }}
-                    </AriButton>
+                    </FancunButton>
                   </div>
                 </div>
               </div>
@@ -995,7 +995,7 @@ onMounted(() => {
                 {{ settings.appUpdateStatus.message }}
               </p>
               <div class="settings-inline-actions">
-                <AriButton
+                <FancunButton
                   size="sm"
                   variant="secondary"
                   :disabled="settings.isCheckingUpdate || settings.isInstallingUpdate || !settings.appUpdateStatus?.canCheck"
@@ -1003,8 +1003,8 @@ onMounted(() => {
                 >
                   <RotateCcw :size="14" />
                   {{ settings.isCheckingUpdate ? '检查中' : '检查更新' }}
-                </AriButton>
-                <AriButton
+                </FancunButton>
+                <FancunButton
                   v-if="settings.appUpdateStatus?.updateAvailable || settings.appUpdateStatus?.installerLaunched"
                   size="sm"
                   variant="primary"
@@ -1013,7 +1013,7 @@ onMounted(() => {
                 >
                   <Download :size="14" />
                   {{ settings.isInstallingUpdate ? '下载校验中' : settings.appUpdateStatus?.installerLaunched ? '安装器已启动' : '下载并安装' }}
-                </AriButton>
+                </FancunButton>
               </div>
             </section>
 
@@ -1038,14 +1038,14 @@ onMounted(() => {
                 快捷键/启动状态：{{ shellRuntime.lastError }}
               </p>
               <div class="settings-inline-actions">
-                <AriButton size="sm" variant="secondary" @click="settings.refreshPlatformStatus()">
+                <FancunButton size="sm" variant="secondary" @click="settings.refreshPlatformStatus()">
                   <RotateCcw :size="14" />
                   刷新状态
-                </AriButton>
-                <AriButton size="sm" variant="secondary" :disabled="settings.isExportingDiagnostics" @click="settings.exportDiagnostics()">
+                </FancunButton>
+                <FancunButton size="sm" variant="secondary" :disabled="settings.isExportingDiagnostics" @click="settings.exportDiagnostics()">
                   <HardDrive :size="14" />
                   {{ settings.isExportingDiagnostics ? '导出中' : '导出诊断包' }}
-                </AriButton>
+                </FancunButton>
               </div>
             </section>
 
@@ -1061,34 +1061,34 @@ onMounted(() => {
                 </div>
                 <p v-if="legacyRuntime.processRunning">{{ legacyRuntime.processName || 'x-tools.exe' }} <span v-if="legacyRuntime.processId">· pid {{ legacyRuntime.processId }}</span></p>
                 <div v-if="legacyRuntime.processRunning || legacyRuntime.hotkeyConflictLikely" class="legacy-handoff-actions">
-                  <AriButton size="sm" variant="secondary" :disabled="settings.isResolvingLegacyConflict" @click="settings.resolveLegacyHandoff(false)">
+                  <FancunButton size="sm" variant="secondary" :disabled="settings.isResolvingLegacyConflict" @click="settings.resolveLegacyHandoff(false)">
                     <Shield :size="14" />
                     {{ settings.legacyHandoffMode === 'graceful' ? '确认交接' : '交接 Alt+Q' }}
-                  </AriButton>
+                  </FancunButton>
                 </div>
               </div>
               <div v-if="legacyConfigNeedsAttention" class="settings-status-card">
                 <span>配置导入</span>
                 <strong>{{ settings.legacyStatus?.importedKeys.length ?? 0 }} 项可导入</strong>
                 <small>{{ settings.legacyStatus?.path }}</small>
-                <AriButton size="sm" variant="secondary" :disabled="!settings.legacyStatus?.exists || settings.isSaving" @click="settings.importLegacy()">
+                <FancunButton size="sm" variant="secondary" :disabled="!settings.legacyStatus?.exists || settings.isSaving" @click="settings.importLegacy()">
                   <Upload :size="14" />
                   导入配置
-                </AriButton>
+                </FancunButton>
               </div>
               <div v-if="legacyHistoryNeedsAttention" class="settings-status-card">
                 <span>历史数据</span>
                 <strong>{{ legacyHistorySummary }}</strong>
                 <small>{{ settings.legacyDataStatus?.root || '%APPDATA%/x-tools' }}</small>
                 <div class="settings-inline-actions">
-                  <AriButton size="sm" variant="ghost" :disabled="settings.isMigrating" @click="settings.refreshLegacyDataStatus()">
+                  <FancunButton size="sm" variant="ghost" :disabled="settings.isMigrating" @click="settings.refreshLegacyDataStatus()">
                     <RotateCcw :size="14" />
                     刷新
-                  </AriButton>
-                  <AriButton size="sm" variant="secondary" :disabled="!settings.legacyDataStatus?.totalCount || settings.isMigrating" @click="settings.importLegacyHistoryData()">
+                  </FancunButton>
+                  <FancunButton size="sm" variant="secondary" :disabled="!settings.legacyDataStatus?.totalCount || settings.isMigrating" @click="settings.importLegacyHistoryData()">
                     <Database :size="14" />
                     {{ settings.isMigrating ? '迁移中' : '导入历史' }}
-                  </AriButton>
+                  </FancunButton>
                 </div>
               </div>
             </section>
@@ -1102,7 +1102,7 @@ onMounted(() => {
                 <div class="settings-status-card">
                   <span>检查点</span>
                   <strong>{{ releaseBackupSummary }}</strong>
-                  <small>{{ settings.releaseBackupStatus?.backupDir || '%APPDATA%/Ariadne/backups' }}</small>
+                  <small>{{ settings.releaseBackupStatus?.backupDir || '%APPDATA%/Fancun/backups' }}</small>
                 </div>
                 <div class="settings-status-card">
                   <span>数据根</span>
@@ -1117,14 +1117,14 @@ onMounted(() => {
                 {{ settings.releaseRestoreResult.message }}
               </p>
               <div class="settings-inline-actions">
-                <AriButton size="sm" variant="secondary" :disabled="settings.isCreatingRollbackCheckpoint" @click="settings.createRollbackCheckpoint()">
+                <FancunButton size="sm" variant="secondary" :disabled="settings.isCreatingRollbackCheckpoint" @click="settings.createRollbackCheckpoint()">
                   <Shield :size="14" />
                   {{ settings.isCreatingRollbackCheckpoint ? '创建中' : '创建检查点' }}
-                </AriButton>
-                <AriButton size="sm" variant="ghost" class="danger-action" :disabled="!settings.releaseBackupStatus?.latestBackup || settings.isRestoringRollbackCheckpoint" @click="settings.restoreLatestRollbackCheckpoint()">
+                </FancunButton>
+                <FancunButton size="sm" variant="ghost" class="danger-action" :disabled="!settings.releaseBackupStatus?.latestBackup || settings.isRestoringRollbackCheckpoint" @click="settings.restoreLatestRollbackCheckpoint()">
                   <RotateCcw :size="14" />
                   {{ settings.isRestoringRollbackCheckpoint ? '恢复中' : settings.rollbackRestoreArmed ? '确认恢复' : '恢复最近检查点' }}
-                </AriButton>
+                </FancunButton>
               </div>
             </section>
           </section>
@@ -1134,14 +1134,14 @@ onMounted(() => {
           <span class="settings-footer-spacer" />
           <span v-if="settings.feedback" class="inline-feedback">{{ settings.feedback }}</span>
           <span class="settings-footer-actions">
-            <AriButton size="sm" variant="ghost" :disabled="settings.isSaving" @click="settings.reset()">
+            <FancunButton size="sm" variant="ghost" :disabled="settings.isSaving" @click="settings.reset()">
               <RotateCcw :size="14" />
               恢复默认
-            </AriButton>
-            <AriButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.save()">
+            </FancunButton>
+            <FancunButton size="sm" variant="primary" :disabled="settings.isSaving" @click="settings.save()">
               <Save :size="14" />
               {{ settings.isSaving ? '保存中' : '保存设置' }}
-            </AriButton>
+            </FancunButton>
           </span>
         </footer>
       </section>

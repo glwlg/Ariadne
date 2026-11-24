@@ -1,4 +1,4 @@
-/* Ariadne visual constitution tokens
+/* Fancun visual constitution tokens
  * Goal: calm desktop workbench, not soft SaaS plastic.
  * Accent is for action only; surfaces stay neutral.
  */
@@ -86,13 +86,13 @@
   --flow-strong-fill: var(--flow-ink);
   --flow-strong-fill-foreground: #ffffff;
 
-  --ariadne-mark-bg: #111316;
-  --ariadne-mark-shadow: #3f3f46;
-  --ariadne-mark-thread: var(--primary);
-  --ariadne-mark-loop: var(--primary-hover);
-  --ariadne-mark-core: #f59e0b;
-  --ariadne-mark-core-dot: #fbbf24;
-  --ariadne-mark-guide: rgba(161, 161, 170, 0.25);
+  --fancun-mark-bg: #111316;
+  --fancun-mark-shadow: #3f3f46;
+  --fancun-mark-thread: var(--primary);
+  --fancun-mark-loop: var(--primary-hover);
+  --fancun-mark-core: #f59e0b;
+  --fancun-mark-core-dot: #fbbf24;
+  --fancun-mark-guide: rgba(161, 161, 170, 0.25);
 
   color-scheme: light;
   font-family: var(--font-sans);

@@ -11,7 +11,7 @@ import (
 func TestProtectedServiceExecutableLivesOutsideUserInstall(t *testing.T) {
 	programFiles := t.TempDir()
 	t.Setenv("ProgramFiles", programFiles)
-	source := filepath.Join(t.TempDir(), "ariadne.exe")
+	source := filepath.Join(t.TempDir(), "fancun.exe")
 	if err := os.WriteFile(source, []byte("service binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestProtectedServiceExecutableLivesOutsideUserInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target != filepath.Join(programFiles, "Ariadne", "Service", "Ariadne.Service.exe") {
+	if target != filepath.Join(programFiles, "Fancun", "Service", "Fancun.Service.exe") {
 		t.Fatalf("target = %q", target)
 	}
 	raw, err := os.ReadFile(target)

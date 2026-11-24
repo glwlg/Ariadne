@@ -248,7 +248,7 @@ var (
 
 func RunInteractive(payload []byte, options Options) (Result, error) {
 	if options.ProductName == "" {
-		options.ProductName = "Ariadne"
+		options.ProductName = "Fancun"
 	}
 	if options.Version == "" {
 		options.Version = "dev"
@@ -373,7 +373,7 @@ func (window *installerWindow) create() error {
 	window.instance = windows.Handle(instance)
 	window.initTheme()
 
-	className, err := windows.UTF16PtrFromString("AriadneSetupWizardWindow")
+	className, err := windows.UTF16PtrFromString("FancunSetupWizardWindow")
 	if err != nil {
 		return err
 	}
@@ -460,7 +460,7 @@ func (window *installerWindow) render() {
 }
 
 func (window *installerWindow) renderRail() {
-	window.addText("ARIADNE", 34, 36, 110, 20, window.smallFont, colorMuted, window.whiteBrush)
+	window.addText("FANCUN", 34, 36, 110, 20, window.smallFont, colorMuted, window.whiteBrush)
 	window.addText(window.productName, 34, 58, 150, 26, window.headingFont, colorText, window.whiteBrush)
 	window.addText("本地优先 · 普通启动", 34, 92, 168, 22, window.smallFont, colorMuted, window.whiteBrush)
 	window.addPanel(220, 30, 1, 430, window.panelBrush)
@@ -481,13 +481,13 @@ func (window *installerWindow) renderRail() {
 }
 
 func (window *installerWindow) renderWelcomePage() {
-	window.addText("欢迎安装 Ariadne", 254, 42, 430, 38, window.titleFont, colorText, window.whiteBrush)
+	window.addText("欢迎安装 Fancun", 254, 42, 430, 38, window.titleFont, colorText, window.whiteBrush)
 	window.addText("把启动器、文件搜索、截图历史、剪贴板历史和桌面工具中心放到统一入口。", 256, 92, 430, 40, window.defaultFont, colorMuted, window.whiteBrush)
 
 	window.addPanel(256, 152, 430, 1, window.panelBrush)
 	window.addText("安装内容", 256, 180, 120, 24, window.headingFont, colorText, window.whiteBrush)
-	window.addText("• Ariadne 桌面应用与卸载入口", 260, 218, 410, 22, window.defaultFont, colorText, window.whiteBrush)
-	window.addText("• 内置 Ariadne 文件索引", 260, 248, 410, 22, window.defaultFont, colorText, window.whiteBrush)
+	window.addText("• Fancun 桌面应用与卸载入口", 260, 218, 410, 22, window.defaultFont, colorText, window.whiteBrush)
+	window.addText("• 内置 Fancun 文件索引", 260, 248, 410, 22, window.defaultFont, colorText, window.whiteBrush)
 	window.addText("• 当前用户的开始菜单和桌面快捷方式", 260, 278, 410, 22, window.defaultFont, colorText, window.whiteBrush)
 
 	window.addText("默认安装到", 256, 330, 110, 22, window.smallFont, colorMuted, window.whiteBrush)
@@ -496,12 +496,12 @@ func (window *installerWindow) renderWelcomePage() {
 
 func (window *installerWindow) renderAgreementPage() {
 	window.addText("用户协议", 254, 42, 430, 38, window.titleFont, colorText, window.whiteBrush)
-	window.addText("继续安装前，请阅读并接受 Ariadne 的使用条款。", 256, 92, 430, 28, window.defaultFont, colorMuted, window.whiteBrush)
+	window.addText("继续安装前，请阅读并接受 Fancun 的使用条款。", 256, 92, 430, 28, window.defaultFont, colorMuted, window.whiteBrush)
 
 	agreement := strings.Join([]string{
-		"Ariadne 用户协议",
+		"Fancun 用户协议",
 		"",
-		"1. Ariadne 是本地优先的 Windows 桌面效率工具。应用数据默认保存在当前用户目录。",
+		"1. Fancun 是本地优先的 Windows 桌面效率工具。应用数据默认保存在当前用户目录。",
 		"2. 截图、剪贴板、OCR 和导出能力受应用内隐私设置与用户确认控制。",
 		"3. 后台服务用于文件索引和进程网络统计；桌面应用仍以当前用户权限运行。",
 		"4. 使用外部 AI、远程接口或第三方服务时，请确认相关账号、数据和网络策略符合你的使用场景。",
@@ -529,7 +529,7 @@ func (window *installerWindow) renderOptionsPage() {
 
 	window.addText("启动方式", 256, 396, 120, 22, window.headingFont, colorText, window.whiteBrush)
 	window.autostart = window.addCheckbox(258, 426, 190, 24, "随 Windows 启动", window.draft.AutoStart, installerIDAutostart)
-	window.launch = window.addCheckbox(456, 426, 230, 24, "安装完成后启动 Ariadne", window.draft.LaunchAfterInstall, installerIDLaunch)
+	window.launch = window.addCheckbox(456, 426, 230, 24, "安装完成后启动 Fancun", window.draft.LaunchAfterInstall, installerIDLaunch)
 }
 
 func (window *installerWindow) renderReadyPage() {

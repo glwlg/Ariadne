@@ -12,7 +12,7 @@ import (
 	"zombiezen.com/go/sqlite/sqlitex"
 )
 
-const databaseName = "ariadne.sqlite"
+const databaseName = "fancun.sqlite"
 
 func DatabasePathForPath(path string) string {
 	path = strings.TrimSpace(path)

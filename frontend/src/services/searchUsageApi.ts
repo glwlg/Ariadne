@@ -1,4 +1,4 @@
-import type { SearchUsageClearResult, SearchUsageRecord, SearchUsageStatus } from '../types/ariadne'
+import type { SearchUsageClearResult, SearchUsageRecord, SearchUsageStatus } from '../types/fancun'
 
 let fallbackStatus: SearchUsageStatus = {
   path: 'dev:fallback-search-state',
@@ -9,7 +9,7 @@ let fallbackStatus: SearchUsageStatus = {
 async function trySearchBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/search/service.js')
+    return await import('../../bindings/fancun/internal/search/service.js')
   } catch {
     return null
   }

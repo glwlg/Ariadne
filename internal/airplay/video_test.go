@@ -41,8 +41,8 @@ func TestToolWindowStatusJSONAndLogs(t *testing.T) {
 func TestVideoEventsHandleChunksAndClearDisconnectedMetadata(t *testing.T) {
 	var received []videoEvent
 	writer := &videoEventWriter{accept: func(event videoEvent) { received = append(received, event) }}
-	stream := "ordinary log\nARIADNE_VIDEO {\"phase\":\"mirroring\",\"width\":270,\"height\":480,\"title\":\"第1集\\n片名\",\"client\":\"iPhone\"}\n" +
-		"ARIADNE_VIDEO {\"phase\":\"disconnected\",\"width\":270,\"height\":480,\"title\":\"stale\"}\n"
+	stream := "ordinary log\nFANCUN_VIDEO {\"phase\":\"mirroring\",\"width\":270,\"height\":480,\"title\":\"第1集\\n片名\",\"client\":\"iPhone\"}\n" +
+		"FANCUN_VIDEO {\"phase\":\"disconnected\",\"width\":270,\"height\":480,\"title\":\"stale\"}\n"
 	for _, value := range []byte(stream) {
 		if n, err := writer.Write([]byte{value}); n != 1 || err != nil {
 			t.Fatalf("write failed: %d %v", n, err)
@@ -53,10 +53,10 @@ func TestVideoEventsHandleChunksAndClearDisconnectedMetadata(t *testing.T) {
 		t.Fatalf("incorrect stream transitions: %+v", received)
 	}
 	for _, line := range []string{
-		`ARIADNE_VIDEO {"phase":"mirroring","width":0,"height":480}`,
-		`ARIADNE_VIDEO {"phase":"mirroring","width":999999,"height":480}`,
-		`ARIADNE_VIDEO {"phase":"unknown"}`,
-		"ARIADNE_VIDEO {invalid",
+		`FANCUN_VIDEO {"phase":"mirroring","width":0,"height":480}`,
+		`FANCUN_VIDEO {"phase":"mirroring","width":999999,"height":480}`,
+		`FANCUN_VIDEO {"phase":"unknown"}`,
+		"FANCUN_VIDEO {invalid",
 		strings.Repeat("x", 9000),
 	} {
 		fmt.Fprintln(writer, line)
@@ -64,7 +64,7 @@ func TestVideoEventsHandleChunksAndClearDisconnectedMetadata(t *testing.T) {
 	if len(received) != 2 {
 		t.Fatal("invalid events changed receiver state")
 	}
-	fmt.Fprintln(writer, `ARIADNE_VIDEO {"phase":"mirroring","width":480,"height":270}`)
+	fmt.Fprintln(writer, `FANCUN_VIDEO {"phase":"mirroring","width":480,"height":270}`)
 	if len(received) != 3 || received[2].Width != 480 {
 		t.Fatal("parser did not resume after oversized line")
 	}

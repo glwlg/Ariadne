@@ -1,9 +1,9 @@
-import type { LegacyDataStatus, LegacyImportRequest, LegacyImportResult } from '../types/ariadne'
+import type { LegacyDataStatus, LegacyImportRequest, LegacyImportResult } from '../types/fancun'
 
 async function tryMigrationBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/migration/service.js')
+    return await import('../../bindings/fancun/internal/migration/service.js')
   } catch {
     return null
   }

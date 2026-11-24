@@ -30,7 +30,7 @@ func buildAutostartAudit(identifier string, valueName string, command string, ex
 		audit.ValueName = valueName
 	}
 	if !strings.EqualFold(valueName, identifier) {
-		audit.Notes = append(audit.Notes, "开机启动值名不是 Ariadne 标准 identifier: "+valueName)
+		audit.Notes = append(audit.Notes, "开机启动值名不是 Fancun 标准 identifier: "+valueName)
 	}
 	tokens := windowsCommandLineTokens(command)
 	if len(tokens) == 0 {
@@ -39,7 +39,7 @@ func buildAutostartAudit(identifier string, valueName string, command string, ex
 	}
 	audit.CommandMatchesExe = sameWindowsPath(tokens[0], executable)
 	if !audit.CommandMatchesExe {
-		audit.Notes = append(audit.Notes, "开机启动命令未指向当前 Ariadne 可执行文件")
+		audit.Notes = append(audit.Notes, "开机启动命令未指向当前 Fancun 可执行文件")
 	}
 	for _, token := range tokens[1:] {
 		if strings.EqualFold(token, "--hidden") || strings.EqualFold(token, "/hidden") {

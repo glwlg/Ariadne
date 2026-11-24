@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/appdb"
+	"fancun/internal/appdb"
 )
 
 type UsageRecord struct {
@@ -53,7 +53,7 @@ func defaultStatePath() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "search_state.json")
+	return filepath.Join(base, "Fancun", "search_state.json")
 }
 
 func (s *StateStore) Get(resultID string) UsageRecord {

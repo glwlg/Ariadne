@@ -11,7 +11,7 @@ func TestDefinitionsHaveUniqueCommandsAndValidGeometry(t *testing.T) {
 		t.Fatalf("unexpected tool count: %d", len(definitions))
 	}
 	for view, definition := range definitions {
-		if !strings.HasPrefix(definition.Title, "Ariadne - ") || definition.Command == "" || commands[definition.Command] {
+		if !strings.HasPrefix(definition.Title, "Fancun - ") || definition.Command == "" || commands[definition.Command] {
 			t.Fatalf("invalid tool command or title for %s: %#v", view, definition)
 		}
 		commands[definition.Command] = true

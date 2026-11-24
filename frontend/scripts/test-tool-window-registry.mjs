@@ -19,7 +19,7 @@ for (const view of ['launcher', 'toString', '__proto__', 'constructor', 'unknown
 }
 assert.equal(toolViewForCommand('open_capture_overlay'), undefined)
 assert.equal(toolViewForCommand('unknown'), undefined)
-assert.equal(toolViews.capture.title, 'Ariadne - 截图历史')
+assert.equal(toolViews.capture.title, 'Fancun - 截图历史')
 assert.equal(toolViews.hosts.width, 1360)
 assert.equal(toolViews.settings.minWidth, 980)
 console.log('Tool window registry checks passed.')

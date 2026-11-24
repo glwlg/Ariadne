@@ -1,6 +1,6 @@
 package plugins
 
-import "ariadne/internal/contracts"
+import "fancun/internal/contracts"
 
 func executeAirPlay(query string) []contracts.SearchResult {
 	return []contracts.SearchResult{

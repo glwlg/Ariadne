@@ -1,11 +1,11 @@
-import type { OCRResult, OCRStatus } from '../types/ariadne'
+import type { OCRResult, OCRStatus } from '../types/fancun'
 
 const LOCAL_OCR_PROVIDER = 'rapidocr_onnxruntime'
 
 async function tryOCRBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/ocr/service.js')
+    return await import('../../bindings/fancun/internal/ocr/service.js')
   } catch {
     return null
   }

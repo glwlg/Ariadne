@@ -4,12 +4,12 @@ import type {
   JsonDifference,
   JsonFormatRequest,
   JsonFormatResult,
-} from '../types/ariadne'
+} from '../types/fancun'
 
 async function tryJsonCompareBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/jsoncompare/service.js')
+    return await import('../../bindings/fancun/internal/jsoncompare/service.js')
   } catch {
     return null
   }

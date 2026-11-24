@@ -1,4 +1,4 @@
-import type { OCRLine } from '../types/ariadne'
+import type { OCRLine } from '../types/fancun'
 
 export function ocrConfidenceLabel(value: number) {
   if (!value || Number.isNaN(value)) return '置信度 -'

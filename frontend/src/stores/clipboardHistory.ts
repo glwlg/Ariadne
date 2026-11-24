@@ -16,7 +16,7 @@ import {
 import { openPinnedClipboardImage } from '../services/pinnedImageApi'
 import { recognizeClipboardImageOCR } from '../services/ocrApi'
 import { createOCRSelection } from '../lib/ocrSelection'
-import type { ClipboardHistoryEntry, ClipboardHistoryStatus, OCRResult, QRScanResult } from '../types/ariadne'
+import type { ClipboardHistoryEntry, ClipboardHistoryStatus, OCRResult, QRScanResult } from '../types/fancun'
 
 export const useClipboardHistoryStore = defineStore('clipboard-history', () => {
   const query = ref('')

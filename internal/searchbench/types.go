@@ -1,8 +1,8 @@
 package searchbench
 
 import (
-	"ariadne/internal/filesearch"
-	"ariadne/internal/search"
+	"fancun/internal/filesearch"
+	"fancun/internal/search"
 )
 
 type Options struct {

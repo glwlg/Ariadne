@@ -3,9 +3,9 @@
 package setupstub
 
 import (
-	"ariadne/internal/elevation"
-	"ariadne/internal/filesearch"
-	"ariadne/internal/settings"
+	"fancun/internal/elevation"
+	"fancun/internal/filesearch"
+	"fancun/internal/settings"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +16,7 @@ import (
 
 func installFileSearchService(productName string, exePath string, settingsConfig string) error {
 	if strings.TrimSpace(exePath) == "" {
-		return fmt.Errorf("缺少 Ariadne 程序路径")
+		return fmt.Errorf("缺少 Fancun 程序路径")
 	}
 	settingsConfig = fileSearchSettingsConfigPath(settingsConfig)
 	if err := filesearch.InstallWindowsService(productName, exePath, "--settings-config", settingsConfig); err == nil {
@@ -37,11 +37,18 @@ func removeFileSearchService(productName string, exePath string) error {
 	return runElevatedFileSearchServiceCommand("remove", "", "")
 }
 
+func retireLegacyFileSearchService() error {
+	if err := filesearch.RemoveLegacyWindowsService(); err == nil {
+		return nil
+	}
+	return runElevatedFileSearchServiceCommand("retire-legacy", "", "")
+}
+
 func runFileSearchServiceCommand(productName string, command string, exePath string, settingsConfig string) (Result, error) {
 	switch strings.ToLower(strings.TrimSpace(command)) {
 	case "install":
 		if strings.TrimSpace(exePath) == "" {
-			return Result{}, fmt.Errorf("缺少 Ariadne 程序路径")
+			return Result{}, fmt.Errorf("缺少 Fancun 程序路径")
 		}
 		settingsConfig = fileSearchSettingsConfigPath(settingsConfig)
 		if err := filesearch.InstallWindowsService(productName, exePath, "--settings-config", settingsConfig); err != nil {
@@ -53,6 +60,14 @@ func runFileSearchServiceCommand(productName string, command string, exePath str
 			return Result{}, err
 		}
 		return Result{Action: ActionUninstall}, nil
+	case "retire-legacy":
+		if !strings.EqualFold(productName, "Fancun") {
+			return Result{}, fmt.Errorf("该安装包不支持旧品牌升级")
+		}
+		if err := filesearch.RemoveLegacyWindowsService(); err != nil {
+			return Result{}, err
+		}
+		return Result{Action: ActionInstall}, nil
 	default:
 		return Result{}, fmt.Errorf("未知搜索服务命令: %s", command)
 	}
@@ -129,6 +144,9 @@ func elevatedInstallArgs(command commandOptions) []string {
 	}
 	if command.FileSearchSettingsConfig != "" {
 		args = append(args, "--settings-config", command.FileSearchSettingsConfig)
+	}
+	if command.LegacyRoamingSource != "" {
+		args = append(args, "--legacy-roaming-source", command.LegacyRoamingSource)
 	}
 	return args
 }

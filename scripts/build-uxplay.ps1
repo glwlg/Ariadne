@@ -18,9 +18,9 @@ function Get-SHA256([string]$Path) {
 }
 $buildInputs = (@(
     $PSCommandPath,
-    (Join-Path $PSScriptRoot 'uxplay\ariadne-window.c'),
-    (Join-Path $PSScriptRoot 'uxplay\ariadne-window.h'),
-    (Join-Path $PSScriptRoot 'uxplay\ariadne.rc'),
+    (Join-Path $PSScriptRoot 'uxplay\fancun-window.c'),
+    (Join-Path $PSScriptRoot 'uxplay\fancun-window.h'),
+    (Join-Path $PSScriptRoot 'uxplay\fancun.rc'),
     (Join-Path $PSScriptRoot 'uxplay\test-window-branding.c'),
     (Join-Path $PSScriptRoot 'uxplay\test-mdns-windows.c'),
     (Join-Path $PSScriptRoot '..\assets\logo.ico')
@@ -98,16 +98,16 @@ if ($mdnsSource.Contains($excludedVirtualAdapters)) {
 }
 
 # Brand every native video window when GStreamer publishes its handle.
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uxplay\ariadne-window.h') -Destination (Join-Path $sourceDir 'renderers\ariadne-window.h') -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uxplay\ariadne-window.c') -Destination (Join-Path $sourceDir 'renderers\ariadne-window.c') -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uxplay\ariadne.rc') -Destination (Join-Path $sourceDir 'ariadne.rc') -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\assets\logo.ico') -Destination (Join-Path $sourceDir 'ariadne.ico') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uxplay\fancun-window.h') -Destination (Join-Path $sourceDir 'renderers\fancun-window.h') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uxplay\fancun-window.c') -Destination (Join-Path $sourceDir 'renderers\fancun-window.c') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uxplay\fancun.rc') -Destination (Join-Path $sourceDir 'fancun.rc') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\assets\logo.ico') -Destination (Join-Path $sourceDir 'fancun.ico') -Force
 $rendererSourcePath = Join-Path $sourceDir 'renderers\video_renderer.c'
 $rendererSource = [IO.File]::ReadAllText($rendererSourcePath).Replace("`r`n", "`n")
 $overlayInclude = '#include <gst/video/videooverlay.h>'
-$brandedOverlayInclude = $overlayInclude + "`n#ifdef _WIN32`n#include `"ariadne-window.h`"`n#endif"
+$brandedOverlayInclude = $overlayInclude + "`n#ifdef _WIN32`n#include `"fancun-window.h`"`n#endif"
 $windowHandler = 'window_handle_bus_sync_handler(GstBus *bus, GstMessage *message, gpointer user_data) {'
-$brandedWindowHandler = $windowHandler + "`n#ifdef _WIN32`n    ariadne_brand_video_window(message);`n#endif"
+$brandedWindowHandler = $windowHandler + "`n#ifdef _WIN32`n    fancun_brand_video_window(message);`n#endif"
 if (-not $rendererSource.Contains($brandedOverlayInclude)) {
     if (-not $rendererSource.Contains($overlayInclude) -or -not $rendererSource.Contains($windowHandler)) {
         throw 'UxPlay window handler differs from the pinned version.'
@@ -116,9 +116,9 @@ if (-not $rendererSource.Contains($brandedOverlayInclude)) {
 }
 if (-not $rendererSource.Contains($brandedWindowHandler)) { throw 'UxPlay window branding handler is missing.' }
 foreach ($patch in @(
-    @('void video_renderer_stop() {', "void video_renderer_stop() {`n#ifdef _WIN32`n    ariadne_video_stopped();`n#endif"),
-    @('void video_renderer_set_device_model(const char *model, const char *name) {', "void video_renderer_set_device_model(const char *model, const char *name) {`n#ifdef _WIN32`n    ariadne_video_client(name);`n#endif"),
-    @('void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album) {', "void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album) {`n#ifdef _WIN32`n    ariadne_video_metadata(title, artist);`n#endif")
+    @('void video_renderer_stop() {', "void video_renderer_stop() {`n#ifdef _WIN32`n    fancun_video_stopped();`n#endif"),
+    @('void video_renderer_set_device_model(const char *model, const char *name) {', "void video_renderer_set_device_model(const char *model, const char *name) {`n#ifdef _WIN32`n    fancun_video_client(name);`n#endif"),
+    @('void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album) {', "void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album) {`n#ifdef _WIN32`n    fancun_video_metadata(title, artist);`n#endif")
 )) {
     if (-not $rendererSource.Contains($patch[1])) {
         if (-not $rendererSource.Contains($patch[0])) { throw 'UxPlay renderer source differs from the pinned version.' }
@@ -131,7 +131,7 @@ $rendererCmake = [IO.File]::ReadAllText($rendererCmakePath).Replace("`r`n", "`n"
 $rendererCmake = $rendererCmake.Replace('target_link_libraries(renderers PUBLIC user32)',
     'target_link_libraries(renderers PUBLIC user32 imm32)')
 $rendererTarget = 'target_link_libraries ( renderers PUBLIC airplay )'
-$nativeRendererTarget = $rendererTarget + "`nif (WIN32)`n  target_sources(renderers PRIVATE ariadne-window.c)`n  target_link_libraries(renderers PUBLIC user32 imm32)`nendif()"
+$nativeRendererTarget = $rendererTarget + "`nif (WIN32)`n  target_sources(renderers PRIVATE fancun-window.c)`n  target_link_libraries(renderers PUBLIC user32 imm32)`nendif()"
 if (-not $rendererCmake.Contains($nativeRendererTarget)) {
     if (-not $rendererCmake.Contains($rendererTarget)) { throw 'UxPlay renderers target differs from the pinned version.' }
     $rendererCmake = $rendererCmake.Replace($rendererTarget, $nativeRendererTarget)
@@ -174,39 +174,46 @@ $brandedExecutableTarget = $executableTarget + @'
 
 if (WIN32)
   enable_language(RC)
-  target_sources(uxplay PRIVATE ariadne.rc)
+  target_sources(uxplay PRIVATE fancun.rc)
   target_include_directories(uxplay PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 '@
 $brandedExecutableTarget = $brandedExecutableTarget.Replace("`r`n", "`n")
-if (-not $cmakeSource.Contains($brandedExecutableTarget)) {
+$resourceTarget = '  target_sources(uxplay PRIVATE fancun.rc)'
+if (-not $cmakeSource.Contains($resourceTarget)) {
     if (-not $cmakeSource.Contains($executableTarget)) { throw 'UxPlay executable target differs from the pinned version.' }
-    [IO.File]::WriteAllText($cmakeSourcePath, $cmakeSource.Replace($executableTarget, $brandedExecutableTarget), [Text.UTF8Encoding]::new($false))
+    $cmakeSource = $cmakeSource.Replace($executableTarget, $brandedExecutableTarget)
 }
+# windres does not track the ICO input reliably in cached Ninja builds.
+$iconDependency = 'set_source_files_properties(fancun.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/fancun.ico")'
+if (-not $cmakeSource.Contains($iconDependency)) {
+    $cmakeSource = $cmakeSource.Replace($resourceTarget, $resourceTarget + "`n  " + $iconDependency)
+}
+[IO.File]::WriteAllText($cmakeSourcePath, $cmakeSource, [Text.UTF8Encoding]::new($false))
 
 $savedEnvironment = @{}
-foreach ($name in @('MSYSTEM', 'CHERE_INVOKING', 'ARIADNE_UXPLAY_SOURCE', 'ARIADNE_UXPLAY_OUTPUT', 'ARIADNE_UXPLAY_TEST', 'ARIADNE_UXPLAY_WINDOW_TEST')) {
+foreach ($name in @('MSYSTEM', 'CHERE_INVOKING', 'FANCUN_UXPLAY_SOURCE', 'FANCUN_UXPLAY_OUTPUT', 'FANCUN_UXPLAY_TEST', 'FANCUN_UXPLAY_WINDOW_TEST')) {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 try {
     $env:MSYSTEM = 'UCRT64'
     $env:CHERE_INVOKING = '1'
-    $env:ARIADNE_UXPLAY_SOURCE = $sourceDir
-    $env:ARIADNE_UXPLAY_OUTPUT = $OutputDir
-    $env:ARIADNE_UXPLAY_TEST = Join-Path $PSScriptRoot 'uxplay\test-mdns-windows.c'
-    $env:ARIADNE_UXPLAY_WINDOW_TEST = Join-Path $PSScriptRoot 'uxplay\test-window-branding.c'
+    $env:FANCUN_UXPLAY_SOURCE = $sourceDir
+    $env:FANCUN_UXPLAY_OUTPUT = $OutputDir
+    $env:FANCUN_UXPLAY_TEST = Join-Path $PSScriptRoot 'uxplay\test-mdns-windows.c'
+    $env:FANCUN_UXPLAY_WINDOW_TEST = Join-Path $PSScriptRoot 'uxplay\test-window-branding.c'
     $buildScript = @'
 set -euo pipefail
 pacman -Sy --noconfirm
 pacman -S --needed --noconfirm mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-openssl mingw-w64-ucrt-x86_64-libplist mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base mingw-w64-ucrt-x86_64-gst-plugins-good mingw-w64-ucrt-x86_64-gst-plugins-bad mingw-w64-ucrt-x86_64-gst-libav
-source_dir=$(cygpath -u "$ARIADNE_UXPLAY_SOURCE")
-output_dir=$(cygpath -u "$ARIADNE_UXPLAY_OUTPUT")
+source_dir=$(cygpath -u "$FANCUN_UXPLAY_SOURCE")
+output_dir=$(cygpath -u "$FANCUN_UXPLAY_OUTPUT")
 cmake -S "$source_dir" -B "$source_dir/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_DNS_SD=OFF -DNO_MARCH_NATIVE=ON
 cmake --build "$source_dir/build" --parallel 4
-gcc -I "$source_dir" "$(cygpath -u "$ARIADNE_UXPLAY_TEST")" -o "$source_dir/build/test-mdns-windows.exe" -liphlpapi -lws2_32 -lpthread
+gcc -I "$source_dir" "$(cygpath -u "$FANCUN_UXPLAY_TEST")" -o "$source_dir/build/test-mdns-windows.exe" -liphlpapi -lws2_32 -lpthread
 "$source_dir/build/test-mdns-windows.exe"
-windres -I "$source_dir" "$source_dir/ariadne.rc" -o "$source_dir/build/test-window-icon.o"
-gcc '-DARIADNE_CONTROL_TITLE=L"Ariadne.ScreenInput.Test"' -I "$source_dir/renderers" $(pkg-config --cflags gstreamer-app-1.0 gstreamer-video-1.0) "$(cygpath -u "$ARIADNE_UXPLAY_WINDOW_TEST")" "$source_dir/renderers/ariadne-window.c" "$source_dir/build/test-window-icon.o" -o "$source_dir/build/test-window-branding.exe" $(pkg-config --libs gstreamer-app-1.0 gstreamer-video-1.0) -luser32 -limm32
+windres -I "$source_dir" "$source_dir/fancun.rc" -o "$source_dir/build/test-window-icon.o"
+gcc '-DFANCUN_CONTROL_TITLE=L"Fancun.ScreenInput.Test"' -I "$source_dir/renderers" $(pkg-config --cflags gstreamer-app-1.0 gstreamer-video-1.0) "$(cygpath -u "$FANCUN_UXPLAY_WINDOW_TEST")" "$source_dir/renderers/fancun-window.c" "$source_dir/build/test-window-icon.o" -o "$source_dir/build/test-window-branding.exe" $(pkg-config --libs gstreamer-app-1.0 gstreamer-video-1.0) -luser32 -limm32
 "$source_dir/build/test-window-branding.exe"
 mkdir -p "$output_dir/lib/gstreamer-1.0" "$output_dir/libexec" "$output_dir/share"
 cp "$source_dir/build/uxplay.exe" "$output_dir/"
@@ -258,7 +265,7 @@ Remove-Item -LiteralPath (Join-Path $OutputDir 'build-registry.bin') -Force
 # Keep the exact upstream source with the GPL runtime, including its notices.
 Copy-Item -LiteralPath $sourceArchive -Destination (Join-Path $OutputDir 'UxPlay-source.zip') -Force
 # Ship every modified source alongside the exact upstream archive.
-foreach ($relativePath in @('lib\mdnsd\mdnsd.c', 'renderers\video_renderer.c', 'renderers\ariadne-window.h', 'renderers\ariadne-window.c', 'renderers\CMakeLists.txt', 'uxplay.cpp', 'CMakeLists.txt', 'ariadne.rc', 'ariadne.ico')) {
+foreach ($relativePath in @('lib\mdnsd\mdnsd.c', 'renderers\video_renderer.c', 'renderers\fancun-window.h', 'renderers\fancun-window.c', 'renderers\CMakeLists.txt', 'uxplay.cpp', 'CMakeLists.txt', 'fancun.rc', 'fancun.ico')) {
     $modifiedTarget = Join-Path (Join-Path $OutputDir 'modified-source') $relativePath
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $modifiedTarget) | Out-Null
     Copy-Item -LiteralPath (Join-Path $sourceDir $relativePath) -Destination $modifiedTarget -Force
@@ -270,6 +277,6 @@ foreach ($relativePath in @('lib\mdnsd\mdnsd.c', 'renderers\video_renderer.c', '
     bundleRevision = $bundleRevision
     buildInputs = $buildInputs
     discovery = 'built-in mDNS'
-    sourceChanges = 'modified-source/: Hyper-V LAN discovery; Ariadne adaptive video window, native controls, display power, stream events and client metadata'
+    sourceChanges = 'modified-source/: Hyper-V LAN discovery; Fancun adaptive video window, native controls, display power, stream events and client metadata'
 } | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding utf8
 Write-Output "UxPlay runtime built and verified: $OutputDir"

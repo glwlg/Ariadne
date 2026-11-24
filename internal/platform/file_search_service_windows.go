@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 )
 
-const fileSearchWindowsServiceName = "AriadneFileSearch"
+const fileSearchWindowsServiceName = "FancunFileSearch"
 
 func enrichFileSearchServiceStatus(status FileSearchStatus) FileSearchStatus {
 	status.ServiceName = fileSearchWindowsServiceName

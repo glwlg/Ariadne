@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 const searchPerformanceSampleLimit = 200
@@ -399,7 +399,7 @@ func seedResults() []contracts.SearchResult {
 				Kind:     contracts.PreviewText,
 				Title:    "README.md",
 				Subtitle: "本地文件",
-				Text:     "x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Ariadne 将继承搜索、截图、插件和桌面工具。",
+				Text:     "x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Fancun 将继承搜索、截图、插件和桌面工具。",
 				Meta: []contracts.LabelValue{
 					{Label: "路径", Value: "P:\\workspace\\glwlg\\app\\x-tools\\README.md"},
 					{Label: "默认操作", Value: "打开文件 / 复制路径"},

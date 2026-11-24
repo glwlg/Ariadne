@@ -19,10 +19,10 @@ import (
 func InstallWindowsService(productName string, exePath string, serviceArgs ...string) error {
 	productName = strings.TrimSpace(productName)
 	if productName == "" {
-		productName = "Ariadne"
+		productName = "Fancun"
 	}
 	if strings.TrimSpace(exePath) == "" {
-		return fmt.Errorf("缺少 Ariadne 程序路径")
+		return fmt.Errorf("缺少 Fancun 程序路径")
 	}
 	if err := RemoveWindowsService(); err != nil {
 		return err
@@ -69,18 +69,30 @@ func InstallWindowsService(productName string, exePath string, serviceArgs ...st
 }
 
 func RemoveWindowsService() error {
+	return removeNamedWindowsService(WindowsServiceName, true)
+}
+
+// RemoveLegacyWindowsService retires the old service registration and retains its files.
+func RemoveLegacyWindowsService() error {
+	return removeNamedWindowsService("AriadneFileSearch", false)
+}
+
+func removeNamedWindowsService(name string, removeExecutable bool) error {
 	manager, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("连接 Windows 服务管理器失败: %w", err)
 	}
 	defer manager.Disconnect()
 
-	service, err := manager.OpenService(WindowsServiceName)
+	service, err := manager.OpenService(name)
 	if err != nil {
 		if !errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 			return err
 		}
-		return removeProtectedServiceExecutable()
+		if removeExecutable {
+			return removeProtectedServiceExecutable()
+		}
+		return nil
 	}
 	_ = stopWindowsService(service)
 	deleteErr := service.Delete()
@@ -91,10 +103,13 @@ func RemoveWindowsService() error {
 	if closeErr != nil {
 		return fmt.Errorf("关闭搜索服务句柄失败: %w", closeErr)
 	}
-	if err := waitWindowsServiceDeleted(manager, WindowsServiceName, 10*time.Second); err != nil {
+	if err := waitWindowsServiceDeleted(manager, name, 10*time.Second); err != nil {
 		return fmt.Errorf("删除搜索服务失败: %w", err)
 	}
-	return removeProtectedServiceExecutable()
+	if removeExecutable {
+		return removeProtectedServiceExecutable()
+	}
+	return nil
 }
 
 func installProtectedServiceExecutable(source string) (string, error) {
@@ -149,7 +164,7 @@ func protectedServiceExecutablePath() string {
 	if programFiles == "" {
 		return ""
 	}
-	return filepath.Join(programFiles, "Ariadne", "Service", "Ariadne.Service.exe")
+	return filepath.Join(programFiles, "Fancun", "Service", "Fancun.Service.exe")
 }
 
 func stopWindowsService(service *mgr.Service) error {

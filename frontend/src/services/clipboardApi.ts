@@ -1,11 +1,11 @@
-import type { ActionResult, CaptureHistoryStatus, ClipboardHistoryEntry, ClipboardHistoryStatus, QRScanResult } from '../types/ariadne'
+import type { ActionResult, CaptureHistoryStatus, ClipboardHistoryEntry, ClipboardHistoryStatus, QRScanResult } from '../types/fancun'
 
 let fallbackEntries: ClipboardHistoryEntry[] = []
 
 let fallbackStatus: ClipboardHistoryStatus = {
-  path: '%APPDATA%/Ariadne/ariadne.sqlite',
-  imageDir: '%APPDATA%/Ariadne/clipboard_images',
-  thumbnailDir: '%APPDATA%/Ariadne/clipboard_thumbnails',
+  path: '%APPDATA%/Fancun/fancun.sqlite',
+  imageDir: '%APPDATA%/Fancun/clipboard_images',
+  thumbnailDir: '%APPDATA%/Fancun/clipboard_thumbnails',
   count: 0,
   pinnedCount: 0,
   imageCount: 0,
@@ -21,7 +21,7 @@ let fallbackStatus: ClipboardHistoryStatus = {
 async function tryClipboardBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/clipboardhistory/service.js')
+    return await import('../../bindings/fancun/internal/clipboardhistory/service.js')
   } catch {
     return null
   }
@@ -130,8 +130,8 @@ export async function addClipboardImageToCapture(id: string): Promise<CaptureHis
     return normalizeCaptureStatus(await binding.AddImageToCapture(id))
   }
   return {
-    path: '%APPDATA%/Ariadne/ariadne.sqlite',
-    imageDir: '%APPDATA%/Ariadne/capture_images',
+    path: '%APPDATA%/Fancun/fancun.sqlite',
+    imageDir: '%APPDATA%/Fancun/capture_images',
     count: 0,
     pinnedCount: 0,
     lastCaptureError: '开发态未连接截图历史服务',
@@ -206,9 +206,9 @@ function fallbackList(query: string, limit: number) {
 function normalizeStatus(status: ClipboardHistoryStatus): ClipboardHistoryStatus {
   const entries = normalizeEntries(status.entries ?? fallbackEntries)
   return {
-    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
-    imageDir: status.imageDir || '%APPDATA%/Ariadne/clipboard_images',
-    thumbnailDir: status.thumbnailDir ?? '%APPDATA%/Ariadne/clipboard_thumbnails',
+    path: status.path || '%APPDATA%/Fancun/fancun.sqlite',
+    imageDir: status.imageDir || '%APPDATA%/Fancun/clipboard_images',
+    thumbnailDir: status.thumbnailDir ?? '%APPDATA%/Fancun/clipboard_thumbnails',
     count: status.count ?? entries.length,
     pinnedCount: status.pinnedCount ?? entries.filter((item) => item.pinned).length,
     imageCount: status.imageCount ?? entries.filter((item) => item.type === 'image').length,

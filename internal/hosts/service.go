@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/appdb"
+	"fancun/internal/appdb"
 )
 
 const (
@@ -26,8 +26,8 @@ const (
 	localProfile    = "local"
 	remoteProfile   = "remote"
 
-	ariadneStartMarker = "# ================= ARIADNE HOSTS START ================="
-	ariadneEndMarker   = "# ================= ARIADNE HOSTS END ================="
+	fancunStartMarker = "# ================= FANCUN HOSTS START ================="
+	fancunEndMarker   = "# ================= FANCUN HOSTS END ================="
 	legacyStartMarker  = "# ================= X-TOOLS HOSTS START ================="
 	legacyEndMarker    = "# ================= X-TOOLS HOSTS END ================="
 )
@@ -505,12 +505,12 @@ func buildFinalHosts(base string, enabled []Profile) string {
 	if finalContent != "" {
 		finalContent += "\n\n"
 	}
-	finalContent += ariadneStartMarker + "\n" + strings.Join(injected, "\n\n") + "\n" + ariadneEndMarker
+	finalContent += fancunStartMarker + "\n" + strings.Join(injected, "\n\n") + "\n" + fancunEndMarker
 	return normalizeHostsEnding(finalContent)
 }
 
 func stripManagedBlocks(content string) string {
-	content = stripMarkerBlock(content, ariadneStartMarker, ariadneEndMarker)
+	content = stripMarkerBlock(content, fancunStartMarker, fancunEndMarker)
 	content = stripMarkerBlock(content, legacyStartMarker, legacyEndMarker)
 	return strings.TrimSpace(content)
 }
@@ -778,7 +778,7 @@ func defaultConfigPath() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "hosts_profiles.json")
+	return filepath.Join(base, "Fancun", "hosts_profiles.json")
 }
 
 func defaultLegacyPath() string {
@@ -815,7 +815,7 @@ func writeHostsContent(path string, content string) error {
 }
 
 func writeHostsContentElevated(hostsPath string, content string) error {
-	tempFile, err := os.CreateTemp("", "ariadne-hosts-*.txt")
+	tempFile, err := os.CreateTemp("", "fancun-hosts-*.txt")
 	if err != nil {
 		return err
 	}
@@ -830,7 +830,7 @@ func writeHostsContentElevated(hostsPath string, content string) error {
 		return err
 	}
 
-	resultFile, err := os.CreateTemp("", "ariadne-hosts-*.res")
+	resultFile, err := os.CreateTemp("", "fancun-hosts-*.res")
 	if err != nil {
 		_ = os.Remove(tempPath)
 		return err
@@ -838,7 +838,7 @@ func writeHostsContentElevated(hostsPath string, content string) error {
 	resultPath := resultFile.Name()
 	_ = resultFile.Close()
 
-	scriptFile, err := os.CreateTemp("", "ariadne-hosts-*.ps1")
+	scriptFile, err := os.CreateTemp("", "fancun-hosts-*.ps1")
 	if err != nil {
 		_ = os.Remove(tempPath)
 		_ = os.Remove(resultPath)

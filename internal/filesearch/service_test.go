@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 type countingIndexBuilder struct {
@@ -28,7 +28,7 @@ func (failingPrivilegeIndexBuilder) Build(ctx context.Context) (IndexBuildResult
 	return IndexBuildResult{
 		RequiresElevation: true,
 		Elevated:          false,
-		Errors:            []string{"需要以管理员身份运行 Ariadne 后才能读取 NTFS USN/MFT"},
+		Errors:            []string{"需要以管理员身份运行 Fancun 后才能读取 NTFS USN/MFT"},
 	}, errors.New("文件索引需要管理员权限")
 }
 
@@ -332,9 +332,9 @@ func TestInvalidExcludeRegexIsReported(t *testing.T) {
 	}
 }
 
-func TestSearchReturnsAriadneIndexedFileResults(t *testing.T) {
+func TestSearchReturnsFancunIndexedFileResults(t *testing.T) {
 	service := NewServiceWithIndex([]rawResult{
-		{Name: "README.md", Path: `P:\workspace\glwlg\app\Ariadne\README.md`},
+		{Name: "README.md", Path: `P:\workspace\glwlg\app\Fancun\README.md`},
 	})
 
 	results := service.Search("readme")
@@ -350,10 +350,10 @@ func TestSearchReturnsAriadneIndexedFileResults(t *testing.T) {
 		t.Fatalf("expected generic open action, got %#v", result.Actions[0])
 	}
 	if !hasActionKind(result, contracts.ActionOpenParent) {
-		t.Fatal("Ariadne indexed file result should expose open_parent")
+		t.Fatal("Fancun indexed file result should expose open_parent")
 	}
 	if source := result.Payload["source"]; source != fileIndexProvider {
-		t.Fatalf("expected Ariadne file index source, got %#v", source)
+		t.Fatalf("expected Fancun file index source, got %#v", source)
 	}
 	if err := contracts.ValidateActionSurface(result); err != nil {
 		t.Fatalf("invalid action surface: %v", err)
@@ -448,8 +448,8 @@ func TestSearchContextSkipsIndexingWhenCancelled(t *testing.T) {
 
 func TestStatusReportsLastSuccessfulFileIndexQuery(t *testing.T) {
 	service := NewServiceWithIndex([]rawResult{
-		{Name: "README.md", Path: `P:\workspace\glwlg\app\Ariadne\README.md`},
-		{Name: "main.go", Path: `P:\workspace\glwlg\app\Ariadne\main.go`},
+		{Name: "README.md", Path: `P:\workspace\glwlg\app\Fancun\README.md`},
+		{Name: "main.go", Path: `P:\workspace\glwlg\app\Fancun\main.go`},
 	})
 
 	service.Search("readme")
@@ -560,9 +560,9 @@ func metaValue(result contracts.SearchResult, label string) string {
 
 func noopFileSearchPolicy() FileSearchPolicy {
 	return FileSearchPolicy{
-		ExcludeFolders:    []string{`C:\AriadneNoMatch`},
+		ExcludeFolders:    []string{`C:\FancunNoMatch`},
 		ExcludePatterns:   []string{`a^`},
 		IncludeExtensions: []string{`.log`},
-		ExcludeExtensions: []string{`.ariadne-no-match`},
+		ExcludeExtensions: []string{`.fancun-no-match`},
 	}
 }

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/contracts"
+	"fancun/internal/appdb"
+	"fancun/internal/contracts"
 )
 
 func TestSearchReturnsCustomLauncherResult(t *testing.T) {
@@ -157,12 +157,12 @@ func TestRemovePersistsDefaultLauncherTombstone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "launchers.json")
 	service := NewServiceWithPath(path)
 
-	service.Remove("ariadne-config-dir")
+	service.Remove("fancun-config-dir")
 	reloaded := NewServiceWithPath(path)
-	results := reloaded.Search("ariadne config")
+	results := reloaded.Search("fancun config")
 
 	for _, result := range results {
-		if result.ID == "launcher-ariadne-config-dir" {
+		if result.ID == "launcher-fancun-config-dir" {
 			t.Fatalf("removed default launcher should stay removed after reload: %#v", results)
 		}
 	}

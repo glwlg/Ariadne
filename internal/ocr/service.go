@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
 )
 
 const localOCRProvider = "rapidocr_onnxruntime"
@@ -451,15 +451,15 @@ func aiOCRPolicyReady(policy AIOCRPolicy) bool {
 
 func (s *Service) detectStatus() Status {
 	status := Status{Provider: localOCRProvider, Mode: "python"}
-	if env := strings.TrimSpace(os.Getenv("ARIADNE_OCR_PYTHON")); env != "" {
+	if env := strings.TrimSpace(os.Getenv("FANCUN_OCR_PYTHON")); env != "" {
 		status.PythonPath = env
 		status.Available = fileExists(env)
 		if !status.Available {
-			status.LastError = "ARIADNE_OCR_PYTHON 指向的 Python 不存在"
+			status.LastError = "FANCUN_OCR_PYTHON 指向的 Python 不存在"
 		}
 		return status
 	}
-	if path := findAriadneOCRPython(); path != "" {
+	if path := findFancunOCRPython(); path != "" {
 		status.PythonPath = path
 		status.Available = true
 		return status
@@ -482,7 +482,7 @@ func (s *Service) detectStatus() Status {
 			return status
 		}
 	}
-	status.LastError = "未找到 Ariadne OCR Python。请配置 ARIADNE_OCR_PYTHON，或安装 Ariadne 专用 OCR runtime 到 %LOCALAPPDATA%\\Ariadne\\ocr-python；不会默认调用旧 x-tools .venv。"
+	status.LastError = "未找到 Fancun OCR Python。请配置 FANCUN_OCR_PYTHON，或安装 Fancun 专用 OCR runtime 到 %LOCALAPPDATA%\\Fancun\\ocr-python；不会默认调用旧 x-tools .venv。"
 	return status
 }
 
@@ -511,7 +511,7 @@ func writeBridgeFile() (string, error) {
 		return "", err
 	}
 	sum := sha1.Sum(raw)
-	name := "ariadne-rapidocr-" + hex.EncodeToString(sum[:6]) + ".py"
+	name := "fancun-rapidocr-" + hex.EncodeToString(sum[:6]) + ".py"
 	path := filepath.Join(os.TempDir(), name)
 	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(raw) {
 		return path, nil
@@ -538,14 +538,14 @@ func ocrCommandEnv(base []string) []string {
 	env = append(env,
 		"PYTHONIOENCODING=utf-8",
 		"PYTHONUTF8=1",
-		"ARIADNE_OCR_BRIDGE=1",
+		"FANCUN_OCR_BRIDGE=1",
 	)
 	return env
 }
 
-func findAriadneOCRPython() string {
+func findFancunOCRPython() string {
 	candidates := []string{}
-	if env := strings.TrimSpace(os.Getenv("ARIADNE_OCR_HOME")); env != "" {
+	if env := strings.TrimSpace(os.Getenv("FANCUN_OCR_HOME")); env != "" {
 		candidates = append(candidates, pythonCandidatesIn(env)...)
 	}
 	if exe, err := os.Executable(); err == nil && exe != "" {
@@ -560,11 +560,11 @@ func findAriadneOCRPython() string {
 		}
 	}
 	if local := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); local != "" {
-		candidates = append(candidates, pythonCandidatesIn(filepath.Join(local, "Ariadne", "ocr-python"))...)
-		candidates = append(candidates, pythonCandidatesIn(filepath.Join(local, "Ariadne", "runtime", "ocr-python"))...)
+		candidates = append(candidates, pythonCandidatesIn(filepath.Join(local, "Fancun", "ocr-python"))...)
+		candidates = append(candidates, pythonCandidatesIn(filepath.Join(local, "Fancun", "runtime", "ocr-python"))...)
 	}
 	if appdata := strings.TrimSpace(os.Getenv("APPDATA")); appdata != "" {
-		candidates = append(candidates, pythonCandidatesIn(filepath.Join(appdata, "Ariadne", "ocr-python"))...)
+		candidates = append(candidates, pythonCandidatesIn(filepath.Join(appdata, "Fancun", "ocr-python"))...)
 	}
 	for _, candidate := range candidates {
 		if fileExists(candidate) {
@@ -587,7 +587,7 @@ func pythonCandidatesIn(root string) []string {
 }
 
 func allowRepoOCRPython() bool {
-	value := strings.TrimSpace(strings.ToLower(os.Getenv("ARIADNE_OCR_ALLOW_REPO_PYTHON")))
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("FANCUN_OCR_ALLOW_REPO_PYTHON")))
 	return value == "1" || value == "true" || value == "yes"
 }
 
@@ -692,7 +692,7 @@ func RuntimeNote() string {
 	service := NewService(nil, nil)
 	status := service.detectStatus()
 	if status.Available {
-		return fmt.Sprintf("使用 Ariadne 本地 RapidOCR bridge，Python=%s；图片不外发。", status.PythonPath)
+		return fmt.Sprintf("使用 Fancun 本地 RapidOCR bridge，Python=%s；图片不外发。", status.PythonPath)
 	}
 	return status.LastError
 }

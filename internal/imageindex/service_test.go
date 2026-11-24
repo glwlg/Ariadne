@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
-	"ariadne/internal/contracts"
-	"ariadne/internal/ocr"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
+	"fancun/internal/contracts"
+	"fancun/internal/ocr"
 )
 
 func TestIndexRecentIndexesCaptureAndClipboardImages(t *testing.T) {

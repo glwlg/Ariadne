@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 type providerFunc func(string) []contracts.SearchResult

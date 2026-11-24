@@ -24,12 +24,12 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
-	"ariadne/internal/nativecapture"
-	"ariadne/internal/ocr"
-	"ariadne/internal/pinnedimage"
-	"ariadne/internal/qrscan"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
+	"fancun/internal/nativecapture"
+	"fancun/internal/ocr"
+	"fancun/internal/pinnedimage"
+	"fancun/internal/qrscan"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -279,7 +279,7 @@ func (s *Service) openNative(manager *nativecapture.Manager) OpenResult {
 	if response.Canceled {
 		return OpenResult{OK: true, Message: firstNonEmpty(response.Message, "已取消截图")}
 	}
-	if os.Getenv("ARIADNE_CAPTURE_DEBUG") == "1" {
+	if os.Getenv("FANCUN_CAPTURE_DEBUG") == "1" {
 		log.Printf("native capture response action=%s clipboardWritten=%t renderMs=%d clipboardMs=%d totalMs=%d pngBytes=%d", response.Action, response.ClipboardWritten, response.RenderMS, response.ClipboardMS, response.TotalMS, len(response.PNGBase64))
 	}
 	result := s.captureNativeSelection(response, policy)
@@ -1002,7 +1002,7 @@ func (s *Service) redactionRectsForPNG(data []byte, policy ScreenshotPolicy) ([]
 	if provider == nil {
 		return nil, false, errors.New("OCR 服务不可用")
 	}
-	temp, err := os.CreateTemp("", "ariadne-capture-redact-*.png")
+	temp, err := os.CreateTemp("", "fancun-capture-redact-*.png")
 	if err != nil {
 		return nil, false, err
 	}
@@ -1447,7 +1447,7 @@ func (s *Service) openOverlayWindow(app *application.App, session Session) error
 	bounds := screenBoundsToApplicationRect(session.Bounds)
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             name,
-		Title:            "Ariadne - 截图覆盖层",
+		Title:            "Fancun - 截图覆盖层",
 		URL:              "/?view=capture-overlay&sessionId=" + url.QueryEscape(session.ID),
 		Width:            bounds.Width,
 		Height:           bounds.Height,
@@ -1906,7 +1906,7 @@ func normalizeScreenshotPolicy(policy ScreenshotPolicy) ScreenshotPolicy {
 	policy.SaveDir = strings.TrimSpace(policy.SaveDir)
 	policy.FilenameTemplate = strings.TrimSpace(policy.FilenameTemplate)
 	if policy.FilenameTemplate == "" {
-		policy.FilenameTemplate = "ariadne_{date}_{time}"
+		policy.FilenameTemplate = "fancun_{date}_{time}"
 	}
 	policy.RedactKeywords = cleanStringList(policy.RedactKeywords)
 	return policy
@@ -1954,7 +1954,7 @@ func autoSavePath(policy ScreenshotPolicy, now time.Time) (string, error) {
 func screenshotFilename(template string, now time.Time) string {
 	name := strings.TrimSpace(template)
 	if name == "" {
-		name = "ariadne_{date}_{time}"
+		name = "fancun_{date}_{time}"
 	}
 	replacements := map[string]string{
 		"{date}":     now.Format("20060102"),
@@ -1969,7 +1969,7 @@ func screenshotFilename(template string, now time.Time) string {
 	}
 	name = strings.Trim(strings.TrimSpace(name), ".")
 	if name == "" {
-		name = "ariadne_" + now.Format("20060102_150405")
+		name = "fancun_" + now.Format("20060102_150405")
 	}
 	if !strings.EqualFold(filepath.Ext(name), ".png") {
 		name += ".png"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CheckCircle2, Code2, FileJson2, Plus, Send, Square, Trash2 } from '@lucide/vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { useAPITestingStore, type APIEditorTab } from '../../stores/apiTesting'
 
 const apiTesting = useAPITestingStore()
@@ -53,14 +53,14 @@ const assertionOperators = [
           placeholder="https://api.example.com/v1/resource"
           @input="apiTesting.updateRequest({ url: ($event.target as HTMLInputElement).value })"
         />
-        <AriButton v-if="apiTesting.isRunning" size="md" variant="secondary" :disabled="apiTesting.isStopping" @click="apiTesting.stopSelectedRequest()">
+        <FancunButton v-if="apiTesting.isRunning" size="md" variant="secondary" :disabled="apiTesting.isStopping" @click="apiTesting.stopSelectedRequest()">
           <Square :size="15" />
           {{ apiTesting.isStopping ? '停止中' : '停止' }}
-        </AriButton>
-        <AriButton v-else size="md" variant="primary" @click="apiTesting.runSelectedRequest()">
+        </FancunButton>
+        <FancunButton v-else size="md" variant="primary" @click="apiTesting.runSelectedRequest()">
           <Send :size="15" />
           发送
-        </AriButton>
+        </FancunButton>
       </div>
 
       <nav class="api-editor-tabs" aria-label="请求编辑区域">
@@ -72,10 +72,10 @@ const assertionOperators = [
       <section v-if="apiTesting.editorTab === 'params'" class="api-editor-panel" aria-label="请求参数">
         <div class="api-panel-heading">
           <span>请求参数</span>
-          <AriButton size="sm" variant="secondary" @click="apiTesting.addParam()">
+          <FancunButton size="sm" variant="secondary" @click="apiTesting.addParam()">
             <Plus :size="14" />
             添加参数
-          </AriButton>
+          </FancunButton>
         </div>
         <div class="api-table">
           <div class="api-table-head is-param-grid">
@@ -94,9 +94,9 @@ const assertionOperators = [
             </select>
             <input class="api-input" :value="param.name" placeholder="page / id" @input="apiTesting.updateParam(index, { name: ($event.target as HTMLInputElement).value })" />
             <input class="api-input" :value="param.value" placeholder="1 / {{userId}}" @input="apiTesting.updateParam(index, { value: ($event.target as HTMLInputElement).value })" />
-            <AriButton size="icon" variant="ghost" aria-label="删除参数" @click="apiTesting.removeParam(index)">
+            <FancunButton size="icon" variant="ghost" aria-label="删除参数" @click="apiTesting.removeParam(index)">
               <Trash2 :size="14" />
-            </AriButton>
+            </FancunButton>
           </div>
           <div v-if="!apiTesting.selectedRequest.params.length" class="api-empty-row">暂无参数</div>
         </div>
@@ -105,10 +105,10 @@ const assertionOperators = [
       <section v-else-if="apiTesting.editorTab === 'headers'" class="api-editor-panel" aria-label="请求头">
         <div class="api-panel-heading">
           <span>请求头</span>
-          <AriButton size="sm" variant="secondary" @click="apiTesting.addHeader()">
+          <FancunButton size="sm" variant="secondary" @click="apiTesting.addHeader()">
             <Plus :size="14" />
             添加请求头
-          </AriButton>
+          </FancunButton>
         </div>
         <div class="api-table">
           <div class="api-table-head is-header-grid">
@@ -123,9 +123,9 @@ const assertionOperators = [
             </label>
             <input class="api-input" :value="header.name" placeholder="Authorization" @input="apiTesting.updateHeader(index, { name: ($event.target as HTMLInputElement).value })" />
             <input class="api-input" :value="header.value" placeholder="Bearer {{token}}" @input="apiTesting.updateHeader(index, { value: ($event.target as HTMLInputElement).value })" />
-            <AriButton size="icon" variant="ghost" aria-label="删除请求头" @click="apiTesting.removeHeader(index)">
+            <FancunButton size="icon" variant="ghost" aria-label="删除请求头" @click="apiTesting.removeHeader(index)">
               <Trash2 :size="14" />
-            </AriButton>
+            </FancunButton>
           </div>
           <div v-if="!apiTesting.selectedRequest.headers.length" class="api-empty-row">暂无请求头</div>
         </div>
@@ -149,7 +149,7 @@ const assertionOperators = [
           spellcheck="false"
           :disabled="apiTesting.selectedRequest.bodyType === 'none'"
           :value="apiTesting.selectedRequest.body"
-          placeholder="{&#10;  &quot;name&quot;: &quot;Ariadne&quot;&#10;}"
+          placeholder="{&#10;  &quot;name&quot;: &quot;Fancun&quot;&#10;}"
           @input="apiTesting.updateRequest({ body: ($event.target as HTMLTextAreaElement).value })"
         />
       </section>
@@ -157,10 +157,10 @@ const assertionOperators = [
       <section v-else-if="apiTesting.editorTab === 'variables'" class="api-editor-panel" aria-label="变量">
         <div class="api-panel-heading">
           <span>集合变量</span>
-          <AriButton size="sm" variant="secondary" @click="apiTesting.addCollectionVariable()">
+          <FancunButton size="sm" variant="secondary" @click="apiTesting.addCollectionVariable()">
             <Plus :size="14" />
             添加变量
-          </AriButton>
+          </FancunButton>
         </div>
         <div class="api-table">
           <div class="api-table-head is-request-var-grid">
@@ -175,9 +175,9 @@ const assertionOperators = [
             </label>
             <input class="api-input" :value="variable.name" placeholder="baseUrl" @input="apiTesting.updateCollectionVariable(index, { name: ($event.target as HTMLInputElement).value })" />
             <input class="api-input" :type="variable.secret ? 'password' : 'text'" :value="variable.value" placeholder="变量值" @input="apiTesting.updateCollectionVariable(index, { value: ($event.target as HTMLInputElement).value })" />
-            <AriButton size="icon" variant="ghost" aria-label="删除变量" @click="apiTesting.removeCollectionVariable(index)">
+            <FancunButton size="icon" variant="ghost" aria-label="删除变量" @click="apiTesting.removeCollectionVariable(index)">
               <Trash2 :size="14" />
-            </AriButton>
+            </FancunButton>
           </div>
           <div v-if="!(apiTesting.draftCollection?.variables.length ?? 0)" class="api-empty-row">暂无集合变量</div>
         </div>
@@ -186,10 +186,10 @@ const assertionOperators = [
       <section v-else class="api-editor-panel" aria-label="断言">
         <div class="api-panel-heading">
           <span>断言</span>
-          <AriButton size="sm" variant="secondary" @click="apiTesting.addAssertion()">
+          <FancunButton size="sm" variant="secondary" @click="apiTesting.addAssertion()">
             <CheckCircle2 :size="14" />
             添加断言
-          </AriButton>
+          </FancunButton>
         </div>
         <div class="api-table">
           <div class="api-table-head is-assertion-grid">
@@ -212,9 +212,9 @@ const assertionOperators = [
               <option v-for="operator in assertionOperators" :key="operator.value" :value="operator.value">{{ operator.label }}</option>
             </select>
             <input class="api-input" :value="assertion.expected" placeholder="200" @input="apiTesting.updateAssertion(index, { expected: ($event.target as HTMLInputElement).value })" />
-            <AriButton size="icon" variant="ghost" aria-label="删除断言" @click="apiTesting.removeAssertion(index)">
+            <FancunButton size="icon" variant="ghost" aria-label="删除断言" @click="apiTesting.removeAssertion(index)">
               <Trash2 :size="14" />
-            </AriButton>
+            </FancunButton>
           </div>
           <div v-if="!apiTesting.selectedRequest.assertions.length" class="api-empty-row">暂无断言</div>
         </div>

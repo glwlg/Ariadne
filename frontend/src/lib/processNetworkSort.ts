@@ -1,4 +1,4 @@
-import type { ProcessNetworkTraffic } from '../types/ariadne'
+import type { ProcessNetworkTraffic } from '../types/fancun'
 
 export type ProcessNetworkSortKey = 'download' | 'upload'
 export type SortDirection = 'ascending' | 'descending'

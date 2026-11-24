@@ -10,7 +10,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { computed, onMounted } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import HostsEditorPane from './HostsEditorPane.vue'
 import { calculateHostsContentStats } from '../../lib/hostsContentStats'
 import { useHostsStore } from '../../stores/hosts'
@@ -42,7 +42,7 @@ const draftBytes = computed(() => new TextEncoder().encode(hosts.draft?.content 
 const draftLocation = computed(() => {
   if (hosts.draft?.system) return hosts.status?.hostsPath || '—'
   if (hosts.draft?.type === 'remote') return hosts.draft.url || '尚未设置远程地址'
-  return 'Ariadne 本地配置'
+  return 'Fancun 本地配置'
 })
 
 function formatDate(timestamp?: number) {
@@ -72,21 +72,21 @@ onMounted(() => {
             <p>{{ hostsStatusLabel }}</p>
           </div>
           <div class="hosts-page-actions">
-            <AriButton size="sm" variant="secondary" @click="hosts.createProfile()">
+            <FancunButton size="sm" variant="secondary" @click="hosts.createProfile()">
               <Plus :size="14" />新建方案
-            </AriButton>
-            <AriButton size="sm" variant="secondary" :disabled="!hosts.draft || hosts.draft.system || hosts.isSaving" @click="hosts.saveDraft()">
+            </FancunButton>
+            <FancunButton size="sm" variant="secondary" :disabled="!hosts.draft || hosts.draft.system || hosts.isSaving" @click="hosts.saveDraft()">
               <Save :size="14" />保存方案
-            </AriButton>
-            <AriButton size="sm" variant="secondary" :disabled="!selected || selected.system" @click="hosts.deleteProfile(selected)">
+            </FancunButton>
+            <FancunButton size="sm" variant="secondary" :disabled="!selected || selected.system" @click="hosts.deleteProfile(selected)">
               <Trash2 :size="14" />{{ selected && hosts.deleteArmedId === selected.id ? '确认删除' : '删除方案' }}
-            </AriButton>
-            <AriButton size="sm" variant="secondary" @click="hosts.buildPreview()">
+            </FancunButton>
+            <FancunButton size="sm" variant="secondary" @click="hosts.buildPreview()">
               <FileCode2 :size="14" />生成预览
-            </AriButton>
-            <AriButton size="sm" variant="primary" @click="hosts.applyHosts()">
+            </FancunButton>
+            <FancunButton size="sm" variant="primary" @click="hosts.applyHosts()">
               <ShieldAlert :size="14" />{{ hosts.applyArmed ? '确认写入系统 Hosts' : '应用到系统' }}
-            </AriButton>
+            </FancunButton>
           </div>
         </header>
 
@@ -112,9 +112,9 @@ onMounted(() => {
             </div>
             <footer class="hosts-list-footer">
               <span>已启用 {{ hosts.enabledCount }} / {{ Math.max(0, hosts.profiles.filter((profile) => !profile.system).length) }}</span>
-              <AriButton size="sm" variant="ghost" :disabled="hosts.isLoading" @click="hosts.load()">
+              <FancunButton size="sm" variant="ghost" :disabled="hosts.isLoading" @click="hosts.load()">
                 <RefreshCw :size="14" />刷新
-              </AriButton>
+              </FancunButton>
             </footer>
           </section>
 
@@ -174,7 +174,7 @@ onMounted(() => {
                 <div class="hosts-property-row"><span>位置</span><strong :title="draftLocation">{{ draftLocation }}</strong></div>
                 <div class="hosts-property-row"><span>内容大小</span><strong>{{ formatBytes(draftBytes) }}</strong></div>
               </div>
-              <AriButton
+              <FancunButton
                 v-if="hosts.draft && !hosts.draft.system && hosts.draft.type === 'remote'"
                 class="hosts-remote-fetch"
                 size="sm"
@@ -183,7 +183,7 @@ onMounted(() => {
                 @click="hosts.fetchRemote(hosts.draft)"
               >
                 <Download :size="14" />拉取远程
-              </AriButton>
+              </FancunButton>
             </section>
 
             <section class="hosts-inspector-section hosts-statistics-section">
@@ -201,9 +201,9 @@ onMounted(() => {
                   <strong>{{ conflict.host }}</strong><small>{{ conflict.ips.join(', ') }}</small>
                 </div>
               </div>
-              <AriButton size="sm" variant="secondary" @click="hosts.buildPreview()">
+              <FancunButton size="sm" variant="secondary" @click="hosts.buildPreview()">
                 <ShieldAlert :size="14" />查看冲突详情
-              </AriButton>
+              </FancunButton>
             </section>
 
             <p class="hosts-preview-note">写入系统 Hosts 需要再次确认，并由 Windows UAC 授权。</p>
@@ -211,7 +211,7 @@ onMounted(() => {
         </div>
 
         <footer class="status-strip hosts-status-strip">
-          <span>方案保存在 Ariadne 本地配置</span>
+          <span>方案保存在 Fancun 本地配置</span>
           <span v-if="hosts.feedback" class="inline-feedback">{{ hosts.feedback }}</span>
         </footer>
       </section>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { parseCurlRequest } from '../../services/apiTestingApi'
-import type { APIRequest } from '../../types/ariadne'
+import type { APIRequest } from '../../types/fancun'
 
 const props = defineProps<{
   open: boolean
@@ -127,8 +127,8 @@ function createRequest() {
       <footer>
         <button type="button" class="api-new-request-options" :class="{ 'is-active': draft.showOptions }" @click="draft.showOptions = !draft.showOptions">Options</button>
         <div>
-          <AriButton size="sm" variant="ghost" @click="emit('close')">取消</AriButton>
-          <AriButton size="sm" variant="primary" :disabled="!canCreate" @click="createRequest">创建</AriButton>
+          <FancunButton size="sm" variant="ghost" @click="emit('close')">取消</FancunButton>
+          <FancunButton size="sm" variant="primary" :disabled="!canCreate" @click="createRequest">创建</FancunButton>
         </div>
       </footer>
     </section>

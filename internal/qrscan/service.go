@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/capturehistory"
+	"fancun/internal/capturehistory"
 
 	"github.com/makiuchi-d/gozxing"
 	"github.com/makiuchi-d/gozxing/qrcode"

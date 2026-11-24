@@ -3,7 +3,7 @@ package plugins
 import (
 	"testing"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 func TestAirPlayLauncherOnlyOpensToolWindow(t *testing.T) {

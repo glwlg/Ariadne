@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { Clipboard } from '@wailsio/runtime'
 import { compareJson, formatJson } from '../services/jsonCompareApi'
-import type { JsonCompareResult } from '../types/ariadne'
+import type { JsonCompareResult } from '../types/fancun'
 
 const sampleLeft = `{
   "name": "same",

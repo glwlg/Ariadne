@@ -1,6 +1,6 @@
-# Ariadne Frontend
+# Fancun Frontend
 
-Vue 3 + Vite + TypeScript frontend for the Ariadne rewrite.
+Vue 3 + Vite + TypeScript frontend for the Fancun rewrite.
 
 ## Commands
 

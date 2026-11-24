@@ -13,11 +13,11 @@ import (
 func launchInstaller(path string) error {
 	currentExecutable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locate current Ariadne installation: %w", err)
+		return fmt.Errorf("locate current Fancun installation: %w", err)
 	}
 	args := installerArguments(currentExecutable)
 	if len(args) == 0 {
-		return fmt.Errorf("current Ariadne installation directory is unavailable")
+		return fmt.Errorf("current Fancun installation directory is unavailable")
 	}
 	command := exec.Command(path, args...)
 	command.Stdin = nil

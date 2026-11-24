@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Clipboard } from '@wailsio/runtime'
 import { executeAirPlay, getAirPlayDiagnostics, getAirPlayStatus } from '../services/airplayApi'
-import type { ActionResult } from '../types/ariadne'
+import type { ActionResult } from '../types/fancun'
 import type { AirPlayCommand, AirPlayStatus } from '../types/airplay'
 
 export function useAirPlay() {

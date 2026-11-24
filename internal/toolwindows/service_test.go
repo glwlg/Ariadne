@@ -73,7 +73,7 @@ func TestOnlyNetworkMiniUsesFramelessFixedUtilityWindow(t *testing.T) {
 			t.Fatalf("%s should use native window chrome", view)
 		}
 		if disableIcon(view) {
-			t.Fatalf("%s should show the Ariadne titlebar icon", view)
+			t.Fatalf("%s should show the Fancun titlebar icon", view)
 		}
 		if hiddenOnTaskbar(view) {
 			t.Fatalf("%s should have its own taskbar button", view)
@@ -91,8 +91,8 @@ func TestOnlyNetworkMiniUsesFramelessFixedUtilityWindow(t *testing.T) {
 }
 
 func TestAirPlayUsesIndependentOrdinaryToolWindow(t *testing.T) {
-	if toolTitle("airplay") != "Ariadne - iPhone 投屏" {
-		t.Fatal("airplay should use the Ariadne tool title")
+	if toolTitle("airplay") != "Fancun - iPhone 投屏" {
+		t.Fatal("airplay should use the Fancun tool title")
 	}
 	width, height := toolSize("airplay")
 	if width != 1080 || height != 760 || minWidth("airplay") != 820 || minHeight("airplay") != 560 {

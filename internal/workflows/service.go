@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/contracts"
+	"fancun/internal/appdb"
+	"fancun/internal/contracts"
 )
 
 var workflowIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -268,7 +268,7 @@ func (s *Service) ExportData() ExportResult {
 	exportedAt := time.Now()
 	payload := workflowExportPayload{
 		Version:    1,
-		ExportedBy: "Ariadne",
+		ExportedBy: "Fancun",
 		ExportedAt: exportedAt.Unix(),
 		Workflows:  workflows,
 	}
@@ -851,7 +851,7 @@ func parseWorkflowImport(raw string) ([]Workflow, error) {
 		}
 		return normalized, nil
 	}
-	return nil, fmt.Errorf("导入内容不是 Ariadne 工作流 JSON")
+	return nil, fmt.Errorf("导入内容不是 Fancun 工作流 JSON")
 }
 
 func workflowExportPath(configPath string, exportedAt time.Time) string {
@@ -859,7 +859,7 @@ func workflowExportPath(configPath string, exportedAt time.Time) string {
 	if strings.TrimSpace(base) == "" || base == "." {
 		base = defaultExportBase()
 	}
-	return filepath.Join(base, "exports", "ariadne-workflows-"+exportedAt.Format("20060102-150405")+".json")
+	return filepath.Join(base, "exports", "fancun-workflows-"+exportedAt.Format("20060102-150405")+".json")
 }
 
 func defaultExportBase() string {
@@ -870,7 +870,7 @@ func defaultExportBase() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne")
+	return filepath.Join(base, "Fancun")
 }
 
 func workflowRiskReasons(workflow Workflow, context map[string]string) []string {
@@ -995,7 +995,7 @@ func defaultPath() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "workflows.json")
+	return filepath.Join(base, "Fancun", "workflows.json")
 }
 
 func defaultLegacyPath() string {

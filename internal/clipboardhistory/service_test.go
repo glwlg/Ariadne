@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/contracts"
+	"fancun/internal/appdb"
+	"fancun/internal/capturehistory"
+	"fancun/internal/contracts"
 
 	goqrcode "github.com/skip2/go-qrcode"
 )
@@ -188,7 +188,7 @@ func TestClipboardImageCanBeAddedToCaptureHistory(t *testing.T) {
 
 func TestClipboardImageQRCodeDecode(t *testing.T) {
 	service := NewServiceWithPaths(filepath.Join(t.TempDir(), "clipboard_history.json"), filepath.Join(t.TempDir(), "clipboard_images"))
-	pngData, err := goqrcode.Encode("ariadne clipboard qr", goqrcode.Medium, 128)
+	pngData, err := goqrcode.Encode("fancun clipboard qr", goqrcode.Medium, 128)
 	if err != nil {
 		t.Fatalf("encode qr: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestClipboardImageQRCodeDecode(t *testing.T) {
 	entry := service.List("图片", 10)[0]
 
 	result := service.DecodeImageQRCode(entry.ID)
-	if !result.OK || result.Text != "ariadne clipboard qr" || result.Source != "clipboard_history" {
+	if !result.OK || result.Text != "fancun clipboard qr" || result.Source != "clipboard_history" {
 		t.Fatalf("expected clipboard qr decode, got %#v", result)
 	}
 }

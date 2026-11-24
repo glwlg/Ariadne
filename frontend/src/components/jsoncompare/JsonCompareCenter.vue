@@ -12,7 +12,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import { useAppShellStore } from '../../stores/appShell'
 import { useJsonCompareStore } from '../../stores/jsonCompare'
 
@@ -100,54 +100,54 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
               <RefreshCw :size="13" />
               性能预算
             </span>
-            <AriButton size="sm" variant="secondary" @click="appShell.openLauncher()">
+            <FancunButton size="sm" variant="secondary" @click="appShell.openLauncher()">
               <ArrowLeft :size="14" />
               启动器
-            </AriButton>
+            </FancunButton>
           </div>
         </header>
 
         <div class="tool-toolbar json-compare-toolbar">
-          <AriButton size="sm" variant="primary" :disabled="jsonCompare.isComparing" @click="jsonCompare.compare()">
+          <FancunButton size="sm" variant="primary" :disabled="jsonCompare.isComparing" @click="jsonCompare.compare()">
             <Play :size="14" />
             对比
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="jsonCompare.formatBoth()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="jsonCompare.formatBoth()">
             <RefreshCw :size="14" />
             格式化两侧
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="jsonCompare.pasteSide('left')">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="jsonCompare.pasteSide('left')">
             <Clipboard :size="14" />
             剪贴板到左侧
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="jsonCompare.pasteSide('right')">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="jsonCompare.pasteSide('right')">
             <Clipboard :size="14" />
             剪贴板到右侧
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="pickJsonFile('left')">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="pickJsonFile('left')">
             <FileText :size="14" />
             文件到左侧
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="pickJsonFile('right')">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="pickJsonFile('right')">
             <FileText :size="14" />
             文件到右侧
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="jsonCompare.swapSides()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="jsonCompare.swapSides()">
             <Shuffle :size="14" />
             交换
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="jsonCompare.copyReport()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="jsonCompare.copyReport()">
             <Copy :size="14" />
             复制报告
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="jsonCompare.loadSample()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="jsonCompare.loadSample()">
             <FileText :size="14" />
             示例
-          </AriButton>
-          <AriButton size="sm" variant="secondary" @click="jsonCompare.clearAll()">
+          </FancunButton>
+          <FancunButton size="sm" variant="secondary" @click="jsonCompare.clearAll()">
             <Trash2 :size="14" />
             清空
-          </AriButton>
+          </FancunButton>
           <label class="json-sort-toggle">
             <input
               type="checkbox"
@@ -211,20 +211,20 @@ async function handleJsonDrop(side: 'left' | 'right', event: DragEvent) {
               <section>
                 <div class="json-section-title">
                   <span>LEFT NORMALIZED</span>
-                  <AriButton size="sm" variant="secondary" @click="jsonCompare.formatSide('left')">
+                  <FancunButton size="sm" variant="secondary" @click="jsonCompare.formatSide('left')">
                     <RefreshCw :size="13" />
                     格式化左侧
-                  </AriButton>
+                  </FancunButton>
                 </div>
                 <pre class="json-code-preview">{{ jsonCompare.result?.leftFormatted || '等待有效 JSON' }}</pre>
               </section>
               <section>
                 <div class="json-section-title">
                   <span>RIGHT NORMALIZED</span>
-                  <AriButton size="sm" variant="secondary" @click="jsonCompare.formatSide('right')">
+                  <FancunButton size="sm" variant="secondary" @click="jsonCompare.formatSide('right')">
                     <RefreshCw :size="13" />
                     格式化右侧
-                  </AriButton>
+                  </FancunButton>
                 </div>
                 <pre class="json-code-preview">{{ jsonCompare.result?.rightFormatted || '等待有效 JSON' }}</pre>
               </section>

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"ariadne/internal/appdb"
-	"ariadne/internal/securestore"
+	"fancun/internal/appdb"
+	"fancun/internal/securestore"
 )
 
 type GeneralSettings struct {
@@ -298,7 +298,7 @@ func (s *Service) storageStatusLocked() StorageStatus {
 func (s *Service) legacyConfigStatus(includeKeys bool) LegacyConfigStatus {
 	status := LegacyConfigStatus{
 		Path:  s.legacyPath,
-		Notes: []string{"旧版 x-tools 配置会导入安全用户偏好；旧版明文密钥如存在，只迁入安全凭据存储，不写入 Ariadne JSON。"},
+		Notes: []string{"旧版 x-tools 配置会导入安全用户偏好；旧版明文密钥如存在，只迁入安全凭据存储，不写入 Fancun JSON。"},
 	}
 	raw, err := os.ReadFile(s.legacyPath)
 	if err != nil {
@@ -313,7 +313,7 @@ func (s *Service) legacyConfigStatus(includeKeys bool) LegacyConfigStatus {
 			status.NeedsImport = legacyConfigNeedsImport(s.settings, legacy, s.credentialStore)
 			appendLegacySecretStatus(&status, legacy, s.credentialStore)
 			if status.Exists && !status.NeedsImport {
-				status.Notes = append(status.Notes, "旧版配置已与 Ariadne 当前设置一致，迁移入口默认隐藏。")
+				status.Notes = append(status.Notes, "旧版配置已与 Fancun 当前设置一致，迁移入口默认隐藏。")
 			}
 		}
 		return status
@@ -402,7 +402,7 @@ func importLegacyConfig(current AppSettings, path string, credentialStore secure
 	next := current
 	status := LegacyConfigStatus{
 		Path:  path,
-		Notes: []string{"旧版 x-tools 配置会导入安全用户偏好；旧版明文密钥如存在，只迁入安全凭据存储，不写入 Ariadne JSON。"},
+		Notes: []string{"旧版 x-tools 配置会导入安全用户偏好；旧版明文密钥如存在，只迁入安全凭据存储，不写入 Fancun JSON。"},
 	}
 
 	raw, err := os.ReadFile(path)
@@ -413,7 +413,7 @@ func importLegacyConfig(current AppSettings, path string, credentialStore secure
 
 	var legacy map[string]any
 	if err := json.Unmarshal(raw, &legacy); err != nil {
-		status.Notes = append(status.Notes, "旧配置 JSON 无法解析，已保留 Ariadne 当前设置。")
+		status.Notes = append(status.Notes, "旧配置 JSON 无法解析，已保留 Fancun 当前设置。")
 		return next, status
 	}
 
@@ -500,8 +500,8 @@ func defaultSettings() AppSettings {
 			AutoCopy:         false,
 			AutoPin:          false,
 			AutoSave:         false,
-			SaveDir:          filepath.Join(home, "Pictures", "Ariadne"),
-			FilenameTemplate: "ariadne_{date}_{time}",
+			SaveDir:          filepath.Join(home, "Pictures", "Fancun"),
+			FilenameTemplate: "fancun_{date}_{time}",
 			Quality:          90,
 			AutoRedact:       false,
 			RedactPhones:     true,
@@ -564,7 +564,7 @@ func defaultSearchExcludePatterns() []string {
 		`(?i)(^|[\\/])(site-packages|dist-packages)([\\/]|$)`,
 		`(?i)(^|[\\/])(jetbrains|trae cn|trae|antigravity|zed|qoder)([\\/]|$)`,
 		`(?i)(^|[\\/])(logs?|log)([\\/]|$)`,
-		`(?i)(^|[\\/])ariadne[\\/](capture_images|capture_thumbnails)([\\/]|$)`,
+		`(?i)(^|[\\/])fancun[\\/](capture_images|capture_thumbnails)([\\/]|$)`,
 		`(?i)\.(log|journal|db-journal|sqlite-wal|sqlite-shm|db-wal|db-shm|odlgz|statistic|dxcache-shm|dxcache-wal)$`,
 		`(?i)(^|[\\/])(\$mft|\$logfile|\$bitmap|\$boot|\$badclus|\$secure|\$upcase|\$volume|\$attrdef|pagefile\.sys|hiberfil\.sys|swapfile\.sys|dumpstack\.log\.tmp|thumbs\.db|desktop\.ini)$`,
 		`(?i)(^|[\\/])(\.git|\.hg|\.svn|node_modules|\.pnpm-store|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache|\.gradle|\.idea|\.vscode|\.cache|\.codex|\.codex-audit|coverage|dist|build|target|out|bin|obj|\.next|\.nuxt|\.vite|\.turbo|\.parcel-cache|\.svelte-kit|\.angular|\.vercel)([\\/]|$)`,
@@ -737,7 +737,7 @@ func defaultConfigPath() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "config.json")
+	return filepath.Join(base, "Fancun", "config.json")
 }
 
 func defaultLegacyConfigPath() string {
@@ -893,7 +893,7 @@ func appendLegacySecretStatus(status *LegacyConfigStatus, legacy map[string]any,
 		return
 	}
 	if credentialStore == nil || !credentialStore.Available() {
-		status.Notes = append(status.Notes, "检测到旧版明文密钥；当前安全凭据存储不可用，密钥不会迁移，也不会写入 Ariadne JSON。")
+		status.Notes = append(status.Notes, "检测到旧版明文密钥；当前安全凭据存储不可用，密钥不会迁移，也不会写入 Fancun JSON。")
 		return
 	}
 	for _, candidate := range candidates {
@@ -902,7 +902,7 @@ func appendLegacySecretStatus(status *LegacyConfigStatus, legacy map[string]any,
 		case err != nil:
 			status.Notes = append(status.Notes, candidate.label+" 安全存储状态读取失败: "+shortLegacyError(err.Error()))
 		case stored:
-			status.Notes = append(status.Notes, "检测到旧版 "+candidate.label+"；Ariadne 安全存储中已有对应记录。")
+			status.Notes = append(status.Notes, "检测到旧版 "+candidate.label+"；Fancun 安全存储中已有对应记录。")
 		default:
 			status.Notes = append(status.Notes, "检测到旧版 "+candidate.label+"；导入旧配置时会迁入安全凭据存储。")
 		}
@@ -915,7 +915,7 @@ func migrateLegacySecrets(status *LegacyConfigStatus, legacy map[string]any, cre
 		return
 	}
 	if credentialStore == nil || !credentialStore.Available() {
-		status.Notes = append(status.Notes, "检测到旧版明文密钥；当前安全凭据存储不可用，密钥未迁移，也未写入 Ariadne JSON。")
+		status.Notes = append(status.Notes, "检测到旧版明文密钥；当前安全凭据存储不可用，密钥未迁移，也未写入 Fancun JSON。")
 		return
 	}
 	for _, candidate := range candidates {

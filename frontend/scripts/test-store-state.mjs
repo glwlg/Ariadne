@@ -174,8 +174,8 @@ try {
     '@wailsio/runtime': { Clipboard: {} },
     '../lib/toolWindows': { toolViewForCommand: () => undefined },
     './appShell': {},
-    '../services/ariadneApi': {
-      createAriadneSearchRequest: (query, progress) => {
+    '../services/fancunApi': {
+      createFancunSearchRequest: (query, progress) => {
         const request = { ...deferred(), query, progress, cancelCount: 0, cancel() { this.cancelCount++ } }
         requests.push(request)
         return request
@@ -218,12 +218,12 @@ try {
 
   const listeners = new Set()
   const backendRequests = []
-  const { createAriadneSearchRequest } = loadStore('../src/services/ariadneApi.ts', {
+  const { createFancunSearchRequest } = loadStore('../src/services/fancunApi.ts', {
     '../data/seed': { seedResults: [] },
     '@wailsio/runtime': { Events: {
       On: (_name, listener) => { listeners.add(listener); return () => listeners.delete(listener) },
     } },
-    '../../bindings/ariadne/internal/search/service.js': {
+    '../../bindings/fancun/internal/search/service.js': {
       SearchProgressively: (_query, requestId) => {
         const request = deferred()
         request.promise.cancel = () => request.reject({ name: 'CancelError' })
@@ -233,8 +233,8 @@ try {
     },
   })
   const progressValues = []
-  const apiFirst = createAriadneSearchRequest('same', (value) => progressValues.push(value))
-  const apiSecond = createAriadneSearchRequest('same', (value) => progressValues.push(value))
+  const apiFirst = createFancunSearchRequest('same', (value) => progressValues.push(value))
+  const apiSecond = createFancunSearchRequest('same', (value) => progressValues.push(value))
   await new Promise(setImmediate)
   assert.equal(listeners.size, 2)
   for (const listener of listeners) listener({ data: { requestId: backendRequests[1].requestId, response: response('current') } })

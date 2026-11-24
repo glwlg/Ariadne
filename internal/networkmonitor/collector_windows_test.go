@@ -11,8 +11,8 @@ import (
 )
 
 func TestInstalledCollectorAttributesLiveTraffic(t *testing.T) {
-	if os.Getenv("ARIADNE_NETWORK_INTEGRATION") != "1" {
-		t.Skip("set ARIADNE_NETWORK_INTEGRATION=1 with the Ariadne background service installed")
+	if os.Getenv("FANCUN_NETWORK_INTEGRATION") != "1" {
+		t.Skip("set FANCUN_NETWORK_INTEGRATION=1 with the Fancun background service installed")
 	}
 	pid := uint32(os.Getpid())
 	baseline, err := readPrivilegedTraffic()

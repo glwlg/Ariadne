@@ -1,9 +1,9 @@
-import type { ActionResult, DiagnosticsExportResult, LegacyHandoffRequest, LegacyHandoffResult, PlatformStatus } from '../types/ariadne'
+import type { ActionResult, DiagnosticsExportResult, LegacyHandoffRequest, LegacyHandoffResult, PlatformStatus } from '../types/fancun'
 
 export async function getPlatformStatus(): Promise<PlatformStatus> {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    const binding = await import('../../bindings/ariadne/internal/platform/service.js')
+    const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.Status()
   } catch {
     return fallbackPlatformStatus()
@@ -13,7 +13,7 @@ export async function getPlatformStatus(): Promise<PlatformStatus> {
 export async function exportDiagnosticsBundle(): Promise<DiagnosticsExportResult> {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    const binding = await import('../../bindings/ariadne/internal/platform/service.js')
+    const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.ExportDiagnostics()
   } catch {
     return {
@@ -27,7 +27,7 @@ export async function exportDiagnosticsBundle(): Promise<DiagnosticsExportResult
 export async function installFileSearchService(): Promise<ActionResult> {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    const binding = await import('../../bindings/ariadne/internal/platform/service.js')
+    const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.InstallFileSearchService()
   } catch {
     return {
@@ -40,7 +40,7 @@ export async function installFileSearchService(): Promise<ActionResult> {
 export async function resolveLegacyConflict(request: LegacyHandoffRequest): Promise<LegacyHandoffResult> {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    const binding = await import('../../bindings/ariadne/internal/platform/service.js')
+    const binding = await import('../../bindings/fancun/internal/platform/service.js')
     return await binding.ResolveLegacyConflict(request)
   } catch {
     return {
@@ -60,7 +60,7 @@ export async function resolveLegacyConflict(request: LegacyHandoffRequest): Prom
         autostartSupported: false,
         autostartEnabled: false,
         autostartPath: '',
-        autostartIdentifier: 'com.glwlg.ariadne',
+        autostartIdentifier: 'com.glwlg.fancun',
         autostartValueName: '',
         autostartCommand: '',
         autostartCommandValid: false,
@@ -79,7 +79,7 @@ export async function resolveLegacyConflict(request: LegacyHandoffRequest): Prom
 
 function fallbackPlatformStatus(): PlatformStatus {
   return {
-    appName: 'Ariadne',
+    appName: 'Fancun',
     legacyName: 'x-tools',
     capabilities: [
       {
@@ -97,7 +97,7 @@ function fallbackPlatformStatus(): PlatformStatus {
       {
         id: 'file_search',
         enabled: false,
-        provider: 'Ariadne USN/MFT',
+        provider: 'Fancun USN/MFT',
         note: '开发态 fallback 未接入文件索引。',
       },
       {
@@ -138,7 +138,7 @@ function fallbackPlatformStatus(): PlatformStatus {
       autostartSupported: false,
       autostartEnabled: false,
       autostartPath: '',
-      autostartIdentifier: 'com.glwlg.ariadne',
+      autostartIdentifier: 'com.glwlg.fancun',
       autostartValueName: '',
       autostartCommand: '',
       autostartCommandValid: false,
@@ -167,8 +167,8 @@ function fallbackPlatformStatus(): PlatformStatus {
       dllPath: '',
       dllFound: false,
       ready: false,
-      provider: 'Ariadne USN/MFT',
-      serviceName: 'AriadneFileSearch',
+      provider: 'Fancun USN/MFT',
+      serviceName: 'FancunFileSearch',
       serviceInstalled: false,
       serviceRunning: false,
       serviceState: '',

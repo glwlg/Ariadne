@@ -1,5 +1,5 @@
 import { computed, ref, type Ref } from 'vue'
-import type { OCRLine, OCRResult } from '../types/ariadne'
+import type { OCRLine, OCRResult } from '../types/fancun'
 
 export function createOCRSelection(result: Ref<OCRResult | null>) {
   const selectedOCRLineKeys = ref<string[]>([])

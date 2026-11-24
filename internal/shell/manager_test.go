@@ -18,7 +18,7 @@ func TestSecondInstanceLaunchDoesNotOpenWindow(t *testing.T) {
 		t.Fatal("expected second instance callback")
 	}
 
-	options.OnSecondInstanceLaunch(application.SecondInstanceData{Args: []string{"ariadne.exe"}})
+	options.OnSecondInstanceLaunch(application.SecondInstanceData{Args: []string{"fancun.exe"}})
 	if len(opened) > 0 {
 		t.Fatalf("second instance launch should stay in background, opened %v", opened)
 	}

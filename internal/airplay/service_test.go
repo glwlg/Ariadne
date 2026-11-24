@@ -18,9 +18,9 @@ func TestReceiverHelper(t *testing.T) {
 		}
 		switch os.Args[i+1] {
 		case "video":
-			fmt.Println(`ARIADNE_VIDEO {"phase":"mirroring","width":480,"height":270,"title":"第2集","client":"Test iPhone"}`)
+			fmt.Println(`FANCUN_VIDEO {"phase":"mirroring","width":480,"height":270,"title":"第2集","client":"Test iPhone"}`)
 			time.Sleep(1300 * time.Millisecond)
-			fmt.Println(`ARIADNE_VIDEO {"phase":"disconnected","width":480,"height":270,"title":"old episode"}`)
+			fmt.Println(`FANCUN_VIDEO {"phase":"disconnected","width":480,"height":270,"title":"old episode"}`)
 			time.Sleep(time.Minute)
 			os.Exit(0)
 		case "exit":
@@ -178,12 +178,12 @@ func TestReadLogReturnsBoundedTailAndMissingFileError(t *testing.T) {
 }
 
 func TestBundledRuntimeSmoke(t *testing.T) {
-	runtimeDir := os.Getenv("ARIADNE_TEST_UXPLAY_RUNTIME")
+	runtimeDir := os.Getenv("FANCUN_TEST_UXPLAY_RUNTIME")
 	if runtimeDir == "" {
-		t.Skip("set ARIADNE_TEST_UXPLAY_RUNTIME to test a built UxPlay runtime")
+		t.Skip("set FANCUN_TEST_UXPLAY_RUNTIME to test a built UxPlay runtime")
 	}
 	s := newService(runtimeDir, filepath.Join(t.TempDir(), "投屏验证"))
-	s.name = "Ariadne · 接收测试"
+	s.name = "Fancun · 接收测试"
 	t.Cleanup(func() { s.Stop() })
 	if result := s.Start(); !result.OK {
 		text, _ := ReadLog(s.Status().LogPath)

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ariadne/internal/capturehistory"
+	"fancun/internal/capturehistory"
 
 	goqrcode "github.com/skip2/go-qrcode"
 )
@@ -16,7 +16,7 @@ import (
 func TestDecodeCaptureReadsQRCodeFromCaptureHistory(t *testing.T) {
 	root := t.TempDir()
 	captures := capturehistory.NewServiceWithPaths(filepath.Join(root, "capture_history.json"), filepath.Join(root, "capture_images"))
-	text := "https://ariadne.local/qr-smoke"
+	text := "https://fancun.local/qr-smoke"
 	data, err := goqrcode.Encode(text, goqrcode.Medium, 256)
 	if err != nil {
 		t.Fatal(err)

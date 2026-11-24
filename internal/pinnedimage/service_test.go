@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
 )
 
 const testOnePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lkD1JwAAAABJRU5ErkJggg=="
@@ -70,7 +70,7 @@ func TestPinnedImageWindowUsesExactImageSize(t *testing.T) {
 
 func TestPinnedWindowOptionsCanCreateHiddenWarmWindow(t *testing.T) {
 	options := pinnedWindowOptions("pinned-image-warm", PinnedImage{
-		Title:   "Ariadne - 贴图",
+		Title:   "Fancun - 贴图",
 		WindowW: 1,
 		WindowH: 1,
 	}, true)
@@ -154,7 +154,7 @@ func TestOpenCurrentClipboardTextStagesTextPinnedImage(t *testing.T) {
 	entry := clipboardhistory.Entry{
 		ID:   "clip-text",
 		Type: clipboardhistory.EntryText,
-		Text: "hello\nAriadne",
+		Text: "hello\nFancun",
 	}
 	source := fakeClipboardSource{
 		collected: clipboardhistory.CollectCurrentResult{OK: true, Message: "ok", Entry: entry},
@@ -188,7 +188,7 @@ func TestOpenQRTextStagesPinnedImage(t *testing.T) {
 		return nil
 	}
 
-	result := service.OpenQRText("ariadne")
+	result := service.OpenQRText("fancun")
 	if !result.OK || result.PinID == "" {
 		t.Fatalf("expected QR pin to open, got %#v", result)
 	}

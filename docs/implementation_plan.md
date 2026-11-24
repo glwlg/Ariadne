@@ -22,24 +22,24 @@
 2. **顶部全局搜索栏**：设计图中有 `Q 搜索证据...` + `Ctrl K` 快捷键
 3. **时间轴导航条**：#03、#04、#11 都有顶部横向时间轴（带日期选择 + 时间刻度 + 当前指针），当前不存在
 4. **Agent Inspector 右侧面板**：设计图中是统一的"证据检查器"面板样式（标题栏 + 内容分区），当前各页用简单的 `flow-quiet-panel` 堆叠
-5. **侧栏品牌区**：设计图 `Ariadne` logo + `本地优先·自动整理` 副标题，当前是 `心流` + `你的第二大脑`
+5. **侧栏品牌区**：设计图 `Fancun` logo + `本地优先·自动整理` 副标题，当前是 `心流` + `你的第二大脑`
 
 ---
 
 ## Proposed Changes
 
-由于 [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/components/workmemory/WorkMemoryCenter.vue) 是 3287 行的巨石组件，改动将分阶段进行，每阶段按页面聚焦。
+由于 [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Fancun/frontend/src/components/workmemory/WorkMemoryCenter.vue) 是 3287 行的巨石组件，改动将分阶段进行，每阶段按页面聚焦。
 
 ### Phase 1：公共基础（侧栏 + 顶栏 + Command Dock + Inspector 面板样式）
 
-#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/components/workmemory/WorkMemoryCenter.vue)
-- **侧栏品牌区**：`Ariadne` logo + `心流` + `本地优先·自动整理` 副标题（对齐设计图 #16 左上角）
+#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Fancun/frontend/src/components/workmemory/WorkMemoryCenter.vue)
+- **侧栏品牌区**：`Fancun` logo + `心流` + `本地优先·自动整理` 副标题（对齐设计图 #16 左上角）
 - **侧栏用户区**：底部增加用户头像 + `luwei` + `本地模式` 标签
 - **顶部全局搜索栏**：在 `flow-stage-top` 中增加搜索框 + `Ctrl K` 快捷键提示，加入"时间机器"按钮和同步/刷新图标
 - **Command Dock**：替换 `status-strip` 为全宽深色底部操作 Dock，各页面内容不同（通过 `activeFlowPage` 条件渲染）
 - **Agent Inspector 面板模板**：统一右侧面板为 `Agent Inspector` 标题 + 可折叠/关闭 + 分区（当前回答基于、证据详情、OCR/质检/影响分析）
 
-#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/style.css)
+#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Fancun/frontend/src/style.css)
 - 新增 `.flow-command-dock` 样式（深色背景 #18181b、圆角、flex 布局、按钮 hover 效果）
 - 新增 `.flow-global-search` 搜索栏样式
 - 新增 `.flow-agent-inspector` 统一面板样式（标题栏、折叠/关闭、分区间距）
@@ -51,7 +51,7 @@
 
 ### Phase 2：#03 心流 · Cognitive Canvas
 
-#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/components/workmemory/WorkMemoryCenter.vue)
+#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Fancun/frontend/src/components/workmemory/WorkMemoryCenter.vue)
 - 在 `flow-cognitive-home` 顶部增加横向时间轴导航条（`flow-time-ruler`），带时间刻度 06:00~22:00 + 当前时间指针
 - 顶部增加 `时间粒度: 5分钟` 选择器 + `本地优先` 标签 + 搜索栏
 - 左侧 `flow-cognitive-rail` 下方增加截图/OCR/剪贴板分类证据缩略图卡片（按时间排列，显示缩略图 + `+N` 计数）
@@ -60,7 +60,7 @@
 - 中间增加"窗口"面板浮层（企业微信/Chrome/DataGrip/Teams 等当前窗口列表）
 - 底部 Command Dock：Ask（高亮主按钮）/ Summarize / Search / Handoff / Optimize + 当前范围 + 证据统计
 
-#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/style.css)
+#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Fancun/frontend/src/style.css)
 - 新增证据缩略图卡片样式 `.flow-evidence-thumb`
 - 新增证据节点连线样式 `.flow-evidence-connector`
 - 新增窗口列表浮层样式 `.flow-window-panel`
@@ -69,7 +69,7 @@
 
 ### Phase 3：#04 时间线 · Forensic Lanes
 
-#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/components/workmemory/WorkMemoryCenter.vue)
+#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Fancun/frontend/src/components/workmemory/WorkMemoryCenter.vue)
 - 替换 `flow-page-header flow-timeline-hero` 为设计图样式：左侧日期导航（`< 2026-06-17 今天 >`）+ 时间范围选择 + "工作时间(09:00-18:30)" 筛选 + "时间机器" 按钮 + 搜索栏
 - 增加筛选条：时间/证据类型/应用/质检状态 筛选 tag
 - 多轨泳道 `flow-forensic-lanes` 增加截图缩略图卡片（替换纯文本事件卡）
@@ -81,7 +81,7 @@
 - 底部增加密度图 minimap（24h 小波形）
 - 底部 Command Dock：已选择 N 条 + 补跑/重跑OCR+质检 / 加入复盘 / 导出所选 / 复制链接 / 标记敏感 + 更多操作
 
-#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/style.css)
+#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Fancun/frontend/src/style.css)
 - 新增截图缩略图泳道样式 `.flow-forensic-thumb`
 - 新增时间段条形图样式 `.flow-forensic-app-bar`
 - 新增密度图样式 `.flow-density-map`
@@ -91,7 +91,7 @@
 
 ### Phase 4：#07 洞察 · Pattern Radar
 
-#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/components/workmemory/WorkMemoryCenter.vue)
+#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Fancun/frontend/src/components/workmemory/WorkMemoryCenter.vue)
 - 替换 `flow-page-header` 为设计图样式：日期导航 + 时间范围 + "本地归纳 / AI 归纳" 切换按钮组 + 归纳进度百分比 + "刷新/视图/筛选/..." 工具按钮
 - 雷达图节点增加分类颜色+图标：自动化机会(蓝闪电)、知识沉淀(紫文件)、重复流程(中心齿轮)、待复盘(绿搜索)、风险信号(红警告)
 - 节点之间增加 SVG 连线（实线=强关联、虚线=弱关联、点线=潜在关联），节点大小反映证据链数量
@@ -101,7 +101,7 @@
 - 底部添加图例条（连线类型 + 置信度圈大小 + 时间范围标注）
 - 底部 Command Dock：运行AI归纳 / 生成每日复盘 / 创建任务包 / 导出洞察报告 / 更新索引 + 洞察库统计
 
-#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/style.css)
+#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Fancun/frontend/src/style.css)
 - 新增雷达连线 SVG 样式 `.flow-radar-link`
 - 新增分类图标/颜色 token
 - 新增图例条样式 `.flow-radar-legend`
@@ -110,7 +110,7 @@
 
 ### Phase 5：#11 草稿 · Timeline-Synced Brief
 
-#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/components/workmemory/WorkMemoryCenter.vue)
+#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Fancun/frontend/src/components/workmemory/WorkMemoryCenter.vue)
 - 替换 `flow-page-header` 为设计图样式：`+ 新建草稿` 按钮 + 列表/网格切换 + 日期导航 + 时间范围 + 工作时段 + "自动整理中·本地模型" 状态
 - 左侧草稿库增加：条目卡片（标题 + 自动生成时间 + "时间同步" 红标 + 证据数/引用数/收藏 + 三点菜单）
 - 中间增加"证据时间线"缩略图条（与段落编号联动，点击缩略图跳到对应段落，图例: 截图/OCR/剪贴板/窗口）
@@ -118,7 +118,7 @@
 - 右侧 Inspector 重构为 Agent Inspector：来源段落（编号列表，点击展开证据）→ 证据详情（截图 + OCR文本 + 时间 + 分辨率）→ AI 润色状态（模型/风格/内容优化✓/结构优化✓/术语统一✓/润色完成时间）→ 外发与使用（隐私级别/敏感字段/预览外发版/确认外发）
 - 底部 Command Dock：生成日报(高亮) / 生成复盘 / 生成知识 / 生成清单 / AI润色 + 导出Markdown / 导出PDF / 保存知识
 
-#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/style.css)
+#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Fancun/frontend/src/style.css)
 - 新增段落编号气泡样式 `.flow-draft-paragraph-badge`
 - 新增 AI 润色状态面板样式 `.flow-polish-status`
 
@@ -126,7 +126,7 @@
 
 ### Phase 6：#15 资产 · Agent Package Hub
 
-#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/components/workmemory/WorkMemoryCenter.vue)
+#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Fancun/frontend/src/components/workmemory/WorkMemoryCenter.vue)
 - 替换 `flow-page-header` 为设计图样式：面包屑 `资产库 > 代理任务 > 分析 Q2 客户流失原因并给出改进建议` + 版本标签 `v1.2` + "可交给Codex" 标签 + 搜索栏
 - 任务包中间区增加结构化编号分区：`#1 目标(Goal)` → `#2 背景(Context)` → `#3 证据(Evidence)` (截图缩略图行 + "添加证据") → `#4 边界(Boundaries)` → `#5 验收标准(Acceptance)`
 - 左侧资产库增加：代理任务列表 (15) + 工作流 (7) + 检查清单 (8) + Skill (6)，每项带版本号 + 日期 + "已保存"/"可交给XXX" 标签
@@ -134,7 +134,7 @@
 - 底部候选产物增加 "预览工作流 →" / "预览清单 →" / "预览Skill →" + "生成更多资产" 按钮
 - 底部 Command Dock：复制任务包(Markdown包) / 生成工作流 / 生成检查清单 / 保存为Skill / 安装前确认 + 导出 Zip/JSON
 
-#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/style.css)
+#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Fancun/frontend/src/style.css)
 - 新增就绪度环形图样式 `.flow-readiness-ring`
 - 新增结构化分区编号样式 `.flow-package-section-numbered`
 
@@ -142,7 +142,7 @@
 
 ### Phase 7：#16 规则 · Pipeline Control Room
 
-#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/components/workmemory/WorkMemoryCenter.vue)
+#### [MODIFY] [WorkMemoryCenter.vue](file:///p:/workspace/glwlg/app/Fancun/frontend/src/components/workmemory/WorkMemoryCenter.vue)
 - 替换 `flow-page-header` 为设计图样式：日期选择 + 时间范围 + "本地模式·采集中" 状态标签 + 搜索栏 + 通知铃铛
 - 左侧重构为"捕获来源"列表：屏幕截图(今日N条·运行中) / OCR文本 / 剪贴板 / 应用上下文 / 窗口标题，各带计数和运行状态灯 + 手动补记区 + 数据导入区
 - 中间上部增加**采集流水线可视化**（横向流程图）：捕获来源 →(箭头)→ 排除规则(运行中·N条/日·阻止N条) →→ 质检(通过率N%) →→ OCR(完成N条·待处理N条) →→ 语义索引(已索引N条·队列N条) →→ 导出/资产(已导出N条)
@@ -150,7 +150,7 @@
 - 右侧 Inspector 重构为 Agent Inspector：影响预览（阻止数量/减少体积/节省索引 + vs上周对比）→ 受影响应用 Top 5 → 最近命中规则（规则名+路径+阻止采集 tag）→ 敏感凭据模式（已启用 + 高敏感 + 管理按钮）→ 本地边界（所有规则均在本地生效·不上传云端·本地优先·数据不出本机）
 - 底部 Command Dock：手动补记 / 导入材料 / 保存排除规则(高亮) / 刷新索引 / 导出数据 + 更多操作
 
-#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Ariadne/frontend/src/style.css)
+#### [MODIFY] [style.css](file:///p:/workspace/glwlg/app/Fancun/frontend/src/style.css)
 - 新增管线流程图样式 `.flow-pipeline-visual`（箭头连接器、阶段卡片）
 - 新增排除规则表格样式 `.flow-rules-table`
 - 新增影响预览卡片样式 `.flow-impact-preview`

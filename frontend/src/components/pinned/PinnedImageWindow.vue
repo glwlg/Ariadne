@@ -7,7 +7,7 @@ import { recognizePinnedCaptureOCR, recognizePinnedClipboardImageOCR } from '../
 import { closePinnedImage, getPinnedImage } from '../../services/pinnedImageApi'
 import { createOCRSelection } from '../../lib/ocrSelection'
 import OCRImageOverlay from '../ocr/OCRImageOverlay.vue'
-import type { OCRResult, PinnedImage } from '../../types/ariadne'
+import type { OCRResult, PinnedImage } from '../../types/fancun'
 
 const props = defineProps<{
   pinId: string

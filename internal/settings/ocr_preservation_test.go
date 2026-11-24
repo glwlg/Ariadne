@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"ariadne/internal/appdb"
+	"fancun/internal/appdb"
 	"zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
 )

@@ -11,7 +11,7 @@ import {
   setHostsProfileEnabled,
   upsertHostsProfile,
 } from '../services/hostsApi'
-import type { HostsApplyPreview, HostsProfile, HostsStatus } from '../types/ariadne'
+import type { HostsApplyPreview, HostsProfile, HostsStatus } from '../types/fancun'
 
 export const useHostsStore = defineStore('hosts', () => {
   const profiles = ref<HostsProfile[]>([])

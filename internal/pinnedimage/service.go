@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
 
 	goqrcode "github.com/skip2/go-qrcode"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -327,7 +327,7 @@ func (s *Service) ensureWarmWindow() {
 	}
 	window := app.Window.NewWithOptions(pinnedWindowOptions(name, PinnedImage{
 		ID:      "",
-		Title:   "Ariadne - 贴图",
+		Title:   "Fancun - 贴图",
 		WindowW: 1,
 		WindowH: 1,
 	}, true))

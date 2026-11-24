@@ -1,19 +1,19 @@
-import type { Launcher, LauncherStatus } from '../types/ariadne'
+import type { Launcher, LauncherStatus } from '../types/fancun'
 
 const fallbackLaunchers: Launcher[] = [
   {
-    id: 'ariadne-config-dir',
-    name: 'Ariadne 配置目录',
+    id: 'fancun-config-dir',
+    name: 'Fancun 配置目录',
     kind: 'folder',
-    target: '%APPDATA%/Ariadne',
-    keywords: ['ariadne', 'config', '配置'],
+    target: '%APPDATA%/Fancun',
+    keywords: ['fancun', 'config', '配置'],
     tags: ['配置'],
     enabled: true,
   },
 ]
 
 let fallbackStatus: LauncherStatus = {
-  path: '%APPDATA%/Ariadne/ariadne.sqlite',
+  path: '%APPDATA%/Fancun/fancun.sqlite',
   count: fallbackLaunchers.length,
   items: structuredClone(fallbackLaunchers),
   lastSaveError: '',
@@ -22,7 +22,7 @@ let fallbackStatus: LauncherStatus = {
 async function tryLaunchersBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/launchers/service.js')
+    return await import('../../bindings/fancun/internal/launchers/service.js')
   } catch {
     return null
   }
@@ -86,7 +86,7 @@ function normalizeStatus(status: LauncherStatus): LauncherStatus {
     .filter((item) => item.id || item.name || item.target)
     .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'))
   return {
-    path: status.path || '%APPDATA%/Ariadne/ariadne.sqlite',
+    path: status.path || '%APPDATA%/Fancun/fancun.sqlite',
     count: items.length,
     items,
     lastSaveError: status.lastSaveError ?? '',

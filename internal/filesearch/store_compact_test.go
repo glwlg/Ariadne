@@ -107,10 +107,10 @@ func TestDefaultReadLineIndexPathsPreferSharedIndex(t *testing.T) {
 	if len(paths) < 2 {
 		t.Fatalf("expected shared and user index paths, got %#v", paths)
 	}
-	if paths[0] != `C:\ProgramData\Ariadne\file-index.tsv` {
+	if paths[0] != `C:\ProgramData\Fancun\file-index.tsv` {
 		t.Fatalf("shared index should be preferred, got %#v", paths)
 	}
-	if paths[1] != `C:\Users\luwei\AppData\Local\Ariadne\file-index.tsv` {
+	if paths[1] != `C:\Users\luwei\AppData\Local\Fancun\file-index.tsv` {
 		t.Fatalf("user index should be fallback, got %#v", paths)
 	}
 }

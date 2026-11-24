@@ -11,12 +11,12 @@ import {
   toggleCapturePin,
 } from '../services/captureApi'
 import { openCaptureOverlay } from '../services/captureOverlayApi'
-import { executeAriadneAction } from '../services/ariadneApi'
+import { executeFancunAction } from '../services/fancunApi'
 import { openPinnedCapture } from '../services/pinnedImageApi'
 import { decodeCaptureQRCode, decodeCurrentScreenQRCode } from '../services/qrScanApi'
 import { recognizeCaptureOCR, recognizeCurrentScreenOCR } from '../services/ocrApi'
 import { createOCRSelection } from '../lib/ocrSelection'
-import type { CaptureHistoryEntry, CaptureHistoryStatus, OCRResult, PreviewAction, QRScanResult } from '../types/ariadne'
+import type { CaptureHistoryEntry, CaptureHistoryStatus, OCRResult, PreviewAction, QRScanResult } from '../types/fancun'
 
 export const useCaptureHistoryStore = defineStore('capture-history', () => {
   const query = ref('')
@@ -260,7 +260,7 @@ export const useCaptureHistoryStore = defineStore('capture-history', () => {
   }
 
   async function executePreviewAction(action: PreviewAction) {
-    const response = await executeAriadneAction(action)
+    const response = await executeFancunAction(action)
     showFeedback(response.message)
   }
 

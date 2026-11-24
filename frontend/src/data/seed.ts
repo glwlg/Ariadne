@@ -1,4 +1,4 @@
-import type { SearchResult } from '../types/ariadne'
+import type { SearchResult } from '../types/fancun'
 
 export const seedResults: SearchResult[] = [
   {
@@ -13,7 +13,7 @@ export const seedResults: SearchResult[] = [
       kind: 'text',
       title: 'README.md',
       subtitle: '本地文件',
-      text: 'x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Ariadne 将继承搜索、截图、插件和桌面工具。',
+      text: 'x-tools 是一款专为 Windows 打造的本地搜索与效率工具。Fancun 将继承搜索、截图、插件和桌面工具。',
       meta: [
         { label: '路径', value: 'P:\\workspace\\glwlg\\app\\x-tools\\README.md' },
         { label: '默认操作', value: '打开文件 / 复制路径' },

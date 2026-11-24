@@ -2,9 +2,9 @@ package platform
 
 import (
 	"archive/zip"
-	"ariadne/internal/contracts"
-	"ariadne/internal/elevation"
-	"ariadne/internal/ocr"
+	"fancun/internal/contracts"
+	"fancun/internal/elevation"
+	"fancun/internal/ocr"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -289,34 +289,34 @@ func (s *Service) Status() EnvironmentStatus {
 	fileSearch := s.currentFileSearchStatus(diagnostics)
 	logs := s.currentLogStatus(diagnostics)
 	return EnvironmentStatus{
-		AppName:    "Ariadne",
+		AppName:    "Fancun",
 		LegacyName: "x-tools",
 		Capabilities: []Capability{
-			{ID: "preview_actions", Enabled: true, Provider: "Ariadne contracts", Note: "结果动作由后端显式声明，非文件结果不继承文件动作。"},
-			{ID: "settings", Enabled: true, Provider: "Ariadne settings service", Note: "支持旧配置安全导入、写后读回校验和 MSIX AppData virtualization 诊断。"},
-			{ID: "file_search", Enabled: fileSearch.Ready || fileSearch.Indexing || fileSearch.ServiceRunning, Provider: firstNonEmpty(fileSearch.Provider, "Ariadne USN/MFT"), Note: fileSearchNote(fileSearch)},
+			{ID: "preview_actions", Enabled: true, Provider: "Fancun contracts", Note: "结果动作由后端显式声明，非文件结果不继承文件动作。"},
+			{ID: "settings", Enabled: true, Provider: "Fancun settings service", Note: "支持旧配置安全导入、写后读回校验和 MSIX AppData virtualization 诊断。"},
+			{ID: "file_search", Enabled: fileSearch.Ready || fileSearch.Indexing || fileSearch.ServiceRunning, Provider: firstNonEmpty(fileSearch.Provider, "Fancun USN/MFT"), Note: fileSearchNote(fileSearch)},
 			{ID: "app_scan", Enabled: true, Provider: "Start Menu shortcuts", Note: "已接入用户和系统开始菜单 .lnk 扫描。"},
-			{ID: "custom_launchers", Enabled: true, Provider: "Ariadne launcher registry", Note: "自定义启动项已接入搜索 provider；支持应用、文件、文件夹、URL 和需要确认的命令。"},
-			{ID: "clipboard_history", Enabled: true, Provider: "Ariadne clipboard history", Note: "文本和图片剪贴板历史已接入自动监听、持久化、搜索、置顶、预览和中心 UI。"},
-			{ID: "capture_history", Enabled: runtime.GOOS == "windows", Provider: "Ariadne capture history", Note: "Windows GDI 截屏、区域截图覆盖层、PNG 持久化、搜索、置顶和中心 UI 已接入。"},
-			{ID: "screenshot_overlay", Enabled: runtime.GOOS == "windows", Provider: "Ariadne capture overlay", Note: "区域选择覆盖层已接入独立无边框 Wails 窗口，支持保存、复制、自动保存、自动贴图、二维码识别、放大镜取色、选区缩放、标注和已有标注选择/移动/删除。"},
-			{ID: "pinned_image", Enabled: true, Provider: "Ariadne pinned image service", Note: "截图历史、区域截图、剪贴板图片和二维码结果可创建独立置顶无边框贴图窗口，支持拖动、缩放、右键菜单、阴影切换、复制和图片 OCR。"},
+			{ID: "custom_launchers", Enabled: true, Provider: "Fancun launcher registry", Note: "自定义启动项已接入搜索 provider；支持应用、文件、文件夹、URL 和需要确认的命令。"},
+			{ID: "clipboard_history", Enabled: true, Provider: "Fancun clipboard history", Note: "文本和图片剪贴板历史已接入自动监听、持久化、搜索、置顶、预览和中心 UI。"},
+			{ID: "capture_history", Enabled: runtime.GOOS == "windows", Provider: "Fancun capture history", Note: "Windows GDI 截屏、区域截图覆盖层、PNG 持久化、搜索、置顶和中心 UI 已接入。"},
+			{ID: "screenshot_overlay", Enabled: runtime.GOOS == "windows", Provider: "Fancun capture overlay", Note: "区域选择覆盖层已接入独立无边框 Wails 窗口，支持保存、复制、自动保存、自动贴图、二维码识别、放大镜取色、选区缩放、标注和已有标注选择/移动/删除。"},
+			{ID: "pinned_image", Enabled: true, Provider: "Fancun pinned image service", Note: "截图历史、区域截图、剪贴板图片和二维码结果可创建独立置顶无边框贴图窗口，支持拖动、缩放、右键菜单、阴影切换、复制和图片 OCR。"},
 			{ID: "ocr", Enabled: ocr.RuntimeAvailable(), Provider: "RapidOCR local bridge", Note: ocr.RuntimeNote()},
 			{ID: "qr_recognition", Enabled: true, Provider: "gozxing QR reader", Note: "可识别截图历史或用户显式触发当前屏幕中的二维码；不后台扫描屏幕。"},
-			{ID: "system_commands", Enabled: runtime.GOOS == "windows", Provider: "Ariadne platform action runner", Note: "系统命令插件通过受控 Windows 命令映射执行锁屏、休眠、清空回收站、关机和重启，所有动作都需要用户二次确认。"},
+			{ID: "system_commands", Enabled: runtime.GOOS == "windows", Provider: "Fancun platform action runner", Note: "系统命令插件通过受控 Windows 命令映射执行锁屏、休眠、清空回收站、关机和重启，所有动作都需要用户二次确认。"},
 			{ID: "network_monitor", Enabled: runtime.GOOS == "windows", Provider: "Windows IP Helper API", Note: "实时上下行速率和网卡累计流量已接入 Go 服务、搜索入口和中心 UI。"},
 			{ID: "airplay", Enabled: runtime.GOOS == "windows", Provider: "UxPlay / GStreamer", Note: "iPhone 屏幕和声音投屏，需要手机与电脑处于同一局域网。"},
-			{ID: "hosts", Enabled: runtime.GOOS == "windows", Provider: "Ariadne hosts service", Note: "Hosts 方案管理、远程拉取、冲突检测和应用前预览已接入；写入系统 Hosts 需要用户确认并经 UAC。"},
-			{ID: "json_compare", Enabled: true, Provider: "Ariadne JSON compare service", Note: "JSON 语义差异、规范化 diff 和中心 UI 已接入 Go/TS 主路径。"},
-			{ID: "workflow_macros", Enabled: true, Provider: "Ariadne workflow service", Note: "工作流宏已接入持久化、旧配置迁移、搜索入口、变量渲染、命令链执行和中心 UI。"},
-			{ID: "search_ranking", Enabled: true, Provider: "Ariadne search state", Note: "收藏和最近使用排序已接入本地状态文件。"},
-			{ID: "search_performance", Enabled: true, Provider: "Ariadne search metrics", Note: searchPerformanceNote(searchPerformance)},
-			{ID: "legacy_coexistence", Enabled: !legacy.ProcessRunning && !legacy.HotkeyConflictLikely, Provider: "Ariadne migration guard", Note: legacyCoexistenceNote(legacy)},
+			{ID: "hosts", Enabled: runtime.GOOS == "windows", Provider: "Fancun hosts service", Note: "Hosts 方案管理、远程拉取、冲突检测和应用前预览已接入；写入系统 Hosts 需要用户确认并经 UAC。"},
+			{ID: "json_compare", Enabled: true, Provider: "Fancun JSON compare service", Note: "JSON 语义差异、规范化 diff 和中心 UI 已接入 Go/TS 主路径。"},
+			{ID: "workflow_macros", Enabled: true, Provider: "Fancun workflow service", Note: "工作流宏已接入持久化、旧配置迁移、搜索入口、变量渲染、命令链执行和中心 UI。"},
+			{ID: "search_ranking", Enabled: true, Provider: "Fancun search state", Note: "收藏和最近使用排序已接入本地状态文件。"},
+			{ID: "search_performance", Enabled: true, Provider: "Fancun search metrics", Note: searchPerformanceNote(searchPerformance)},
+			{ID: "legacy_coexistence", Enabled: !legacy.ProcessRunning && !legacy.HotkeyConflictLikely, Provider: "Fancun migration guard", Note: legacyCoexistenceNote(legacy)},
 			{ID: "single_instance", Enabled: shell.SingleInstanceConfigured, Provider: "Wails SingleInstance", Note: shellSingleInstanceNote(shell)},
 			{ID: "global_hotkey", Enabled: shell.GlobalHotkeyRegistered, Provider: "Windows RegisterHotKey", Note: shellHotkeyNote(shell)},
 			{ID: "tray", Enabled: shell.TrayConfigured, Provider: "Wails SystemTray", Note: shellTrayNote(shell)},
 			{ID: "autostart", Enabled: shell.AutostartSupported, Provider: "Wails Autostart", Note: shellAutostartNote(shell)},
-			{ID: "diagnostic_logs", Enabled: logs.DirectoryExists && logs.LastError == "", Provider: "Ariadne local log", Note: diagnosticLogNote(logs)},
+			{ID: "diagnostic_logs", Enabled: logs.DirectoryExists && logs.LastError == "", Provider: "Fancun local log", Note: diagnosticLogNote(logs)},
 		},
 		Diagnostics:       diagnostics,
 		Shell:             shell,
@@ -343,7 +343,7 @@ func (s *Service) ResolveLegacyConflict(request LegacyHandoffRequest) LegacyHand
 	}
 	if !request.Confirm {
 		result.RequiresConfirmation = true
-		result.Message = "需要确认后关闭旧版 x-tools 并重试 Ariadne Alt+Q"
+		result.Message = "需要确认后关闭旧版 x-tools 并重试 Fancun Alt+Q"
 		return result
 	}
 
@@ -362,7 +362,7 @@ func (s *Service) ResolveLegacyConflict(request LegacyHandoffRequest) LegacyHand
 	if s.hotkeyRetry != nil {
 		result.Shell = s.hotkeyRetry()
 		result.HotkeyRetried = true
-		result.Actions = append(result.Actions, "已重试 Ariadne 全局快捷键注册")
+		result.Actions = append(result.Actions, "已重试 Fancun 全局快捷键注册")
 	} else {
 		result.Shell = s.currentShellStatus()
 		result.Actions = append(result.Actions, "当前运行态未提供热键重试接口")
@@ -372,7 +372,7 @@ func (s *Service) ResolveLegacyConflict(request LegacyHandoffRequest) LegacyHand
 	result.OK = !result.After.ProcessRunning && (result.Shell.GlobalHotkeyRegistered || !result.After.HotkeyConflictLikely)
 	if result.OK {
 		if result.Shell.GlobalHotkeyRegistered {
-			result.Message = "旧版交接完成，Ariadne 已接管 Alt+Q"
+			result.Message = "旧版交接完成，Fancun 已接管 Alt+Q"
 		} else {
 			result.Message = "旧版交接完成，未发现 Alt+Q 冲突"
 		}
@@ -401,7 +401,7 @@ func (s *Service) ExportDiagnostics() DiagnosticsExportResult {
 	if err := os.MkdirAll(exportDir, 0o755); err != nil {
 		return DiagnosticsExportResult{OK: false, Message: err.Error(), CreatedAt: createdAt.Unix()}
 	}
-	path := filepath.Join(exportDir, "ariadne-diagnostics-"+createdAt.Format("20060102-150405")+".zip")
+	path := filepath.Join(exportDir, "fancun-diagnostics-"+createdAt.Format("20060102-150405")+".zip")
 	file, err := os.Create(path)
 	if err != nil {
 		return DiagnosticsExportResult{OK: false, Message: err.Error(), Path: path, CreatedAt: createdAt.Unix()}
@@ -444,12 +444,12 @@ func (s *Service) ExportDiagnostics() DiagnosticsExportResult {
 	}
 	logIncluded := false
 	if status.Logs.Exists && status.Logs.Path != "" {
-		if err := writeZipFile(archive, "logs/ariadne.log", status.Logs.Path); err != nil {
+		if err := writeZipFile(archive, "logs/fancun.log", status.Logs.Path); err != nil {
 			_ = archive.Close()
 			_ = file.Close()
 			return DiagnosticsExportResult{OK: false, Message: err.Error(), Path: path, CreatedAt: createdAt.Unix()}
 		}
-		included = append(included, "logs/ariadne.log")
+		included = append(included, "logs/fancun.log")
 		logIncluded = true
 	}
 	if err := archive.Close(); err != nil {
@@ -481,7 +481,7 @@ func (s *Service) InstallFileSearchService() contracts.ActionResult {
 	exePath, err := os.Executable()
 	if err != nil || strings.TrimSpace(exePath) == "" {
 		if err == nil {
-			err = fmt.Errorf("缺少 Ariadne 程序路径")
+			err = fmt.Errorf("缺少 Fancun 程序路径")
 		}
 		return contracts.ActionResult{OK: false, Message: "搜索服务安装失败: " + err.Error()}
 	}
@@ -695,11 +695,11 @@ func (s *Service) currentSearchPerformance() SearchPerformanceStatus {
 func (s *Service) currentFileSearchStatus(diagnostics RuntimeDiagnostics) FileSearchStatus {
 	if s.fileSearchStatus != nil {
 		status := s.fileSearchStatus()
-		status.Provider = firstNonEmpty(status.Provider, "Ariadne USN/MFT")
+		status.Provider = firstNonEmpty(status.Provider, "Fancun USN/MFT")
 		return normalizeFileSearchStatus(s.currentFileSearchServiceStatus(status))
 	}
 	return normalizeFileSearchStatus(s.currentFileSearchServiceStatus(FileSearchStatus{
-		Provider: "Ariadne USN/MFT",
+		Provider: "Fancun USN/MFT",
 	}))
 }
 
@@ -793,10 +793,10 @@ func legacyRuntimeNotes(status LegacyRuntimeStatus, shell ShellStatus) []string 
 
 func legacyCoexistenceNote(status LegacyRuntimeStatus) string {
 	if status.HotkeyConflictLikely {
-		return "旧版运行时可能占用 Alt+Q；Ariadne 会在平台诊断中暴露该冲突。"
+		return "旧版运行时可能占用 Alt+Q；Fancun 会在平台诊断中暴露该冲突。"
 	}
 	if status.ProcessRunning {
-		return "检测到旧版 x-tools 正在运行；发布迁移前不应与 Ariadne 长期并行抢占快捷键。"
+		return "检测到旧版 x-tools 正在运行；发布迁移前不应与 Fancun 长期并行抢占快捷键。"
 	}
 	if status.ConfigExists {
 		return "检测到旧版配置，可在设置中心执行安全导入；未发现旧版进程冲突。"
@@ -806,7 +806,7 @@ func legacyCoexistenceNote(status LegacyRuntimeStatus) string {
 
 func shellSingleInstanceNote(status ShellStatus) string {
 	if status.SingleInstanceConfigured {
-		return "Wails SingleInstance 已接入；二次启动会唤起现有 Ariadne 窗口。"
+		return "Wails SingleInstance 已接入；二次启动会唤起现有 Fancun 窗口。"
 	}
 	return "尚未在当前运行态配置单例运行。"
 }
@@ -869,7 +869,7 @@ func fileSearchNote(status FileSearchStatus) string {
 		return "搜索服务未安装；安装后会自动维护本机文件索引。"
 	}
 	if status.ServiceRunning && status.RequiresAdmin && !status.Elevated {
-		return "文件索引服务正在运行；Ariadne 可保持普通权限启动。"
+		return "文件索引服务正在运行；Fancun 可保持普通权限启动。"
 	}
 	if status.RequiresAdmin && !status.Elevated {
 		if status.ServiceInstalled && !status.ServiceRunning {
@@ -960,7 +960,7 @@ func defaultLogPath(diagnostics RuntimeDiagnostics) string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "logs", "ariadne.log")
+	return filepath.Join(base, "Fancun", "logs", "fancun.log")
 }
 
 func diagnosticsExportDir(diagnostics RuntimeDiagnostics) string {
@@ -974,7 +974,7 @@ func diagnosticsExportDir(diagnostics RuntimeDiagnostics) string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", "diagnostics")
+	return filepath.Join(base, "Fancun", "diagnostics")
 }
 
 func legacyConfigPath(diagnostics RuntimeDiagnostics) string {
@@ -989,11 +989,11 @@ func legacyConfigPath(diagnostics RuntimeDiagnostics) string {
 }
 
 func diagnosticsReadme(createdAt time.Time) string {
-	return fmt.Sprintf(`# Ariadne Diagnostics
+	return fmt.Sprintf(`# Fancun Diagnostics
 
 Created at: %s
 
-This package contains local Ariadne runtime diagnostics, metrics, and the local log file when available. It does not include work memory exports, screenshots, clipboard image bodies, or legacy x-tools data.
+This package contains local Fancun runtime diagnostics, metrics, and the local log file when available. It does not include work memory exports, screenshots, clipboard image bodies, or legacy x-tools data.
 `, createdAt.Format(time.RFC3339))
 }
 
@@ -1186,7 +1186,7 @@ func systemCommandDefinition(command string) (systemCommand, bool) {
 			Command:      "powershell.exe",
 			Arguments:    []string{"-NoProfile", "-Command", "Clear-RecycleBin -Force -ErrorAction Stop"},
 			SuccessLabel: "已清空回收站",
-			RiskReasons:  []string{"会删除回收站中的文件", "该操作可能无法从 Ariadne 内撤销"},
+			RiskReasons:  []string{"会删除回收站中的文件", "该操作可能无法从 Fancun 内撤销"},
 		}, true
 	case "shutdown":
 		return systemCommand{

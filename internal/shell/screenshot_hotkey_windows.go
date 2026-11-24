@@ -18,7 +18,7 @@ const (
 	wmSyskeydown                 = 0x0104
 	wmSyskeyup                   = 0x0105
 	screenshotKeyboardHookQuit   = 0x0012
-	screenshotKeyboardHookThread = "ariadne-screenshot-hotkey"
+	screenshotKeyboardHookThread = "fancun-screenshot-hotkey"
 )
 
 var (

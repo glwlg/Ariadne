@@ -14,6 +14,8 @@ func removeFileSearchService(productName string, exePath string) error {
 	return nil
 }
 
+func retireLegacyFileSearchService() error { return nil }
+
 func runFileSearchServiceCommand(productName string, command string, exePath string, settingsConfig string) (Result, error) {
 	return Result{}, fmt.Errorf("搜索服务仅支持 Windows")
 }

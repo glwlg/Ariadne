@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"ariadne/internal/securestore"
+	"fancun/internal/securestore"
 )
 
 type SecretRecordStatus struct {
@@ -149,7 +149,7 @@ func (s *Service) status() SecretStatus {
 		}
 		appEnvPresent := false
 		for _, env := range spec.Envs {
-			if isAriadneEnv(env) && strings.TrimSpace(os.Getenv(env)) != "" {
+			if isFancunEnv(env) && strings.TrimSpace(os.Getenv(env)) != "" {
 				appEnvPresent = true
 				break
 			}
@@ -179,8 +179,8 @@ func (s *Service) status() SecretStatus {
 	return status
 }
 
-func isAriadneEnv(name string) bool {
-	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(name)), "ARIADNE_")
+func isFancunEnv(name string) bool {
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(name)), "FANCUN_")
 }
 
 func specs() []credentialSpec {
@@ -189,7 +189,7 @@ func specs() []credentialSpec {
 			Kind:   "ai_api_key",
 			Label:  "OCR API key",
 			Target: securestore.TargetOpenAIAPIKey,
-			Envs:   []string{"ARIADNE_OCR_API_KEY", "ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+			Envs:   []string{"FANCUN_OCR_API_KEY", "FANCUN_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
 		},
 	}
 }

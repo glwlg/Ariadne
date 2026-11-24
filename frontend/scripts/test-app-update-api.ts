@@ -9,9 +9,9 @@ const status = normalizeAppUpdateStatus({
   canInstall: true,
   updateAvailable: true,
   availableVersion: '1.1.0',
-  releaseName: 'Ariadne 1.1.0',
+  releaseName: 'Fancun 1.1.0',
   releaseNotes: 'Fixes',
-  artifactName: 'AriadneSetup-1.1.0-windows-x64.exe',
+  artifactName: 'FancunSetup-1.1.0-windows-x64.exe',
   installerLaunched: false,
 })
 

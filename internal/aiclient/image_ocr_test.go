@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/ocr"
+	"fancun/internal/ocr"
 )
 
 func writeTestPNG(t *testing.T, width int, height int) string {
@@ -41,7 +41,7 @@ func writeTestPNG(t *testing.T, width int, height int) string {
 }
 
 func TestOpenAICompatibleImageOCRPostsVisionChatCompletion(t *testing.T) {
-	t.Setenv("ARIADNE_OCR_API_KEY", "ocr-key")
+	t.Setenv("FANCUN_OCR_API_KEY", "ocr-key")
 	imagePath := filepath.Join(t.TempDir(), "screen.png")
 	if err := os.WriteFile(imagePath, []byte("fake png bytes"), 0o600); err != nil {
 		t.Fatalf("write image: %v", err)
@@ -61,7 +61,7 @@ func TestOpenAICompatibleImageOCRPostsVisionChatCompletion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &OpenAICompatibleImageOCR{HTTPClient: server.Client(), APIKeyEnv: []string{"ARIADNE_OCR_API_KEY"}}
+	client := &OpenAICompatibleImageOCR{HTTPClient: server.Client(), APIKeyEnv: []string{"FANCUN_OCR_API_KEY"}}
 	result, err := client.RecognizeImageOCR(context.Background(), ocr.AIOCRJob{
 		Provider:  "openai-compatible",
 		BaseURL:   server.URL + "/v1",
@@ -138,7 +138,7 @@ func TestOpenAICompatibleImageOCRParsesStructuredOCRResponseWithoutAPIKey(t *tes
 	}))
 	defer server.Close()
 
-	client := &OpenAICompatibleImageOCR{HTTPClient: server.Client(), APIKeyEnv: []string{"ARIADNE_TEST_EMPTY_OCR_KEY"}}
+	client := &OpenAICompatibleImageOCR{HTTPClient: server.Client(), APIKeyEnv: []string{"FANCUN_TEST_EMPTY_OCR_KEY"}}
 	result, err := client.RecognizeImageOCR(context.Background(), ocr.AIOCRJob{
 		Provider:  "openai-compatible",
 		BaseURL:   server.URL + "/v1",
@@ -239,60 +239,60 @@ func TestCleanAPIKeyAcceptsEnvAssignmentBlocks(t *testing.T) {
 	}
 }
 
-func TestAPIKeySourcePrefersAriadneCredentialOverGenericEnv(t *testing.T) {
-	t.Setenv("ARIADNE_AI_API_KEY", "")
+func TestAPIKeySourcePrefersFancunCredentialOverGenericEnv(t *testing.T) {
+	t.Setenv("FANCUN_AI_API_KEY", "")
 	t.Setenv("OPENAI__API_KEY", "generic-env-key")
 	t.Setenv("OPENAI_API_KEY", "")
 	read := func(target string) (string, bool, error) {
-		if target == "Ariadne/OpenAI/APIKey" {
+		if target == "Fancun/OpenAI/APIKey" {
 			return "stored-ai-key", true, nil
 		}
 		return "", false, nil
 	}
 
 	got := apiKeyFromSourcesWithReader(
-		[]string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
-		[]string{"Ariadne/OpenAI/APIKey"},
+		[]string{"FANCUN_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+		[]string{"Fancun/OpenAI/APIKey"},
 		read,
 	)
 	if got != "stored-ai-key" {
-		t.Fatalf("generic OpenAI env should not override stored Ariadne credential, got %q", got)
+		t.Fatalf("generic OpenAI env should not override stored Fancun credential, got %q", got)
 	}
 }
 
-func TestAPIKeySourcePrefersAriadneEnvOverCredential(t *testing.T) {
-	t.Setenv("ARIADNE_AI_API_KEY", "ariadne-env-key")
+func TestAPIKeySourcePrefersFancunEnvOverCredential(t *testing.T) {
+	t.Setenv("FANCUN_AI_API_KEY", "fancun-env-key")
 	t.Setenv("OPENAI__API_KEY", "generic-env-key")
 	read := func(target string) (string, bool, error) {
-		if target == "Ariadne/OpenAI/APIKey" {
+		if target == "Fancun/OpenAI/APIKey" {
 			return "stored-ai-key", true, nil
 		}
 		return "", false, nil
 	}
 
 	got := apiKeyFromSourcesWithReader(
-		[]string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
-		[]string{"Ariadne/OpenAI/APIKey"},
+		[]string{"FANCUN_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+		[]string{"Fancun/OpenAI/APIKey"},
 		read,
 	)
-	if got != "ariadne-env-key" {
-		t.Fatalf("app-specific Ariadne env should override stored credential, got %q", got)
+	if got != "fancun-env-key" {
+		t.Fatalf("app-specific Fancun env should override stored credential, got %q", got)
 	}
 }
 
 func TestAPIKeySourceFallsBackToGenericEnv(t *testing.T) {
-	t.Setenv("ARIADNE_AI_API_KEY", "")
+	t.Setenv("FANCUN_AI_API_KEY", "")
 	t.Setenv("OPENAI__API_KEY", "generic-env-key")
 	read := func(target string) (string, bool, error) {
 		return "", false, nil
 	}
 
 	got := apiKeyFromSourcesWithReader(
-		[]string{"ARIADNE_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
-		[]string{"Ariadne/OpenAI/APIKey"},
+		[]string{"FANCUN_AI_API_KEY", "OPENAI__API_KEY", "OPENAI_API_KEY"},
+		[]string{"Fancun/OpenAI/APIKey"},
 		read,
 	)
 	if got != "generic-env-key" {
-		t.Fatalf("generic env should be used when no Ariadne env or credential exists, got %q", got)
+		t.Fatalf("generic env should be used when no Fancun env or credential exists, got %q", got)
 	}
 }

@@ -29,8 +29,8 @@ func (f *fakeStore) Delete(target string) error {
 func TestStatusReportsEnvironmentAndStoredSecrets(t *testing.T) {
 	t.Setenv("OPENAI__API_KEY", "env-key")
 	store := &fakeStore{available: true, backend: "test", values: map[string]string{
-		"Ariadne/OpenAI/APIKey":    "stored-ai",
-		"Ariadne/Embedding/APIKey": "stored-embedding",
+		"Fancun/OpenAI/APIKey":    "stored-ai",
+		"Fancun/Embedding/APIKey": "stored-embedding",
 	}}
 	service := NewServiceWithStore(store)
 
@@ -40,19 +40,19 @@ func TestStatusReportsEnvironmentAndStoredSecrets(t *testing.T) {
 	}
 	ai := record(status, "ai_api_key")
 	if !ai.EnvPresent || !ai.Stored || ai.ActiveSource != "credential_manager" {
-		t.Fatalf("AI record should prefer stored Ariadne credential over generic env: %#v", ai)
+		t.Fatalf("AI record should prefer stored Fancun credential over generic env: %#v", ai)
 	}
 }
 
-func TestStatusReportsAriadneEnvironmentAsActive(t *testing.T) {
-	t.Setenv("ARIADNE_AI_API_KEY", "env-key")
-	store := &fakeStore{available: true, backend: "test", values: map[string]string{"Ariadne/OpenAI/APIKey": "stored-ai"}}
+func TestStatusReportsFancunEnvironmentAsActive(t *testing.T) {
+	t.Setenv("FANCUN_AI_API_KEY", "env-key")
+	store := &fakeStore{available: true, backend: "test", values: map[string]string{"Fancun/OpenAI/APIKey": "stored-ai"}}
 	service := NewServiceWithStore(store)
 
 	status := service.Status()
 	ai := record(status, "ai_api_key")
 	if !ai.EnvPresent || !ai.Stored || ai.ActiveSource != "environment" {
-		t.Fatalf("app-specific env should override stored Ariadne credential: %#v", ai)
+		t.Fatalf("app-specific env should override stored Fancun credential: %#v", ai)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestSaveAndClearSecret(t *testing.T) {
 	service := NewServiceWithStore(store)
 
 	targets := map[string]string{
-		"ai_api_key": "Ariadne/OpenAI/APIKey",
+		"ai_api_key": "Fancun/OpenAI/APIKey",
 	}
 	for kind, target := range targets {
 		t.Run(kind, func(t *testing.T) {

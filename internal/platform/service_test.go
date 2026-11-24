@@ -2,7 +2,7 @@ package platform
 
 import (
 	"archive/zip"
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 	"errors"
 	"os"
 	"path/filepath"
@@ -16,7 +16,7 @@ import (
 func TestStatusReportsHonestDesktopShellCapabilities(t *testing.T) {
 	status := NewService().Status()
 
-	if status.AppName != "Ariadne" || status.LegacyName != "x-tools" {
+	if status.AppName != "Fancun" || status.LegacyName != "x-tools" {
 		t.Fatalf("unexpected app identity: %#v", status)
 	}
 	if !capability(status.Capabilities, "preview_actions").Enabled {
@@ -54,8 +54,8 @@ func TestStatusReportsHonestDesktopShellCapabilities(t *testing.T) {
 		t.Fatalf("network monitor capability should follow Windows runtime support: %#v", networkMonitor)
 	}
 	fileSearch := capability(status.Capabilities, "file_search")
-	if fileSearch.Provider != "Ariadne USN/MFT" || !strings.Contains(fileSearch.Note, "文件索引") {
-		t.Fatalf("file search capability should report Ariadne file index status: %#v", fileSearch)
+	if fileSearch.Provider != "Fancun USN/MFT" || !strings.Contains(fileSearch.Note, "文件索引") {
+		t.Fatalf("file search capability should report Fancun file index status: %#v", fileSearch)
 	}
 	if capability(status.Capabilities, "global_hotkey").Enabled {
 		t.Fatal("global hotkey should not be marked complete before Alt+Q integration")
@@ -83,7 +83,7 @@ func TestStatusUsesShellRuntimeStatus(t *testing.T) {
 			GlobalHotkey:              "alt+q",
 			AutostartSupported:        true,
 			AutostartEnabled:          true,
-			AutostartPath:             `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.glwlg.ariadne`,
+			AutostartPath:             `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.glwlg.fancun`,
 			AutostartCommandValid:     true,
 			AutostartHiddenArgPresent: true,
 		}
@@ -106,8 +106,8 @@ func TestStatusReportsInvalidAutostartCommand(t *testing.T) {
 		return ShellStatus{
 			AutostartSupported:        true,
 			AutostartEnabled:          true,
-			AutostartPath:             `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.glwlg.ariadne`,
-			AutostartCommand:          `C:\Tools\ariadne.exe`,
+			AutostartPath:             `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.glwlg.fancun`,
+			AutostartCommand:          `C:\Tools\fancun.exe`,
 			AutostartHiddenArgPresent: false,
 			AutostartCommandValid:     false,
 			AutostartNotes:            []string{"开机启动命令缺少 --hidden，登录后可能直接弹出启动器"},
@@ -223,11 +223,11 @@ func TestResolveLegacyConflictClosesLegacyAndRetriesHotkey(t *testing.T) {
 }
 
 func TestStatusIncludesSearchAndFileIndexDiagnostics(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "logs", "ariadne.log")
+	logPath := filepath.Join(t.TempDir(), "logs", "fancun.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(logPath, []byte("ariadne log line\n"), 0o600); err != nil {
+	if err := os.WriteFile(logPath, []byte("fancun log line\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(
@@ -248,14 +248,14 @@ func TestStatusIncludesSearchAndFileIndexDiagnostics(t *testing.T) {
 		WithFileSearchStatus(func() FileSearchStatus {
 			return FileSearchStatus{
 				Ready:           true,
-				Provider:        "Ariadne USN/MFT",
+				Provider:        "Fancun USN/MFT",
 				IndexedCount:    1200,
 				VolumeCount:     2,
 				LastQuery:       "README.md",
 				LastElapsedMs:   7,
 				LastResultCount: 1,
 				LastUpdatedAt:   1770000000,
-				CoverageHint:    "Ariadne 文件索引已完成，但该文件或路径没有命中。",
+				CoverageHint:    "Fancun 文件索引已完成，但该文件或路径没有命中。",
 			}
 		}),
 		WithFileSearchServiceStatus(func(status FileSearchStatus) FileSearchStatus {
@@ -302,7 +302,7 @@ func TestExportDiagnosticsIncludesPlatformStatusAndLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Setenv("APPDATA", oldAppData) })
-	logPath := filepath.Join(root, "logs", "ariadne.log")
+	logPath := filepath.Join(root, "logs", "fancun.log")
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +326,7 @@ func TestExportDiagnosticsIncludesPlatformStatusAndLog(t *testing.T) {
 	for _, file := range reader.File {
 		names[file.Name] = true
 	}
-	for _, name := range []string{"README.md", "diagnostics/platform_status.json", "diagnostics/metrics.json", "logs/ariadne.log"} {
+	for _, name := range []string{"README.md", "diagnostics/platform_status.json", "diagnostics/metrics.json", "logs/fancun.log"} {
 		if !names[name] {
 			t.Fatalf("diagnostics zip missing %s, entries=%#v", name, names)
 		}
@@ -338,7 +338,7 @@ func TestStatusDegradesFileSearchOnIndexError(t *testing.T) {
 		WithFileSearchStatus(func() FileSearchStatus {
 			return FileSearchStatus{
 				Ready:     false,
-				Provider:  "Ariadne USN/MFT",
+				Provider:  "Fancun USN/MFT",
 				LastError: "line index parse failed",
 			}
 		}),
@@ -362,7 +362,7 @@ func TestStatusExplainsMissingSearchService(t *testing.T) {
 		WithFileSearchStatus(func() FileSearchStatus {
 			return FileSearchStatus{
 				Ready:         false,
-				Provider:      "Ariadne USN/MFT",
+				Provider:      "Fancun USN/MFT",
 				RequiresAdmin: true,
 				Elevated:      false,
 				LastError:     "搜索服务未安装",
@@ -377,7 +377,7 @@ func TestStatusExplainsMissingSearchService(t *testing.T) {
 	status := service.Status()
 	fileSearch := capability(status.Capabilities, "file_search")
 	if fileSearch.Enabled {
-		t.Fatalf("file search should be degraded until Ariadne is elevated: %#v", fileSearch)
+		t.Fatalf("file search should be degraded until Fancun is elevated: %#v", fileSearch)
 	}
 	if !strings.Contains(fileSearch.Note, "搜索服务未安装") {
 		t.Fatalf("file search note should make the missing search service visible: %#v", fileSearch)
@@ -404,7 +404,7 @@ func TestLegacyHotkeyConflictHeuristics(t *testing.T) {
 		t.Fatal("legacy process plus hotkey registration failure should be treated as a likely conflict")
 	}
 	if legacyHotkeyConflictLikely(ShellStatus{GlobalHotkeyRegistered: true, LastError: "old error"}, true) {
-		t.Fatal("registered Ariadne hotkey should override stale errors")
+		t.Fatal("registered Fancun hotkey should override stale errors")
 	}
 }
 
@@ -492,14 +492,14 @@ func TestDangerActionConfirmationUsesProductLabel(t *testing.T) {
 			"command":              "powershell.exe",
 			"arguments":            []string{"-NoProfile", "-Command", "Start-Process -Verb RunAs"},
 			"requiresConfirmation": true,
-			"confirmationLabel":    "以管理员身份启动 Ariadne",
+			"confirmationLabel":    "以管理员身份启动 Fancun",
 		},
 	})
 
 	if result.OK || !result.RequiresConfirmation || called {
 		t.Fatalf("danger action should require confirmation: %#v", result)
 	}
-	if !strings.Contains(result.Message, "以管理员身份启动 Ariadne") || strings.Contains(result.Message, "powershell.exe") || strings.Contains(result.Message, "Start-Process") {
+	if !strings.Contains(result.Message, "以管理员身份启动 Fancun") || strings.Contains(result.Message, "powershell.exe") || strings.Contains(result.Message, "Start-Process") {
 		t.Fatalf("confirmation should hide implementation command: %#v", result)
 	}
 }
@@ -682,22 +682,22 @@ func TestCommandActionReportsRunnerFailureWithContext(t *testing.T) {
 }
 
 func TestSplitCommandArgumentsHandlesQuotedValues(t *testing.T) {
-	args, err := splitCommandArguments(`/c "echo hello" --name 'Ariadne Launcher'`)
+	args, err := splitCommandArguments(`/c "echo hello" --name 'Fancun Launcher'`)
 	if err != nil {
 		t.Fatalf("split should succeed: %v", err)
 	}
-	expected := []string{"/c", "echo hello", "--name", "Ariadne Launcher"}
+	expected := []string{"/c", "echo hello", "--name", "Fancun Launcher"}
 	if !reflect.DeepEqual(args, expected) {
 		t.Fatalf("expected %#v, got %#v", expected, args)
 	}
 }
 
 func TestSplitCommandArgumentsPreservesWindowsPaths(t *testing.T) {
-	args, err := splitCommandArguments(`--input "C:\Program Files\Ariadne\config.json" C:\Temp\out.txt`)
+	args, err := splitCommandArguments(`--input "C:\Program Files\Fancun\config.json" C:\Temp\out.txt`)
 	if err != nil {
 		t.Fatalf("split should succeed: %v", err)
 	}
-	expected := []string{"--input", `C:\Program Files\Ariadne\config.json`, `C:\Temp\out.txt`}
+	expected := []string{"--input", `C:\Program Files\Fancun\config.json`, `C:\Temp\out.txt`}
 	if !reflect.DeepEqual(args, expected) {
 		t.Fatalf("expected %#v, got %#v", expected, args)
 	}

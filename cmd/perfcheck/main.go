@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"ariadne/internal/perfcheck"
+	"fancun/internal/perfcheck"
 )
 
 func main() {
@@ -15,8 +15,8 @@ func main() {
 	var outputPath string
 	var pretty bool
 	var realAppData bool
-	flag.StringVar(&options.ExePath, "exe", filepath.Join("bin", "ariadne.exe"), "Path to ariadne.exe")
-	flag.StringVar(&options.ReleaseZipPath, "release-zip", filepath.Join("dist", "release", "ariadne-dev-windows-x64.zip"), "Path to Ariadne release zip")
+	flag.StringVar(&options.ExePath, "exe", filepath.Join("bin", "fancun.exe"), "Path to fancun.exe")
+	flag.StringVar(&options.ReleaseZipPath, "release-zip", filepath.Join("dist", "release", "fancun-dev-windows-x64.zip"), "Path to Fancun release zip")
 	flag.StringVar(&options.LegacyInstallerPath, "legacy-installer", filepath.Join("..", "..", "dist", "x-tools-setup.exe"), "Path to legacy x-tools installer")
 	flag.StringVar(&options.LegacyDistPath, "legacy-dist", filepath.Join("..", "..", "dist", "x-tools"), "Path to legacy x-tools onedir output")
 	flag.IntVar(&options.Iterations, "iterations", 3, "Number of startup samples to collect")

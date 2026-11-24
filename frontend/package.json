@@ -1,5 +1,5 @@
 {
-  "name": "frontend",
+  "name": "fancun-frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@lucide/vue": "^1.18.0",
-    "@wailsio/runtime": "3.0.0-beta.16",
+    "@wailsio/runtime": "3.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "pinia": "^3.0.4",
@@ -38,7 +38,7 @@
     "@vue/tsconfig": "^0.9.1",
     "tailwindcss": "^4.3.1",
     "typescript": "~6.0.2",
-    "vite": "^8.0.12",
+    "vite": "^8.3.5",
     "vue-tsc": "^3.2.8"
   }
 }

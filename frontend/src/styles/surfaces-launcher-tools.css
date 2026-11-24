@@ -2882,13 +2882,13 @@ button.result-primary-action:focus-visible {
   padding-top: 7px;
 }
 
-.hosts-remote-fetch.ari-button,
+.hosts-remote-fetch.fancun-button,
 .hosts-remote-fetch {
   width: calc(100% - 36px);
   margin: 12px 18px 16px;
 }
 
-.hosts-statistics-section > .ari-button,
+.hosts-statistics-section > .fancun-button,
 .hosts-statistics-section > button {
   width: calc(100% - 32px);
   margin: 14px 16px 16px;

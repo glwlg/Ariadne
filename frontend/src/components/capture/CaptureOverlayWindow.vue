@@ -40,7 +40,7 @@ import type {
   CaptureOverlaySelectionRequest,
   CaptureOverlaySession,
   ScreenBounds,
-} from '../../types/ariadne'
+} from '../../types/fancun'
 
 const props = defineProps<{
   sessionId: string
@@ -1734,7 +1734,7 @@ function defaultCaptureFilename() {
     String(now.getMinutes()).padStart(2, '0'),
     String(now.getSeconds()).padStart(2, '0'),
   ].join('')
-  return `ariadne-capture-${stamp}.png`
+  return `fancun-capture-${stamp}.png`
 }
 
 function boundedPoint(event: PointerEvent) {

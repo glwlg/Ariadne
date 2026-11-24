@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import type { AirPlayStatus } from '../../types/airplay'
 
 const props = defineProps<{ status: AirPlayStatus; busy: boolean }>()
@@ -33,9 +33,9 @@ const label = computed(() => {
     </dl>
     <p v-if="status.control.lastError" class="control-error" role="alert">{{ status.control.lastError }}</p>
     <p v-if="status.control.phase === 'touchpad'" class="control-help">如需直接点击或拖动投屏画面，请在 iPhone 忽略电脑后重新配对。</p>
-    <AriButton size="sm" :disabled="busy || !status.controlReady || status.control.phase === 'closing'" @click="$emit('open')">
+    <FancunButton size="sm" :disabled="busy || !status.controlReady || status.control.phase === 'closing'" @click="$emit('open')">
       {{ status.control.running ? '控制设置' : '启动蓝牙控制' }}
-    </AriButton>
+    </FancunButton>
     <p class="control-help">投屏连接后自动开启控制，记住上次选择的手机。关闭控制设置后仍可操作投屏画面。</p>
     <p v-if="status.control.phase === 'direct'" class="control-help">点击投屏画面后可使用电脑键盘输入，中文请使用手机的中文输入法。Alt+Enter 切换全屏。</p>
     <details>

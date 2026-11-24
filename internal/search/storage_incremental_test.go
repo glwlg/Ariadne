@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ariadne/internal/appdb"
+	"fancun/internal/appdb"
 	"zombiezen.com/go/sqlite/sqlitex"
 )
 

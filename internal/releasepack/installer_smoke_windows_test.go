@@ -16,11 +16,11 @@ import (
 	"time"
 )
 
-// Exercise the generated setup EXE, with no access to Ariadne's real shortcuts, services or data.
+// Exercise the generated setup EXE, with no access to Fancun's real shortcuts, services or data.
 func TestPackagedSetupRepairsShortcutsAndPreservesData(t *testing.T) {
 	base := t.TempDir()
-	product := "AriadneReleaseCheck" + strconv.Itoa(os.Getpid())
-	exe := filepath.Join(base, "bin", "ariadne.exe")
+	product := "FancunReleaseCheck" + strconv.Itoa(os.Getpid())
+	exe := filepath.Join(base, "bin", "fancun.exe")
 	writeFile(t, exe, "isolated test app")
 	writeNativeCaptureHost(t, filepath.Dir(exe))
 	root, err := findModuleRoot()
@@ -82,9 +82,9 @@ func TestPackagedSetupRepairsShortcutsAndPreservesData(t *testing.T) {
 				t.Fatalf("shortcut escaped isolated Start Menu: %s", path)
 			}
 			cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command",
-				`$ErrorActionPreference='Stop'; (New-Object -ComObject WScript.Shell).CreateShortcut($env:ARIADNE_TEST_SHORTCUT).TargetPath`)
+				`$ErrorActionPreference='Stop'; (New-Object -ComObject WScript.Shell).CreateShortcut($env:FANCUN_TEST_SHORTCUT).TargetPath`)
 			cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000}
-			cmd.Env = append(os.Environ(), "ARIADNE_TEST_SHORTCUT="+path)
+			cmd.Env = append(os.Environ(), "FANCUN_TEST_SHORTCUT="+path)
 			output, err := cmd.CombinedOutput()
 			if err != nil || !strings.EqualFold(strings.TrimSpace(string(output)), target) {
 				t.Fatalf("shortcut %s must target %s, got %q: %v", path, target, output, err)

@@ -760,7 +760,7 @@ func defaultCollections() []Collection {
 			{
 				ID:        envID,
 				Name:      "默认环境",
-				Variables: []Variable{{ID: newID("var"), Name: "traceId", Value: "ariadne-{{$timestamp}}", Enabled: false}},
+				Variables: []Variable{{ID: newID("var"), Name: "traceId", Value: "fancun-{{$timestamp}}", Enabled: false}},
 				UpdatedAt: now,
 			},
 		},
@@ -1701,7 +1701,7 @@ func newID(prefix string) string {
 
 func defaultPath() string {
 	if dir, err := os.UserConfigDir(); err == nil && strings.TrimSpace(dir) != "" {
-		return filepath.Join(dir, "Ariadne", "api_testing.json")
+		return filepath.Join(dir, "Fancun", "api_testing.json")
 	}
 	return filepath.Join(".", "api_testing.json")
 }

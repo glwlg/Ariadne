@@ -12,7 +12,7 @@ import (
 
 func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	logoPath := filepath.Join(base, "assets", "logo.png")
 	outputDir := filepath.Join(base, "dist", "msix")
 	writeFile(t, exePath, "fake exe")
@@ -31,7 +31,7 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 	}
 
 	manifest := result.Manifest
-	if manifest.ProductName != "Ariadne" || manifest.PackageName != "Ariadne.CommandLauncher" || manifest.Publisher != "CN=Ariadne" {
+	if manifest.ProductName != "Fancun" || manifest.PackageName != "Fancun.CommandLauncher" || manifest.Publisher != "CN=Fancun" {
 		t.Fatalf("unexpected manifest identity: %#v", manifest)
 	}
 	if manifest.Version != "1.2.0.0" || manifest.Platform != "windows" || manifest.Arch != runtime.GOARCH {
@@ -44,12 +44,12 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 		t.Fatalf("manifest should expose candidate .msix output path: %#v", manifest)
 	}
 	for _, path := range []string{
-		filepath.Join(manifest.LayoutDir, "Ariadne.exe"),
-		filepath.Join(manifest.LayoutDir, "native-capture", "Ariadne.CaptureHost.exe"),
+		filepath.Join(manifest.LayoutDir, "Fancun.exe"),
+		filepath.Join(manifest.LayoutDir, "native-capture", "Fancun.CaptureHost.exe"),
 		filepath.Join(manifest.LayoutDir, "uxplay", "uxplay.exe"),
 		filepath.Join(manifest.LayoutDir, "uxplay", "lib", "gstreamer-1.0", "libgstd3d11.dll"),
 		filepath.Join(manifest.LayoutDir, "uxplay", "LICENSE-UxPlay"),
-		filepath.Join(manifest.LayoutDir, "iphone-control", "Ariadne.iPhoneControl.exe"),
+		filepath.Join(manifest.LayoutDir, "iphone-control", "Fancun.iPhoneControl.exe"),
 		filepath.Join(manifest.LayoutDir, "iphone-control", "Vendor", "BleHid", "LICENSE"),
 		filepath.Join(manifest.LayoutDir, "Assets", "Square44x44Logo.png"),
 		filepath.Join(manifest.LayoutDir, "Assets", "Square150x150Logo.png"),
@@ -73,10 +73,10 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 
 	appxManifest := readFile(t, manifest.AppxManifestPath)
 	for _, want := range []string{
-		`Identity Name="Ariadne.CommandLauncher"`,
-		`Publisher="CN=Ariadne"`,
+		`Identity Name="Fancun.CommandLauncher"`,
+		`Publisher="CN=Fancun"`,
 		`Version="1.2.0.0"`,
-		`Executable="Ariadne.exe"`,
+		`Executable="Fancun.exe"`,
 		`EntryPoint="Windows.FullTrustApplication"`,
 		`runFullTrust`,
 		`Square44x44Logo="Assets\Square44x44Logo.png"`,
@@ -99,11 +99,11 @@ func TestBuildCreatesUnsignedMSIXLayout(t *testing.T) {
 
 func TestBuildRejectsMissingAirPlayRuntime(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	logoPath := filepath.Join(base, "logo.png")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, logoPath, "fake logo")
-	writeFile(t, filepath.Join(base, "bin", "native-capture", "Ariadne.CaptureHost.exe"), "fake capture host")
+	writeFile(t, filepath.Join(base, "bin", "native-capture", "Fancun.CaptureHost.exe"), "fake capture host")
 	_, err := Build(Options{ExePath: exePath, LogoPath: logoPath, OutputDir: filepath.Join(base, "msix")})
 	if err == nil || !strings.Contains(err.Error(), "uxplay.exe") {
 		t.Fatalf("MSIX must include the receiver runtime: %v", err)
@@ -112,16 +112,16 @@ func TestBuildRejectsMissingAirPlayRuntime(t *testing.T) {
 
 func TestBuildRejectsMissingPhoneControl(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	logoPath := filepath.Join(base, "logo.png")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, logoPath, "fake logo")
 	writeNativeCaptureHost(t, filepath.Dir(exePath))
-	if err := os.Remove(filepath.Join(base, "bin", "iphone-control", "Ariadne.iPhoneControl.exe")); err != nil {
+	if err := os.Remove(filepath.Join(base, "bin", "iphone-control", "Fancun.iPhoneControl.exe")); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Build(Options{ExePath: exePath, LogoPath: logoPath, OutputDir: filepath.Join(base, "msix")})
-	if err == nil || !strings.Contains(err.Error(), "Ariadne.iPhoneControl.exe") {
+	if err == nil || !strings.Contains(err.Error(), "Fancun.iPhoneControl.exe") {
 		t.Fatalf("MSIX must include phone control: %v", err)
 	}
 }
@@ -143,7 +143,7 @@ func TestBuildRejectsMissingExecutable(t *testing.T) {
 
 func TestBuildRejectsPackWhenMakeAppxIsUnavailable(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	logoPath := filepath.Join(base, "assets", "logo.png")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, logoPath, "fake png")
@@ -163,7 +163,7 @@ func TestBuildRejectsPackWhenMakeAppxIsUnavailable(t *testing.T) {
 
 func TestBuildRejectsMissingNativeCaptureHost(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	logoPath := filepath.Join(base, "assets", "logo.png")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, logoPath, "fake png")
@@ -173,7 +173,7 @@ func TestBuildRejectsMissingNativeCaptureHost(t *testing.T) {
 		LogoPath:  logoPath,
 		OutputDir: filepath.Join(base, "out"),
 	})
-	if err == nil || !strings.Contains(err.Error(), "Ariadne.CaptureHost.exe") {
+	if err == nil || !strings.Contains(err.Error(), "Fancun.CaptureHost.exe") {
 		t.Fatalf("expected missing native capture host error, got %v", err)
 	}
 }
@@ -202,11 +202,11 @@ func writeFile(t *testing.T, path string, content string) {
 
 func writeNativeCaptureHost(t *testing.T, exeDir string) {
 	t.Helper()
-	writeFile(t, filepath.Join(exeDir, "native-capture", "Ariadne.CaptureHost.exe"), "fake native capture host")
+	writeFile(t, filepath.Join(exeDir, "native-capture", "Fancun.CaptureHost.exe"), "fake native capture host")
 	writeFile(t, filepath.Join(exeDir, "uxplay", "uxplay.exe"), "fake airplay receiver")
 	writeFile(t, filepath.Join(exeDir, "uxplay", "lib", "gstreamer-1.0", "libgstd3d11.dll"), "fake video sink")
 	writeFile(t, filepath.Join(exeDir, "uxplay", "LICENSE-UxPlay"), "GPL-3.0")
-	writeFile(t, filepath.Join(exeDir, "iphone-control", "Ariadne.iPhoneControl.exe"), "fake phone control")
+	writeFile(t, filepath.Join(exeDir, "iphone-control", "Fancun.iPhoneControl.exe"), "fake phone control")
 	writeFile(t, filepath.Join(exeDir, "iphone-control", "Vendor", "BleHid", "LICENSE"), "MIT")
 }
 

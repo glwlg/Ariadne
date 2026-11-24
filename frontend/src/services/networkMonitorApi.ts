@@ -1,9 +1,9 @@
-import type { NetworkAdapterTraffic, NetworkTrafficSnapshot, ProcessNetworkSnapshot, ProcessNetworkTraffic } from '../types/ariadne'
+import type { NetworkAdapterTraffic, NetworkTrafficSnapshot, ProcessNetworkSnapshot, ProcessNetworkTraffic } from '../types/fancun'
 
 async function tryNetworkMonitorBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/networkmonitor/service.js')
+    return await import('../../bindings/fancun/internal/networkmonitor/service.js')
   } catch {
     return null
   }
@@ -24,7 +24,7 @@ export async function getNetworkTrafficSnapshot(): Promise<NetworkTrafficSnapsho
 export async function getProcessNetworkSnapshot(): Promise<ProcessNetworkSnapshot> {
   const binding = await tryNetworkMonitorBinding()
   if (!binding?.ProcessSnapshot) {
-    return emptyProcessSnapshot('进程网络统计仅在 Ariadne 桌面端可用')
+    return emptyProcessSnapshot('进程网络统计仅在 Fancun 桌面端可用')
   }
   try {
     return normalizeProcessSnapshot(await binding.ProcessSnapshot())

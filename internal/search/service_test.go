@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"ariadne/internal/apps"
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/contracts"
-	"ariadne/internal/plugins"
-	"ariadne/internal/workflows"
+	"fancun/internal/apps"
+	"fancun/internal/capturehistory"
+	"fancun/internal/contracts"
+	"fancun/internal/plugins"
+	"fancun/internal/workflows"
 )
 
 func TestSearchSeedResultsExcludeWorkMemoryContent(t *testing.T) {
@@ -85,7 +85,7 @@ func TestSearchCancellationDiscardsProviderResults(t *testing.T) {
 
 func TestSearchAggregatesIndexedFiles(t *testing.T) {
 	service := NewService(fakeProvider{results: []contracts.SearchResult{{
-		ID:       "file-ariadne-readme",
+		ID:       "file-fancun-readme",
 		Type:     contracts.ResultFile,
 		Title:    "README.md",
 		Subtitle: `P:\workspace\glwlg\app\x-tools`,
@@ -119,13 +119,13 @@ func TestSearchAggregatesIndexedFiles(t *testing.T) {
 
 func TestSearchAggregatesStartMenuApps(t *testing.T) {
 	root := t.TempDir()
-	shortcutPath := filepath.Join(root, "Ariadne Notes.lnk")
+	shortcutPath := filepath.Join(root, "Fancun Notes.lnk")
 	if err := os.WriteFile(shortcutPath, []byte("shortcut"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(apps.NewServiceWithRoots(root))
 
-	response := service.Search(context.Background(), "ariadne")
+	response := service.Search(context.Background(), "fancun")
 
 	if len(response.Results) == 0 {
 		t.Fatal("expected app search result")
@@ -220,14 +220,14 @@ func TestSearchAggregatesWorkflowMacros(t *testing.T) {
 func TestExactPluginCommandBeatsFileIndexResults(t *testing.T) {
 	pluginService := plugins.NewService()
 	fileProvider := fakeProvider{results: []contracts.SearchResult{{
-		ID:       "file-ariadne-net",
+		ID:       "file-fancun-net",
 		Type:     contracts.ResultFile,
 		Title:    "net",
 		Subtitle: `C:\docs`,
 		Detail:   `C:\docs\net`,
 		Icon:     "file",
 		Score:    95,
-		Tags:     []string{"文件", "Ariadne 索引"},
+		Tags:     []string{"文件", "Fancun 索引"},
 		Preview:  contracts.PreviewDescriptor{Kind: contracts.PreviewText, Title: "net", Text: `C:\docs\net`},
 		Actions:  []contracts.PreviewAction{{ID: "open", Label: "打开", Kind: contracts.ActionOpen, Payload: map[string]interface{}{"path": `C:\docs\net`}}},
 	}}}

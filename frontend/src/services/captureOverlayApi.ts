@@ -4,12 +4,12 @@ import type {
   CaptureOverlaySelectionRequest,
   CaptureOverlaySession,
   ScreenBounds,
-} from '../types/ariadne'
+} from '../types/fancun'
 
 async function tryCaptureOverlayBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/captureoverlay/service.js')
+    return await import('../../bindings/fancun/internal/captureoverlay/service.js')
   } catch {
     return null
   }

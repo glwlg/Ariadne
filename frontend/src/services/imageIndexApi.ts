@@ -1,9 +1,9 @@
-import type { ImageIndexBatchResult, ImageIndexEntry, ImageIndexRequest } from '../types/ariadne'
+import type { ImageIndexBatchResult, ImageIndexEntry, ImageIndexRequest } from '../types/fancun'
 
 async function tryImageIndexBinding() {
   try {
     // @ts-expect-error Wails generates JavaScript bindings without TypeScript declarations.
-    return await import('../../bindings/ariadne/internal/imageindex/service.js')
+    return await import('../../bindings/fancun/internal/imageindex/service.js')
   } catch {
     return null
   }

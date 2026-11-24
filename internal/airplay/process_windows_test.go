@@ -20,7 +20,7 @@ func TestReceiverWindowHelper(t *testing.T) {
 	user32 := windows.NewLazySystemDLL("user32.dll")
 	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
 	class, _ := windows.UTF16PtrFromString("STATIC")
-	title, _ := windows.UTF16PtrFromString("Ariadne receiver window test")
+	title, _ := windows.UTF16PtrFromString("Fancun receiver window test")
 	hwnd, _, err := user32.NewProc("CreateWindowExW").Call(
 		0, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)),
 		0x00cf0000, 0, 0, 160, 120, 0, 0, 0, 0,

@@ -9,7 +9,7 @@ import (
 )
 
 func TestServiceWritesLogFileAndReportsStatus(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "logs", "ariadne.log")
+	path := filepath.Join(t.TempDir(), "logs", "fancun.log")
 	service := NewServiceWithPath(path)
 
 	if err := service.Start(); err != nil {
@@ -30,13 +30,13 @@ func TestServiceWritesLogFileAndReportsStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read log file: %v", err)
 	}
-	if !strings.Contains(string(raw), "ariadne log started") || !strings.Contains(string(raw), "runtime event") {
+	if !strings.Contains(string(raw), "fancun log started") || !strings.Contains(string(raw), "runtime event") {
 		t.Fatalf("log file missing expected entries: %q", string(raw))
 	}
 }
 
 func TestLogRotationBoundsLargeWritesAndKeepsNewestBackups(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "ariadne.log")
+	path := filepath.Join(t.TempDir(), "fancun.log")
 	service := NewServiceWithPath(path)
 	if err := service.Start(); err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestLogRotationBoundsLargeWritesAndKeepsNewestBackups(t *testing.T) {
 }
 
 func TestLogRotationHandlesExistingLogAndReportsFailure(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "ariadne.log")
+	path := filepath.Join(t.TempDir(), "fancun.log")
 	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), maxLogBytes), 0600); err != nil {
 		t.Fatal(err)
 	}

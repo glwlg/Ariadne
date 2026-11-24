@@ -30,7 +30,7 @@ func waitForRestartReplacementProcess(pid int, timeout time.Duration) error {
 		return nil
 	}
 	if status != uint32(windows.WAIT_TIMEOUT) {
-		return fmt.Errorf("等待旧 Ariadne 进程退出失败: wait status %d", status)
+		return fmt.Errorf("等待旧 Fancun 进程退出失败: wait status %d", status)
 	}
 	if err := windows.TerminateProcess(handle, 0); err != nil {
 		return err

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
-const fileIconPathPrefix = "/ariadne-file-icons/"
+const fileIconPathPrefix = "/fancun-file-icons/"
 
 type fileIconResolver func(path string, size int) ([]byte, error)
 

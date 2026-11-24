@@ -4,10 +4,10 @@ package filesearch
 
 import "fmt"
 
-const WindowsServiceName = "AriadneFileSearch"
+const WindowsServiceName = "FancunFileSearch"
 
 func RunWindowsService(args []string) error {
-	return fmt.Errorf("Ariadne 文件索引服务仅支持 Windows")
+	return fmt.Errorf("Fancun 文件索引服务仅支持 Windows")
 }
 
 func RunWindowsServiceWithPolicy(args []string, policy FileSearchPolicy) error {

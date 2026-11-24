@@ -11,7 +11,7 @@ import {
   runWorkflow,
   upsertWorkflow,
 } from '../services/workflowApi'
-import type { WorkflowDefinition, WorkflowExportResult, WorkflowImportResult, WorkflowRunResult, WorkflowStatus, WorkflowStep } from '../types/ariadne'
+import type { WorkflowDefinition, WorkflowExportResult, WorkflowImportResult, WorkflowRunResult, WorkflowStatus, WorkflowStep } from '../types/fancun'
 
 export const useWorkflowsStore = defineStore('workflows', () => {
   const workflows = ref<WorkflowDefinition[]>([])
@@ -153,7 +153,7 @@ export const useWorkflowsStore = defineStore('workflows', () => {
   async function importData() {
     const raw = importText.value.trim()
     if (!raw) {
-      showFeedback('先粘贴 Ariadne 工作流 JSON')
+      showFeedback('先粘贴 Fancun 工作流 JSON')
       return
     }
     isSaving.value = true

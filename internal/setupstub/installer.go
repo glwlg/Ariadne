@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"fancun/internal/brandmigration"
 )
 
 const (
@@ -61,6 +63,7 @@ type commandOptions struct {
 	FileSearchServiceCommand string
 	FileSearchServiceExePath string
 	FileSearchSettingsConfig string
+	LegacyRoamingSource      string
 }
 
 type installReceipt struct {
@@ -105,7 +108,7 @@ func ParseArgs(args []string) ParsedArgs {
 
 func Run(payload []byte, options Options) (Result, error) {
 	if options.ProductName == "" {
-		options.ProductName = "Ariadne"
+		options.ProductName = "Fancun"
 	}
 	if options.Version == "" {
 		options.Version = "dev"
@@ -131,7 +134,7 @@ func Run(payload []byte, options Options) (Result, error) {
 		return Result{}, errors.New("installer payload is empty")
 	}
 
-	tempDir, err := os.MkdirTemp("", "ariadne-setup-*")
+	tempDir, err := os.MkdirTemp("", "fancun-setup-*")
 	if err != nil {
 		return Result{}, fmt.Errorf("create setup temp dir: %w", err)
 	}
@@ -159,7 +162,7 @@ func parseCommandOptions(args []string) (commandOptions, error) {
 	var noDesktopShortcut bool
 	var noAutostart bool
 	var noFileSearchService bool
-	flags := flag.NewFlagSet("ariadne-setup", flag.ContinueOnError)
+	flags := flag.NewFlagSet("fancun-setup", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	for _, name := range []string{"uninstall", "Uninstall"} {
 		flags.BoolVar(&command.Uninstall, name, false, "")
@@ -227,6 +230,7 @@ func parseCommandOptions(args []string) (commandOptions, error) {
 	for _, name := range []string{"settings-config", "SettingsConfig"} {
 		flags.StringVar(&command.FileSearchSettingsConfig, name, "", "")
 	}
+	flags.StringVar(&command.LegacyRoamingSource, "legacy-roaming-source", "", "")
 	for _, name := range []string{"Force", "force", "SkipLegacyCheck", "skip-legacy-check"} {
 		flags.BoolVar(&ignored, name, false, "")
 	}
@@ -263,6 +267,18 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 	if startMenuDir == "" {
 		return Result{}, errors.New("无法确定开始菜单目录，安装未完成")
 	}
+	if strings.EqualFold(options.ProductName, "Fancun") {
+		if !command.SkipServiceChanges {
+			if err := retireLegacyFileSearchService(); err != nil {
+				return Result{}, err
+			}
+		}
+		if !command.SkipProcessStop {
+			if err := stopProductProcesses("Ariadne"); err != nil {
+				return Result{}, err
+			}
+		}
+	}
 	if !command.SkipServiceChanges {
 		if err := removeFileSearchService(options.ProductName, filepath.Join(installDir, strings.ToLower(options.ProductName)+".exe")); err != nil {
 			return Result{}, err
@@ -271,6 +287,12 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 	if !command.SkipProcessStop {
 		if err := stopProductProcesses(options.ProductName); err != nil {
 			return Result{}, err
+		}
+	}
+	// Settings construction for the new service must follow the data import.
+	if strings.EqualFold(options.ProductName, "Fancun") && !command.SkipProcessStop && !command.SkipServiceChanges {
+		if err := brandmigration.MigrateDefaultFrom(command.LegacyRoamingSource); err != nil {
+			return Result{}, fmt.Errorf("迁移旧版用户数据失败：%w", err)
 		}
 	}
 	if err := rotateExistingInstall(installDir, options.ProductName); err != nil {
@@ -344,6 +366,10 @@ func install(packageRoot string, options Options, command commandOptions) (Resul
 		if err := installFileSearchService(options.ProductName, exePath, command.FileSearchSettingsConfig); err != nil {
 			return Result{}, err
 		}
+	}
+	if strings.EqualFold(options.ProductName, "Fancun") && !command.SkipProcessStop && !command.SkipServiceChanges {
+		cleanupAutostart("Ariadne")
+		cleanupAutostart("com.glwlg.ariadne")
 	}
 	if command.LaunchAfterInstall {
 		_ = launchInstalledApp(exePath)
@@ -696,11 +722,12 @@ func stopProductProcesses(productName string) error {
 func productProcessImageNames(productName string) []string {
 	productName = strings.TrimSpace(productName)
 	if productName == "" {
-		productName = "Ariadne"
+		productName = "Fancun"
 	}
 	return []string{
 		strings.ToLower(productName) + ".exe",
 		productName + ".CaptureHost.exe",
+		productName + ".iPhoneControl.exe",
 	}
 }
 

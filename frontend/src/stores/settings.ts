@@ -40,7 +40,7 @@ import type {
   SecretActionResult,
   SecretStatus,
   SettingsStorageStatus,
-} from '../types/ariadne'
+} from '../types/fancun'
 
 
 export const useSettingsStore = defineStore('settings', () => {

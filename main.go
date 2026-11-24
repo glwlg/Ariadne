@@ -11,39 +11,40 @@ import (
 	"strings"
 	"time"
 
-	"ariadne/internal/aiclient"
-	"ariadne/internal/airplay"
-	"ariadne/internal/apitesting"
-	"ariadne/internal/applog"
-	"ariadne/internal/apps"
-	"ariadne/internal/appupdate"
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/captureoverlay"
+	"fancun/internal/aiclient"
+	"fancun/internal/airplay"
+	"fancun/internal/apitesting"
+	"fancun/internal/applog"
+	"fancun/internal/apps"
+	"fancun/internal/appupdate"
+	"fancun/internal/brandmigration"
+	"fancun/internal/capturehistory"
+	"fancun/internal/captureoverlay"
 
-	"ariadne/internal/clipboardhistory"
+	"fancun/internal/clipboardhistory"
 
-	"ariadne/internal/filesearch"
+	"fancun/internal/filesearch"
 
-	"ariadne/internal/hosts"
-	"ariadne/internal/imageindex"
-	"ariadne/internal/jsoncompare"
-	"ariadne/internal/launchers"
-	"ariadne/internal/migration"
-	"ariadne/internal/nativecapture"
-	"ariadne/internal/networkmonitor"
-	"ariadne/internal/ocr"
-	"ariadne/internal/pinnedimage"
-	"ariadne/internal/platform"
-	"ariadne/internal/plugins"
-	"ariadne/internal/qrscan"
-	"ariadne/internal/release"
-	"ariadne/internal/search"
-	"ariadne/internal/secrets"
-	"ariadne/internal/settings"
-	"ariadne/internal/shell"
+	"fancun/internal/hosts"
+	"fancun/internal/imageindex"
+	"fancun/internal/jsoncompare"
+	"fancun/internal/launchers"
+	"fancun/internal/migration"
+	"fancun/internal/nativecapture"
+	"fancun/internal/networkmonitor"
+	"fancun/internal/ocr"
+	"fancun/internal/pinnedimage"
+	"fancun/internal/platform"
+	"fancun/internal/plugins"
+	"fancun/internal/qrscan"
+	"fancun/internal/release"
+	"fancun/internal/search"
+	"fancun/internal/secrets"
+	"fancun/internal/settings"
+	"fancun/internal/shell"
 
-	"ariadne/internal/toolwindows"
-	"ariadne/internal/workflows"
+	"fancun/internal/toolwindows"
+	"fancun/internal/workflows"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -61,30 +62,37 @@ var appVersion = "dev"
 
 func main() {
 	if _, err := handleRestartReplacementArgs(os.Args[1:], os.Getpid(), waitForRestartReplacementProcess); err != nil {
-		fmt.Fprintf(os.Stderr, "Ariadne restart replacement: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Fancun restart replacement: %v\n", err)
 	}
 
 	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service") {
 		if err := filesearch.RunWindowsServiceWithPolicyProvider(os.Args[2:], fileSearchPolicyProvider(os.Args[2:])); err != nil {
-			fmt.Fprintf(os.Stderr, "Ariadne file search service: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Fancun file search service: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
+	if len(os.Args) < 2 || !strings.EqualFold(os.Args[1], "filesearch-service-remove") {
+		if err := brandmigration.MigrateDefault(); err != nil {
+			fmt.Fprintf(os.Stderr, "Fancun 数据迁移失败：%v\n", err)
+			brandmigration.NotifyFailure(err)
+			os.Exit(1)
+		}
+	}
 	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service-install") {
 		exePath, err := os.Executable()
 		if err == nil {
-			err = filesearch.InstallWindowsService("Ariadne", exePath, "--settings-config", settings.NewService().ConfigPath())
+			err = filesearch.InstallWindowsService("Fancun", exePath, "--settings-config", settings.NewService().ConfigPath())
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Ariadne search service install: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Fancun search service install: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 	if len(os.Args) > 1 && strings.EqualFold(os.Args[1], "filesearch-service-remove") {
 		if err := filesearch.RemoveWindowsService(); err != nil {
-			fmt.Fprintf(os.Stderr, "Ariadne search service remove: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Fancun search service remove: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -95,7 +103,7 @@ func main() {
 		log.Printf("start app log: %v", err)
 	} else {
 		log.SetOutput(io.MultiWriter(os.Stderr, logService))
-		log.Println("Ariadne starting")
+		log.Println("Fancun starting")
 	}
 	appService := apps.NewService()
 	fileSearchService := filesearch.NewService()
@@ -129,6 +137,7 @@ func main() {
 	var nativeCaptureManager *nativecapture.Manager
 	if runtime.GOOS == "windows" {
 		nativeCaptureManager = nativecapture.NewManager(nativecapture.Options{})
+		toolwindows.ConfigureNativeNetworkMini(toolWindowService, nativeCaptureManager, networkMonitorService.Snapshot)
 	}
 	captureOverlayService := captureoverlay.NewServiceWithNative(captureService, pinnedImageService, nativeCaptureManager, ocrService)
 	captureOverlayService.SetFocusSuspension(toolWindowService.SetCaptureFocusSuspended)
@@ -209,15 +218,15 @@ func main() {
 	)
 
 	app := application.New(application.Options{
-		Name:        "Ariadne",
-		Description: "Ariadne desktop productivity tools",
+		Name:        "Fancun",
+		Description: "Fancun desktop productivity tools",
 		Icon:        appIcon,
 		Windows: application.WindowsOptions{
 			DisableQuitOnLastWindowClosed: true,
 		},
 		SingleInstance: shellManager.SingleInstanceOptions(),
 		OnShutdown: func() {
-			log.Println("Ariadne shutting down")
+			log.Println("Fancun shutting down")
 			if result := airplayService.Stop(); !result.OK {
 				log.Printf("stop airplay: %s", result.Message)
 			}
@@ -280,9 +289,14 @@ func main() {
 	})
 	captureOverlayService.Attach(app)
 	search.RegisterProgressHandler(searchService, func(progress search.Progress) {
-		app.Event.Emit("ariadne:search-progress", progress)
+		app.Event.Emit("fancun:search-progress", progress)
 	})
 	pinnedImageService.Attach(app)
+	if nativeCaptureManager != nil {
+		if err := nativeCaptureManager.Start(); err != nil {
+			log.Printf("start native capture host: %v", err)
+		}
+	}
 	toolWindowService.Attach(app)
 
 	settings.RegisterChangeHandler(settingsService, func(next settings.AppSettings) {
@@ -301,12 +315,6 @@ func main() {
 	applyFileSearchRuntime(fileSearchService, initialSettings.Search)
 	applyCaptureOverlayRuntime(captureOverlayService, initialSettings.Screenshot)
 	applyOCRAIRuntime(ocrService, initialSettings.AI)
-	if nativeCaptureManager != nil {
-		if err := nativeCaptureManager.Start(); err != nil {
-			log.Printf("start native capture host: %v", err)
-		}
-	}
-
 	shellManager.Attach(app, nil, trayIcon)
 	if err := shellManager.ApplyAutostart(settingsService.GetSettings().General.RunOnStartup); err != nil {
 		log.Printf("apply autostart: %v", err)
@@ -408,7 +416,7 @@ func fileSearchSettingsConfigPath(args []string) string {
 		}
 	}
 	configPath = strings.TrimSpace(configPath)
-	if strings.EqualFold(filepath.Base(configPath), "ariadne.sqlite") {
+	if strings.EqualFold(filepath.Base(configPath), "fancun.sqlite") {
 		return filepath.Join(filepath.Dir(configPath), "config.json")
 	}
 	return configPath
@@ -442,15 +450,15 @@ func applyOCRAIRuntime(service *ocr.Service, config settings.AISettings) {
 		Enabled:  config.OCRModelEnabled,
 		Provider: provider,
 		BaseURL:  ocrAIBaseURL(provider, config),
-		Model:    firstNonEmpty(config.OCRModel, os.Getenv("ARIADNE_OCR_MODEL")),
+		Model:    firstNonEmpty(config.OCRModel, os.Getenv("FANCUN_OCR_MODEL")),
 	})
 }
 
 func ocrAIBaseURL(provider string, config settings.AISettings) string {
 	if isOllamaOCRProvider(provider) {
-		return firstNonEmpty(config.OCRBaseURL, os.Getenv("ARIADNE_OCR_BASE_URL"))
+		return firstNonEmpty(config.OCRBaseURL, os.Getenv("FANCUN_OCR_BASE_URL"))
 	}
-	return firstNonEmpty(config.OCRBaseURL, os.Getenv("ARIADNE_OCR_BASE_URL"), os.Getenv("OPENAI__BASE_URL"))
+	return firstNonEmpty(config.OCRBaseURL, os.Getenv("FANCUN_OCR_BASE_URL"), os.Getenv("OPENAI__BASE_URL"))
 }
 
 func isOllamaOCRProvider(provider string) bool {

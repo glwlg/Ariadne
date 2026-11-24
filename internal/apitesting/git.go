@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const gitCollectionFileName = "ariadne-api-collection.json"
+const gitCollectionFileName = "fancun-api-collection.json"
 
 type GitConfig struct {
 	Path   string `json:"path,omitempty"`

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 type ControlStatus struct {
@@ -59,7 +59,7 @@ func (s *Service) controlStatus(installed bool) ControlStatus {
 }
 
 func (s *Service) controlExecutable() string {
-	return filepath.Join(filepath.Dir(s.runtimeDir), "iphone-control", "Ariadne.iPhoneControl.exe")
+	return filepath.Join(filepath.Dir(s.runtimeDir), "iphone-control", "Fancun.iPhoneControl.exe")
 }
 
 func (s *Service) OpenControl() contracts.ActionResult {
@@ -82,7 +82,7 @@ func (s *Service) startControlLocked(background bool) contracts.ActionResult {
 	}
 	info, err := os.Stat(s.controlExecutable())
 	if err != nil || info.IsDir() {
-		return contracts.ActionResult{Message: "手机控制组件缺失，请重新安装 Ariadne。"}
+		return contracts.ActionResult{Message: "手机控制组件缺失，请重新安装 Fancun。"}
 	}
 	args := []string{"--owner-pid", strconv.Itoa(os.Getpid())}
 	if background {
@@ -134,7 +134,7 @@ func (s *Service) Diagnostics() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	text := "Ariadne · iPhone 投屏诊断\n" + string(raw)
+	text := "Fancun · iPhone 投屏诊断\n" + string(raw)
 	for _, log := range []struct{ name, path string }{
 		{"接收日志", status.LogPath},
 		{"控制日志", filepath.Join(s.dataDir, "control.log")},

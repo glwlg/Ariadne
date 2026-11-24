@@ -85,12 +85,12 @@ func Build(options Options) (Result, error) {
 	}
 
 	files := []File{}
-	if file, err := copyFile(options.ExePath, filepath.Join(layoutDir, "Ariadne.exe"), layoutDir); err != nil {
+	if file, err := copyFile(options.ExePath, filepath.Join(layoutDir, "Fancun.exe"), layoutDir); err != nil {
 		return Result{}, err
 	} else {
 		files = append(files, file)
 	}
-	nativeCaptureFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "native-capture"), filepath.Join(layoutDir, "native-capture"), layoutDir, "Ariadne.CaptureHost.exe")
+	nativeCaptureFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "native-capture"), filepath.Join(layoutDir, "native-capture"), layoutDir, "Fancun.CaptureHost.exe")
 	if err != nil {
 		return Result{}, err
 	}
@@ -100,7 +100,7 @@ func Build(options Options) (Result, error) {
 		return Result{}, err
 	}
 	files = append(files, airplayFiles...)
-	controlFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "iphone-control"), filepath.Join(layoutDir, "iphone-control"), layoutDir, "Ariadne.iPhoneControl.exe")
+	controlFiles, err := copyRequiredDirectory(filepath.Join(filepath.Dir(options.ExePath), "iphone-control"), filepath.Join(layoutDir, "iphone-control"), layoutDir, "Fancun.iPhoneControl.exe")
 	if err != nil {
 		return Result{}, err
 	}
@@ -142,7 +142,7 @@ func Build(options Options) (Result, error) {
 		InstallNotes: []string{
 			"MSIX layout is generated for a full-trust Windows desktop app.",
 			"Installable MSIX packages must be signed before Add-AppxPackage on ordinary Windows policies.",
-			"User data under %APPDATA%\\Ariadne remains outside the MSIX package and is not removed by package generation.",
+			"User data under %APPDATA%\\Fancun remains outside the MSIX package and is not removed by package generation.",
 		},
 		SigningNotes: []string{
 			"Create or choose a code-signing certificate whose subject matches the manifest Publisher.",
@@ -173,20 +173,20 @@ func Build(options Options) (Result, error) {
 
 func normalizeOptions(options Options) Options {
 	if options.ProductName == "" {
-		options.ProductName = "Ariadne"
+		options.ProductName = "Fancun"
 	}
 	if options.PackageName == "" {
-		options.PackageName = "Ariadne.CommandLauncher"
+		options.PackageName = "Fancun.CommandLauncher"
 	}
 	if options.Publisher == "" {
-		options.Publisher = "CN=Ariadne"
+		options.Publisher = "CN=Fancun"
 	}
 	if options.Version == "" {
 		options.Version = "0.0.0.0"
 	}
 	options.Version = normalizeVersion(options.Version)
 	if options.ExePath == "" {
-		options.ExePath = filepath.Join("bin", "ariadne.exe")
+		options.ExePath = filepath.Join("bin", "fancun.exe")
 	}
 	if options.LogoPath == "" {
 		options.LogoPath = filepath.Join("assets", "logo.png")
@@ -211,10 +211,10 @@ func validateOptions(options Options) error {
 		return errors.New("product name, package name, publisher, and version are required")
 	}
 	if info, err := os.Stat(options.ExePath); err != nil || info.IsDir() {
-		return fmt.Errorf("Ariadne executable not found at %s", options.ExePath)
+		return fmt.Errorf("Fancun executable not found at %s", options.ExePath)
 	}
 	if info, err := os.Stat(options.LogoPath); err != nil || info.IsDir() {
-		return fmt.Errorf("Ariadne logo not found at %s", options.LogoPath)
+		return fmt.Errorf("Fancun logo not found at %s", options.LogoPath)
 	}
 	if options.Pack {
 		if _, err := exec.LookPath(options.MakeAppxPath); err != nil {
@@ -232,7 +232,7 @@ func appxManifestXML(options Options) string {
   <Identity Name="%s" Publisher="%s" Version="%s" ProcessorArchitecture="%s" />
   <Properties>
     <DisplayName>%s</DisplayName>
-    <PublisherDisplayName>Ariadne</PublisherDisplayName>
+    <PublisherDisplayName>Fancun</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
@@ -243,9 +243,9 @@ func appxManifestXML(options Options) string {
     <Resource Language="en-US" />
   </Resources>
   <Applications>
-    <Application Id="Ariadne" Executable="Ariadne.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="Fancun" Executable="Fancun.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements DisplayName="%s"
-                          Description="Ariadne command launcher and work memory center"
+                          Description="Fancun command launcher and work memory center"
                           BackgroundColor="#0f766e"
                           Square44x44Logo="Assets\Square44x44Logo.png"
                           Square150x150Logo="Assets\Square150x150Logo.png"
@@ -262,7 +262,7 @@ func appxManifestXML(options Options) string {
 func readmeText(options Options) string {
 	return strings.TrimSpace(fmt.Sprintf(`%s MSIX layout
 
-This directory contains an unsigned MSIX layout for the Ariadne full-trust desktop app.
+This directory contains an unsigned MSIX layout for the Fancun full-trust desktop app.
 
 Package identity: %s
 Publisher: %s
@@ -441,7 +441,7 @@ func safePackageName(product string, version string) string {
 	}, clean)
 	clean = strings.Trim(clean, "-")
 	if clean == "" {
-		clean = "ariadne"
+		clean = "fancun"
 	}
 	return clean + "-" + strings.ReplaceAll(normalizeVersion(version), ".", "-")
 }

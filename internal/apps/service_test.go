@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ariadne/internal/contracts"
+	"fancun/internal/contracts"
 )
 
 func TestSearchReturnsStartMenuShortcutResults(t *testing.T) {
 	root := t.TempDir()
-	shortcutPath := filepath.Join(root, "Tools", "Ariadne Notes.lnk")
+	shortcutPath := filepath.Join(root, "Tools", "Fancun Notes.lnk")
 	if err := os.MkdirAll(filepath.Dir(shortcutPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestSearchReturnsStartMenuShortcutResults(t *testing.T) {
 	}
 	service := NewServiceWithRoots(root)
 
-	results := service.Search("ariadne")
+	results := service.Search("fancun")
 
 	if len(results) != 1 {
 		t.Fatalf("expected one app result, got %#v", results)
@@ -28,7 +28,7 @@ func TestSearchReturnsStartMenuShortcutResults(t *testing.T) {
 	if result.Type != contracts.ResultApp {
 		t.Fatalf("expected app result, got %s", result.Type)
 	}
-	if result.Title != "Ariadne Notes" {
+	if result.Title != "Fancun Notes" {
 		t.Fatalf("unexpected app title: %q", result.Title)
 	}
 	if result.Score <= 0 {

@@ -10,15 +10,15 @@ import (
 	"time"
 )
 
-func TestWindowsResourceConfigUsesAriadneBrand(t *testing.T) {
+func TestWindowsResourceConfigUsesFancunBrand(t *testing.T) {
 	configPath := filepath.Join("..", "..", "winres", "winres.json")
 	var config map[string]interface{}
 	readJSON(t, configPath, &config)
 
 	version := config["RT_VERSION"].(map[string]interface{})["#1"].(map[string]interface{})["0000"].(map[string]interface{})
 	info := version["info"].(map[string]interface{})["0409"].(map[string]interface{})
-	if info["ProductName"] != "Ariadne" || info["OriginalFilename"] != "ariadne.exe" || info["InternalName"] != "ariadne" {
-		t.Fatalf("Windows version resource should use Ariadne identity, got %#v", info)
+	if info["ProductName"] != "Fancun" || info["OriginalFilename"] != "fancun.exe" || info["InternalName"] != "fancun" {
+		t.Fatalf("Windows version resource should use Fancun identity, got %#v", info)
 	}
 	if strings.Contains(strings.ToLower(strings.Join([]string{
 		stringValue(info["ProductName"]),
@@ -30,40 +30,61 @@ func TestWindowsResourceConfigUsesAriadneBrand(t *testing.T) {
 	}
 
 	manifest := config["RT_MANIFEST"].(map[string]interface{})["#1"].(map[string]interface{})["0409"].(map[string]interface{})
-	if manifest["description"] != "Ariadne desktop productivity tools" || manifest["long-path-aware"] != true {
-		t.Fatalf("Windows manifest should expose Ariadne description and long-path support, got %#v", manifest)
+	if manifest["description"] != "Fancun desktop productivity tools" || manifest["long-path-aware"] != true {
+		t.Fatalf("Windows manifest should expose Fancun description and long-path support, got %#v", manifest)
 	}
 
-	icon := config["RT_GROUP_ICON"].(map[string]interface{})["APP"].(map[string]interface{})["0000"].([]interface{})
-	if len(icon) != 1 || icon[0] != "../assets/logo.png" {
-		t.Fatalf("Windows resources should embed generated Ariadne logo PNG, got %#v", icon)
+	icon := config["RT_GROUP_ICON"].(map[string]interface{})["APP"].(map[string]interface{})["0000"]
+	if icon != "../assets/logo.ico" {
+		t.Fatalf("Windows resources should embed the multi-resolution Fancun icon, got %#v", icon)
+	}
+}
+
+func TestSetupUsesConfiguredIconInsteadOfOriginalLogo(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "assets", "logo.png"), "oversized source artwork")
+	iconPath := filepath.Join("assets", "custom.ico")
+	if got := setupIconSource(Options{IconPath: iconPath}, root); got != filepath.Join(root, iconPath) {
+		t.Fatalf("setup must use the configured icon, got %s", got)
+	}
+	absolute := filepath.Join(root, "absolute.ico")
+	if got := setupIconSource(Options{IconPath: absolute}, root); got != absolute {
+		t.Fatalf("setup must preserve the absolute icon path, got %s", got)
+	}
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(setupWinresConfig(Options{ProductName: "Fancun", Version: "dev"}, "setup-logo.ico", "FancunSetup.exe")), &config); err != nil {
+		t.Fatal(err)
+	}
+	icon := config["RT_GROUP_ICON"].(map[string]interface{})["APP"].(map[string]interface{})["0000"]
+	if icon != "setup-logo.ico" {
+		t.Fatalf("setup must load the ICO as a complete icon group, got %#v", icon)
 	}
 }
 
 func TestWindowsResourceTaskEmitsGoLinkableSyso(t *testing.T) {
 	taskfile := readFile(t, filepath.Join("..", "..", "Taskfile.yml"))
 	assertContains(t, taskfile, "windows:resources")
-	assertContains(t, taskfile, "--out ariadne_resource.syso --no-suffix")
+	assertContains(t, taskfile, "--out fancun_resource.syso --no-suffix")
 }
 
 func TestWindowsBuildInjectsReleaseVersionIntoApplication(t *testing.T) {
 	taskfile := readFile(t, filepath.Join("..", "..", "Taskfile.yml"))
-	assertContains(t, taskfile, "APP_VERSION: '{{.ARIADNE_VERSION | default \"dev\"}}'")
+	assertContains(t, taskfile, "APP_VERSION: '{{.FANCUN_VERSION | default \"dev\"}}'")
 	assertContains(t, taskfile, "-X main.appVersion={{.APP_VERSION}}")
 }
 
 func TestSetupStubPassesUpdateDirectoryToInteractiveInstaller(t *testing.T) {
-	source := setupMainSource(Options{ProductName: "Ariadne", Version: "1.2.3"})
+	source := setupMainSource(Options{ProductName: "Fancun", Version: "1.2.3"})
 	assertContains(t, source, "UpdateDir: parsed.UpdateDir")
 }
 
 func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	iconPath := filepath.Join(base, "assets", "logo.ico")
 	outputDir := filepath.Join(base, "dist", "release")
 	writeFile(t, exePath, "fake exe")
-	writeFile(t, iconPath, "fake icon")
+	writeFile(t, iconPath, readFile(t, filepath.Join("..", "..", "assets", "logo.ico")))
 	writeNativeCaptureHost(t, filepath.Dir(exePath))
 
 	result, err := Build(Options{
@@ -79,21 +100,21 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	}
 
 	manifest := result.Manifest
-	if manifest.ProductName != "Ariadne" || manifest.Version != "0.1.0-test" {
+	if manifest.ProductName != "Fancun" || manifest.Version != "0.1.0-test" {
 		t.Fatalf("unexpected manifest identity: %#v", manifest)
 	}
 	if manifest.ZipPath == "" || manifest.PackageDir == "" || len(manifest.Files) != 8 {
 		t.Fatalf("manifest should describe package paths and files: %#v", manifest)
 	}
-	if manifest.SetupPath == "" || manifest.SetupFile == nil || manifest.SetupFile.Path != "AriadneSetup-0.1.0-test-windows-x64.exe" {
+	if manifest.SetupPath == "" || manifest.SetupFile == nil || manifest.SetupFile.Path != "FancunSetup-0.1.0-test-windows-x64.exe" {
 		t.Fatalf("manifest should describe setup exe: %#v", manifest)
 	}
 	if _, err := os.Stat(manifest.SetupPath); err != nil {
 		t.Fatalf("setup exe missing: %v", err)
 	}
-	assertContains(t, strings.Join(manifest.RollbackNotes, "\n"), "Ariadne.previous")
+	assertContains(t, strings.Join(manifest.RollbackNotes, "\n"), "Fancun.previous")
 	readme := readFile(t, filepath.Join(manifest.PackageDir, "README.txt"))
-	assertContains(t, readme, "AriadneSetup-0.1.0-test-windows-x64.exe")
+	assertContains(t, readme, "FancunSetup-0.1.0-test-windows-x64.exe")
 	for _, forbidden := range []string{"install.ps1", "uninstall.ps1", "x-tools"} {
 		if strings.Contains(strings.ToLower(readme), forbidden) {
 			t.Fatalf("package README should not contain %q:\n%s", forbidden, readme)
@@ -118,12 +139,12 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 	entries := zipEntries(t, manifest.ZipPath)
 	packageRoot := filepath.Base(manifest.PackageDir)
 	for _, name := range []string{
-		packageRoot + "/app/ariadne.exe",
-		packageRoot + "/app/native-capture/Ariadne.CaptureHost.exe",
+		packageRoot + "/app/fancun.exe",
+		packageRoot + "/app/native-capture/Fancun.CaptureHost.exe",
 		packageRoot + "/app/uxplay/uxplay.exe",
 		packageRoot + "/app/uxplay/lib/gstreamer-1.0/libgstd3d11.dll",
 		packageRoot + "/app/uxplay/LICENSE-UxPlay",
-		packageRoot + "/app/iphone-control/Ariadne.iPhoneControl.exe",
+		packageRoot + "/app/iphone-control/Fancun.iPhoneControl.exe",
 		packageRoot + "/app/iphone-control/Vendor/BleHid/LICENSE",
 		packageRoot + "/app/logo.ico",
 		packageRoot + "/manifest.json",
@@ -145,11 +166,11 @@ func TestBuildCreatesReleasePackageWithSetupPayload(t *testing.T) {
 
 func TestBuildRejectsMissingAirPlayRuntime(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	iconPath := filepath.Join(base, "logo.ico")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
-	writeFile(t, filepath.Join(base, "bin", "native-capture", "Ariadne.CaptureHost.exe"), "fake capture host")
+	writeFile(t, filepath.Join(base, "bin", "native-capture", "Fancun.CaptureHost.exe"), "fake capture host")
 	_, err := Build(Options{ExePath: exePath, IconPath: iconPath, OutputDir: filepath.Join(base, "release"), SkipSetup: true})
 	if err == nil || !strings.Contains(err.Error(), "uxplay.exe") {
 		t.Fatalf("release must include the receiver runtime: %v", err)
@@ -158,27 +179,27 @@ func TestBuildRejectsMissingAirPlayRuntime(t *testing.T) {
 
 func TestBuildRejectsMissingPhoneControl(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	iconPath := filepath.Join(base, "logo.ico")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
 	writeNativeCaptureHost(t, filepath.Dir(exePath))
-	if err := os.Remove(filepath.Join(base, "bin", "iphone-control", "Ariadne.iPhoneControl.exe")); err != nil {
+	if err := os.Remove(filepath.Join(base, "bin", "iphone-control", "Fancun.iPhoneControl.exe")); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Build(Options{ExePath: exePath, IconPath: iconPath, OutputDir: filepath.Join(base, "release"), SkipSetup: true})
-	if err == nil || !strings.Contains(err.Error(), "Ariadne.iPhoneControl.exe") {
+	if err == nil || !strings.Contains(err.Error(), "Fancun.iPhoneControl.exe") {
 		t.Fatalf("release must include phone control: %v", err)
 	}
 }
 
 func TestBuildDefaultsToSetupOnlyAndWritesUpdaterChecksum(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	iconPath := filepath.Join(base, "assets", "logo.ico")
 	outputDir := filepath.Join(base, "dist", "release")
 	writeFile(t, exePath, "fake exe")
-	writeFile(t, iconPath, "fake icon")
+	writeFile(t, iconPath, readFile(t, filepath.Join("..", "..", "assets", "logo.ico")))
 	writeNativeCaptureHost(t, filepath.Dir(exePath))
 
 	result, err := Build(Options{
@@ -195,7 +216,7 @@ func TestBuildDefaultsToSetupOnlyAndWritesUpdaterChecksum(t *testing.T) {
 	if manifest.ZipPath != "" {
 		t.Fatalf("setup-only package should not expose a zip path: %#v", manifest)
 	}
-	zipPath := filepath.Join(outputDir, "ariadne-1.2.3-windows-x64.zip")
+	zipPath := filepath.Join(outputDir, "fancun-1.2.3-windows-x64.zip")
 	if _, err := os.Stat(zipPath); !os.IsNotExist(err) {
 		t.Fatalf("setup-only package should remove temporary zip, stat err=%v", err)
 	}
@@ -210,7 +231,7 @@ func TestBuildDefaultsToSetupOnlyAndWritesUpdaterChecksum(t *testing.T) {
 
 func TestBuildRejectsNonSemanticReleaseVersion(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	iconPath := filepath.Join(base, "assets", "logo.ico")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
@@ -229,11 +250,11 @@ func TestBuildRejectsNonSemanticReleaseVersion(t *testing.T) {
 
 func TestSetupInstallerRequiresAdministratorAndEmbedsPayload(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	iconPath := filepath.Join(base, "assets", "logo.ico")
 	outputDir := filepath.Join(base, "dist", "release")
 	writeFile(t, exePath, "fake exe")
-	writeFile(t, iconPath, "fake icon")
+	writeFile(t, iconPath, readFile(t, filepath.Join("..", "..", "assets", "logo.ico")))
 	writeNativeCaptureHost(t, filepath.Dir(exePath))
 
 	result, err := Build(Options{
@@ -250,10 +271,10 @@ func TestSetupInstallerRequiresAdministratorAndEmbedsPayload(t *testing.T) {
 	if _, err := os.Stat(result.Manifest.SetupPath); err != nil {
 		t.Fatalf("setup exe missing: %v", err)
 	}
-	config := setupWinresConfig(Options{ProductName: "Ariadne", Version: "0.1.0-setup-smoke"}, "setup-logo.png", "AriadneSetup.exe")
+	config := setupWinresConfig(Options{ProductName: "Fancun", Version: "0.1.0-setup-smoke"}, "setup-logo.ico", "FancunSetup.exe")
 	assertContains(t, config, `"execution-level": "as invoker"`)
 	assertContains(t, strings.Join(result.Manifest.VerificationNotes, "\n"), "administrator permission only when installing the search service")
-	assertContains(t, strings.Join(result.Manifest.VerificationNotes, "\n"), "AriadneFileSearch")
+	assertContains(t, strings.Join(result.Manifest.VerificationNotes, "\n"), "FancunFileSearch")
 	if result.Manifest.SetupFile == nil || result.Manifest.SetupFile.Bytes <= 0 || result.Manifest.SetupFile.SHA256 == "" {
 		t.Fatalf("setup file should include size and hash: %#v", result.Manifest.SetupFile)
 	}
@@ -276,7 +297,7 @@ func TestBuildRejectsMissingExecutable(t *testing.T) {
 
 func TestBuildDoesNotRequireEverythingRuntimeDLL(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	iconPath := filepath.Join(base, "assets", "logo.ico")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
@@ -296,7 +317,7 @@ func TestBuildDoesNotRequireEverythingRuntimeDLL(t *testing.T) {
 
 func TestBuildRejectsMissingNativeCaptureHost(t *testing.T) {
 	base := t.TempDir()
-	exePath := filepath.Join(base, "bin", "ariadne.exe")
+	exePath := filepath.Join(base, "bin", "fancun.exe")
 	iconPath := filepath.Join(base, "assets", "logo.ico")
 	writeFile(t, exePath, "fake exe")
 	writeFile(t, iconPath, "fake icon")
@@ -308,7 +329,7 @@ func TestBuildRejectsMissingNativeCaptureHost(t *testing.T) {
 		OutputDir: filepath.Join(base, "out"),
 		SkipSetup: true,
 	})
-	if err == nil || !strings.Contains(err.Error(), "Ariadne.CaptureHost.exe") {
+	if err == nil || !strings.Contains(err.Error(), "Fancun.CaptureHost.exe") {
 		t.Fatalf("expected missing native capture host error, got %v", err)
 	}
 }
@@ -325,11 +346,11 @@ func writeFile(t *testing.T, path string, content string) {
 
 func writeNativeCaptureHost(t *testing.T, exeDir string) {
 	t.Helper()
-	writeFile(t, filepath.Join(exeDir, "native-capture", "Ariadne.CaptureHost.exe"), "fake native capture host")
+	writeFile(t, filepath.Join(exeDir, "native-capture", "Fancun.CaptureHost.exe"), "fake native capture host")
 	writeFile(t, filepath.Join(exeDir, "uxplay", "uxplay.exe"), "fake airplay receiver")
 	writeFile(t, filepath.Join(exeDir, "uxplay", "lib", "gstreamer-1.0", "libgstd3d11.dll"), "fake video sink")
 	writeFile(t, filepath.Join(exeDir, "uxplay", "LICENSE-UxPlay"), "GPL-3.0")
-	writeFile(t, filepath.Join(exeDir, "iphone-control", "Ariadne.iPhoneControl.exe"), "fake phone control")
+	writeFile(t, filepath.Join(exeDir, "iphone-control", "Fancun.iPhoneControl.exe"), "fake phone control")
 	writeFile(t, filepath.Join(exeDir, "iphone-control", "Vendor", "BleHid", "LICENSE"), "MIT")
 }
 

@@ -14,7 +14,7 @@ import (
 
 const lineIndexFileName = "file-index.tsv"
 const lineIndexScanBufferSize = 128 * 1024
-const lineIndexPathEnv = "ARIADNE_FILE_INDEX_PATH"
+const lineIndexPathEnv = "FANCUN_FILE_INDEX_PATH"
 
 type lineFileIndex struct {
 	mu       sync.RWMutex
@@ -37,7 +37,7 @@ func defaultLineIndexPath() string {
 	if base == "" {
 		base = "."
 	}
-	return filepath.Join(base, "Ariadne", lineIndexFileName)
+	return filepath.Join(base, "Fancun", lineIndexFileName)
 }
 
 func sharedLineIndexPath() string {
@@ -48,7 +48,7 @@ func sharedLineIndexPath() string {
 	if base == "" {
 		return defaultLineIndexPath()
 	}
-	return filepath.Join(base, "Ariadne", lineIndexFileName)
+	return filepath.Join(base, "Fancun", lineIndexFileName)
 }
 
 func defaultReadLineIndexPaths() []string {

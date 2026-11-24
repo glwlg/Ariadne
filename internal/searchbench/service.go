@@ -9,17 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"ariadne/internal/apps"
-	"ariadne/internal/capturehistory"
-	"ariadne/internal/clipboardhistory"
-	"ariadne/internal/contracts"
-	"ariadne/internal/filesearch"
-	"ariadne/internal/imageindex"
-	"ariadne/internal/launchers"
-	"ariadne/internal/ocr"
-	"ariadne/internal/plugins"
-	"ariadne/internal/search"
-	"ariadne/internal/workflows"
+	"fancun/internal/apps"
+	"fancun/internal/capturehistory"
+	"fancun/internal/clipboardhistory"
+	"fancun/internal/contracts"
+	"fancun/internal/filesearch"
+	"fancun/internal/imageindex"
+	"fancun/internal/launchers"
+	"fancun/internal/ocr"
+	"fancun/internal/plugins"
+	"fancun/internal/search"
+	"fancun/internal/workflows"
 )
 
 const defaultSearchTargetP95Ms int64 = 100
@@ -65,7 +65,7 @@ func Run(options Options) Report {
 func RunWithRunner(runner Runner, options Options) Report {
 	options = normalizeOptions(options)
 	report := Report{
-		ProductName:  "Ariadne",
+		ProductName:  "Fancun",
 		CreatedAt:    time.Now().Unix(),
 		Options:      options,
 		QueryCount:   len(options.Queries),
@@ -177,7 +177,7 @@ func DefaultQueries() []string {
 		"net",
 		"jsondiff",
 		"uuid 2",
-		"hash ariadne",
+		"hash fancun",
 		"base64 hello",
 		"calc 12*(8+3)",
 		"hosts",
@@ -187,7 +187,7 @@ func DefaultQueries() []string {
 		"clipboard",
 		"gateway",
 		"README.md",
-		"ariadne.exe",
+		"fancun.exe",
 	}
 }
 
@@ -266,11 +266,11 @@ func isIndexedFile(result contracts.SearchResult) bool {
 		return false
 	}
 	for _, tag := range result.Tags {
-		if strings.EqualFold(strings.TrimSpace(tag), "Ariadne 索引") {
+		if strings.EqualFold(strings.TrimSpace(tag), "Fancun 索引") {
 			return true
 		}
 	}
-	if source, ok := result.Payload["source"].(string); ok && strings.Contains(strings.ToLower(source), "ariadne") {
+	if source, ok := result.Payload["source"].(string); ok && strings.Contains(strings.ToLower(source), "fancun") {
 		return true
 	}
 	return false
@@ -447,7 +447,7 @@ func applyBenchmarkEnvironment(useTemp bool) (func(), string, string) {
 	if !useTemp {
 		return func() {}, "", ""
 	}
-	root, err := os.MkdirTemp("", "ariadne-searchbench-*")
+	root, err := os.MkdirTemp("", "fancun-searchbench-*")
 	if err != nil {
 		return func() {}, "", err.Error()
 	}

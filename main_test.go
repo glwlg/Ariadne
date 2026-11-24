@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ariadne/internal/settings"
+	"fancun/internal/settings"
 )
 
 func TestDefaultAppVersionIsDevelopment(t *testing.T) {
@@ -32,7 +32,7 @@ func TestFileSearchPolicyProviderReadsSettingsConfigScope(t *testing.T) {
 }
 
 func TestFileSearchSettingsConfigPathMapsSQLiteStorageToConfigScope(t *testing.T) {
-	sqlitePath := filepath.Join(`C:\Users\luwei\AppData\Roaming\Ariadne`, "ariadne.sqlite")
+	sqlitePath := filepath.Join(`C:\Users\luwei\AppData\Roaming\Fancun`, "fancun.sqlite")
 	got := fileSearchSettingsConfigPath([]string{"--settings-config", sqlitePath})
 	want := filepath.Join(filepath.Dir(sqlitePath), "config.json")
 	if got != want {

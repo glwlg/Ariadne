@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Airplay, Copy, Monitor, Play, RefreshCw, ShieldCheck, Smartphone, Square } from '@lucide/vue'
 import { computed } from 'vue'
-import AriButton from '../ui/AriButton.vue'
+import FancunButton from '../ui/FancunButton.vue'
 import AirPlayLogs from './AirPlayLogs.vue'
 import AirPlayControlStatus from './AirPlayControlStatus.vue'
 import { useAirPlay } from '../../composables/useAirPlay'
@@ -21,7 +21,7 @@ const heading = computed(() => {
 const description = computed(() => {
   if (error.value) return '请刷新状态后重试。'
   if (!status.value) return '请稍候。'
-  if (!status.value.ready) return status.value.lastError || '投屏组件缺失，请重新安装 Ariadne。'
+  if (!status.value.ready) return status.value.lastError || '投屏组件缺失，请重新安装 Fancun。'
   if (mirroring.value) return '画面与声音正在投送。可在手机上切换内容，在视频窗口中调整显示。'
   if (status.value.running) return '打开控制中心 → 屏幕镜像，选择下方接收名称。'
   return '启动接收后，在 iPhone 的「屏幕镜像」中连接。'
@@ -46,12 +46,12 @@ function changeFrameRate(event: Event) {
             <span class="airplay-status" :class="{ active: status?.running && !error }" role="status">
               <span class="airplay-status-dot" />{{ stateLabel }}
             </span>
-            <AriButton size="sm" variant="ghost" :disabled="refreshing || busy" @click="refresh">
+            <FancunButton size="sm" variant="ghost" :disabled="refreshing || busy" @click="refresh">
               <RefreshCw :size="14" />刷新状态
-            </AriButton>
-            <AriButton size="sm" variant="ghost" :disabled="copyingDiagnostics" @click="copyDiagnostics">
+            </FancunButton>
+            <FancunButton size="sm" variant="ghost" :disabled="copyingDiagnostics" @click="copyDiagnostics">
               <Copy :size="14" />{{ copyingDiagnostics ? '正在读取…' : '复制诊断' }}
-            </AriButton>
+            </FancunButton>
           </div>
         </header>
 
@@ -76,21 +76,21 @@ function changeFrameRate(event: Event) {
                   <span>接收名称</span>
                   <div class="airplay-value-row">
                     <strong>{{ status.receiverName }}</strong>
-                    <AriButton size="icon" variant="ghost" aria-label="复制接收名称" @click="copy(status.receiverName, '接收名称')"><Copy :size="14" /></AriButton>
+                    <FancunButton size="icon" variant="ghost" aria-label="复制接收名称" @click="copy(status.receiverName, '接收名称')"><Copy :size="14" /></FancunButton>
                   </div>
                 </div>
                 <div v-if="status?.running && status.pin" class="airplay-pairing">
                   <div><span>配对码</span><strong>{{ status.pin }}</strong></div>
-                  <AriButton size="sm" variant="ghost" @click="copy(status.pin, '配对码')"><Copy :size="14" />复制</AriButton>
+                  <FancunButton size="sm" variant="ghost" @click="copy(status.pin, '配对码')"><Copy :size="14" />复制</FancunButton>
                 </div>
                 <p v-if="status?.running && status.pin" class="airplay-pairing-hint">iPhone 提示输入 AirPlay 代码时填写。</p>
                 <div class="airplay-connect-actions">
-                  <AriButton v-if="status?.running" variant="secondary" :disabled="busy" @click="run('stop')">
+                  <FancunButton v-if="status?.running" variant="secondary" :disabled="busy" @click="run('stop')">
                     <Square :size="14" />{{ pending === 'stop' ? '正在停止…' : '停止接收' }}
-                  </AriButton>
-                  <AriButton v-else variant="primary" :disabled="busy || !status?.ready || !!error" @click="run('start')">
+                  </FancunButton>
+                  <FancunButton v-else variant="primary" :disabled="busy || !status?.ready || !!error" @click="run('start')">
                     <Play :size="15" />{{ pending === 'start' ? '正在启动…' : '启动投屏' }}
-                  </AriButton>
+                  </FancunButton>
                 </div>
                 <dl v-if="mirroring && status" class="airplay-stream-info">
                   <div><dt>画面尺寸</dt><dd>{{ status.width }} × {{ status.height }}</dd></div>
@@ -132,16 +132,16 @@ function changeFrameRate(event: Event) {
               <section class="airplay-settings-section">
                 <h3>搜不到这台电脑？</h3>
                 <p class="airplay-help">允许专用网络内的设备连接，需要 Windows 管理员授权。</p>
-                <AriButton size="sm" variant="secondary" :disabled="busy || !status?.ready" @click="run('firewall')">
+                <FancunButton size="sm" variant="secondary" :disabled="busy || !status?.ready" @click="run('firewall')">
                   <ShieldCheck :size="14" />{{ pending === 'firewall' ? '等待授权…' : '允许局域网投屏' }}
-                </AriButton>
+                </FancunButton>
               </section>
               <AirPlayControlStatus v-if="status" :status="status" :busy="busy" @open="run('control')" />
             </aside>
           </div>
           <AirPlayLogs />
         </div>
-        <footer class="airplay-footer"><span>关闭此窗口后仍可继续投屏；退出 Ariadne 会停止接收。</span><span>UxPlay</span></footer>
+        <footer class="airplay-footer"><span>关闭此窗口后仍可继续投屏；退出 Fancun 会停止接收。</span><span>UxPlay</span></footer>
       </section>
     </div>
   </main>

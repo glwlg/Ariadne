@@ -24,7 +24,7 @@
 source visual truth path: `C:\Users\luwei\AppData\Local\Temp\codex-clipboard-9c836478-d426-4c0f-853a-43a1ec5f9582.png`
 implementation screenshot path: unavailable; Browser/Chrome capture tool unavailable in this turn
 viewport: intended desktop, same state as the supplied Todo design screenshot
-state: Ariadne Flow Todo page with one active focus todo and reminder rail
+state: Fancun Flow Todo page with one active focus todo and reminder rail
 full-view comparison evidence: source image opened locally; rendered implementation screenshot unavailable
 focused region comparison evidence: unavailable because rendered screenshot capture was blocked
 patches made since previous QA pass: removed squeezed row action buttons, corrected focus-card grid areas, reduced Todo page padding, adjusted main/right rail grid, then enlarged the Todo canvas cap to 1540px, widened the reminder rail to 360px, raised the focus card to 400px, increased list header and row heights, rebuilt and repackaged
